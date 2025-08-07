@@ -5,13 +5,21 @@ _A homemade humble library to run automated python crypto trading bots_
 \
 🛠️ Setup commands (virtual environment included)
 -------------
+
 > git clone https://github.com/Youra82/utbot2.git \
+1. Systemaktualisierung
 > sudo apt-get update
+2. Python-Pip installieren
 > sudo apt install python3-pip -y
+3. Virtuelle Umgebung installieren
 > sudo apt-get install python3-venv -y
+4. In das Code-Verzeichnis wechseln
 > cd utbot2/code
+5. Virtuelle Umgebung erstellen
 > python3 -m venv .venv
+6. Virtuelle Umgebung aktivieren
 > source .venv/bin/activate
+7. Abhängigkeiten installieren
 > pip install -r ../requirements.txt
 
 
@@ -42,4 +50,5 @@ This project is licensed under the [GNU General Public License](LICENSE) - see t
 ⚠️ Disclaimer
 -------------
 All this material and related videos are for educational and entertainment purposes only. It is not financial advice nor an endorsement of any provider, product or service. The user bears sole responsibility for any actions taken based on this information, and Robot Traders and its affiliates will not be held liable for any losses or damages resulting from its use. 
+
 
