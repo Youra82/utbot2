@@ -14,14 +14,14 @@ from utilities.bitget_futures import BitgetFutures
 # --- CONFIG ---
 params = {
     'symbol': 'BTC/USDT:USDT',
-    'timeframe': '1h',
+    'timeframe': '15m',
     'margin_mode': 'isolated',
     'balance_fraction': 1,
-    'leverage': 1,
+    'leverage': 5,
     'use_longs': True,
     'use_shorts': True,
     'stop_loss_pct': 0.4,
-    'enable_stop_loss': True,
+    'enable_stop_loss': False,
     # Verbesserte Signalerkennung
     'signal_lookback_period': 4,  # Anzahl der Kerzen zurück (empfohlen: 4 für 15m, 2 für 1h)
     'min_signal_confirmation': 0.3,  # 0.3 = 30% der Kerze muss verstrichen sein
