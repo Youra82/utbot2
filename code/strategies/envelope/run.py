@@ -14,14 +14,14 @@ from utilities.bitget_futures import BitgetFutures
 # --- CONFIG ---
 params = {
     'symbol': 'BTC/USDT:USDT',
-    'timeframe': '1h',
+    'timeframe': '15m',
     'margin_mode': 'isolated',
     'balance_fraction': 1,
     'leverage': 1,
     'use_longs': True,
     'use_shorts': True,
     'stop_loss_pct': 0.4,
-    'enable_stop_loss': True,
+    'enable_stop_loss': False,
     # Verbesserte Signalerkennung
     'signal_lookback_period': 6,  # Erhöht auf 6 Kerzen
     'min_signal_confirmation': 0.2,  # Reduziert auf 20%
@@ -162,6 +162,10 @@ def calculate_ut_signals(data, params):
 # Mehr Kerzen holen für Rückblick
 lookback_candles = max(100, params['signal_lookback_period'] + 20)
 data = bitget.fetch_recent_ohlcv(params['symbol'], params['timeframe'], lookback_candles)
+
+# KRITISCHER FIX: Zeitzonen für den Index setzen
+data.index = data.index.tz_localize('UTC')
+
 data = calculate_ut_signals(data, params)
 
 # Diagnostisches Logging: Letzte 6 Kerzen anzeigen
