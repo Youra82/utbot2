@@ -86,7 +86,7 @@ class Strategy:
         self.data['sell_signal'] = (src < trailing_stop) & (src.shift(1) >= trailing_stop.shift(1))
 
 def load_api_credentials():
-    base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     secret_path = os.path.join(base_dir, 'secret.json')
     
     try:
@@ -124,7 +124,7 @@ def run_trading_bot():
         try:
             # Kontostand abfragen
             balance_data = exchange.fetch_balance()
-            usdt_balance = float(balance_data['USDT']['total'])  # Geändert zu 'total'
+            usdt_balance = float(balance_data['USDT']['total'])
             print(f"Aktueller Kontostand: {usdt_balance:.2f} USDT")
             
             for symbol in CONFIG['symbols']:
@@ -162,7 +162,7 @@ def run_trading_bot():
                             symbol, 
                             'buy', 
                             trade_size,
-                            reduce=False  # Wichtig für Positionseröffnung
+                            reduce=False
                         )
                         print(f"↗️ LONG Position eröffnet: {trade_size:.2f} USDT")
                         
@@ -171,7 +171,7 @@ def run_trading_bot():
                             symbol, 
                             'sell', 
                             trade_size,
-                            reduce=False  # Wichtig für Positionseröffnung
+                            reduce=False
                         )
                         print(f"↘️ SHORT Position eröffnet: {trade_size:.2f} USDT")
                 
