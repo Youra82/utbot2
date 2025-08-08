@@ -1,88 +1,62 @@
 #!/bin/bash
 
-BOT_PATH="/home/ubuntu/utbot2/code/strategies/envelope/run_btc.py"
+# monitor_bot.sh - Überwacht Trades und Signale des Trading Bots
+
 LOG_FILE="/home/ubuntu/utbot2/envelope.log"
-ERROR_KEYWORDS=("Traceback" "Exception" "Error" "Failed" "timed out" "credential")
 
-# API-Key spezifische Prüfung
-check_api_key() {
-    if grep -q "apiKey" "$LOG_FILE"; then
-        echo "🔥 KRITISCHER FEHLER: API-Key Problem erkannt"
-        grep -A 5 -B 2 "apiKey" "$LOG_FILE"
-        
-        # Lösungsvorschläge
-        echo "🛠️ Mögliche Lösungen:"
-        echo "1. Prüfen Sie die Existenz der secret.json: ls -l utbot2/secret.json"
-        echo "2. Überprüfen Sie den Inhalt: cat utbot2/secret.json"
-        echo "3. Setzen Sie Berechtigungen: chmod 600 utbot2/secret.json"
-        return 1
-    fi
-    return 0
-}
+# 1. Letzte Handelsaktivitäten
+echo "📊 LETZTE HANDELS-AKTIVITÄTEN:"
+grep -a -e "opened" -e "closed" -e "placed stop-loss" "$LOG_FILE" | tail -5 | sed 's/^/   /'
 
-# 1. Prüfe API-Key Probleme
-if ! check_api_key; then
-    exit 1
-fi
+# 2. Signale und Positionen
+echo ""
+echo "📈 SIGNALE UND POSITIONEN:"
 
-# 2. Prüfe laufende Prozesse
-if pgrep -f "$BOT_PATH" > /dev/null; then
-    echo "✅ Bot-Prozess läuft (PID: $(pgrep -f "$BOT_PATH"))"
+# Aktuelles Signal
+last_signal=$(grep -a -e "using .* signal" -e "no valid signals" "$LOG_FILE" | tail -1)
+if [[ -n "$last_signal" ]]; then
+  echo "   Letztes Signal: ${last_signal:0:100}"
 else
-    echo "❌ Bot-Prozess läuft NICHT!"
+  echo "   Keine Signalinformationen gefunden"
 fi
 
-# 3. Prüfe letzte Ausführung
-last_execution=$(grep -a ">>> starting execution" "$LOG_FILE" | tail -1)
-if [[ -n "$last_execution" ]]; then
-    echo "⏱ Letzte Ausführung: ${last_execution:0:100}"
-    
-    # Extrahiere UTC-Zeit
-    execution_time=$(echo "$last_execution" | grep -oE '[0-9]{2}:[0-9]{2}:[0-9]{2} UTC')
-    
-    if [[ -n "$execution_time" ]]; then
-        current_seconds=$(date -u +%s)
-        execution_seconds=$(date -u -d "$execution_time" +%s)
-        seconds_diff=$((current_seconds - execution_seconds))
-        
-        if (( seconds_diff > 900 )); then
-            echo "⚠️ ACHTUNG: Letzte Ausführung vor $((seconds_diff/60)) Minuten!"
-        else
-            echo "🟢 Vor $((seconds_diff/60)) Minuten"
-        fi
-    fi
+# Letzte Position
+last_position=$(grep -a "open .* position" "$LOG_FILE" | tail -1)
+if [[ -n "$last_position" ]]; then
+  echo "   Letzte Position: ${last_position:0:100}"
 else
-    echo "⚠️ Keine Ausführungen im Log gefunden!"
+  echo "   Keine aktive Position"
 fi
 
-# 4. Prüfe auf Fehler
-found_errors=0
-for keyword in "${ERROR_KEYWORDS[@]}"; do
-    if grep -q -a -i "$keyword" "$LOG_FILE"; then
-        found_errors=1
-        echo "🔥 FEHLER GEFUNDEN ('$keyword'):"
-        grep -a -i -C 3 "$keyword" "$LOG_FILE" | tail -15
-        break
-    fi
-done
+# 3. Handelsstatistik
+echo ""
+echo "💹 HANDELSSTATISTIK:"
 
-if [[ $found_errors -eq 0 ]]; then
-    echo "✅ Keine kritischen Fehler gefunden"
+# Signale in letzter Stunde
+signals_count=$(grep -a -e "found [0-9]\+ signals" "$LOG_FILE" | tail -4 | grep -o "found [0-9]\+" | awk '{sum += $2} END {print sum}')
+echo "   Signale (letzte 4 Runs): $signals_count"
+
+# Trades in letzter Stunde
+trades_count=$(grep -a -e "opened" -e "closed" "$LOG_FILE" | tail -10 | wc -l)
+echo "   Trades (letzte 10 Einträge): $trades_count"
+
+# 4. Zeitliche Übersicht
+echo ""
+echo "⏱ ZEITLICHE ÜBERSICHT:"
+
+# Letzte Ausführung
+last_exec_time=$(grep -a ">>> starting execution" "$LOG_FILE" | tail -1 | grep -oE '[0-9]{2}:[0-9]{2}:[0-9]{2}')
+if [[ -n "$last_exec_time" ]]; then
+  echo "   Letzte Ausführung: $last_exec_time UTC"
+  
+  # Nächste geplante Ausführung
+  cron_job=$(crontab -l | grep "run_envelope.sh")
+  if [[ "$cron_job" == *"*/15"* ]]; then
+    last_min=${last_exec_time:3:2}
+    next_min=$(( ( (last_min + 15) % 60 )))
+    next_hour=$(( 10#${last_exec_time:0:2} + (last_min + 15) / 60 ))
+    printf "   Nächste Ausführung ca.: %02d:%02d UTC\n" $((next_hour % 24)) $next_min
+  fi
+else
+  echo "   Keine Ausführungsdaten gefunden"
 fi
-
-# 5. Cron-Job Analyse
-echo "⏲️ Cron-Job Status:"
-crontab -l | grep "run_envelope.sh" | while read -r line; do
-    if [[ "$line" == *"LiveTradingBots"* ]]; then
-        echo "   ⚠️ VERALTET: $line"
-    elif [[ "$line" == *"utbot2"* ]]; then
-        echo "   ✅ AKTIV: $line"
-    else
-        echo "   ❓ UNBEKANNT: $line"
-    fi
-done
-
-# 6. Ressourcenüberwachung
-echo "💻 Systemressourcen:"
-echo " - CPU: $(top -bn1 | grep load | awk '{printf "%.2f\n", $(NF-2)}')"
-echo " - RAM: $(free -m | awk '/Mem:/ {printf "%.1f%%\n", $3/$2*100}')"
