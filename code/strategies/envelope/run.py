@@ -5,7 +5,7 @@ import json
 import pandas as pd
 import numpy as np
 import ta
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 
@@ -14,18 +14,18 @@ from utilities.bitget_futures import BitgetFutures
 # --- CONFIG ---
 params = {
     'symbol': 'BTC/USDT:USDT',
-    'timeframe': '15m',
+    'timeframe': '1h',
     'margin_mode': 'isolated',
     'balance_fraction': 1,
-    'leverage': 5,
+    'leverage': 1,
     'use_longs': True,
     'use_shorts': True,
     'stop_loss_pct': 0.4,
-    'enable_stop_loss': False,
+    'enable_stop_loss': True,
     # Verbesserte Signalerkennung
-    'signal_lookback_period': 4,  # Anzahl der Kerzen zurück (empfohlen: 4 für 15m, 2 für 1h)
-    'min_signal_confirmation': 0.3,  # 0.3 = 30% der Kerze muss verstrichen sein
-    'max_price_change_pct': 1.5,  # Maximale Preisänderung seit Signal (in %)
+    'signal_lookback_period': 6,  # Erhöht auf 6 Kerzen
+    'min_signal_confirmation': 0.2,  # Reduziert auf 20%
+    'max_price_change_pct': 2.5,  # Erhöht auf 2.5%
     # UT Bot Alerts Parameter
     'ut_key_value': 1,
     'ut_atr_period': 10,
@@ -40,7 +40,8 @@ key_name = 'envelope'
 tracker_file = f"utbot2/code/strategies/envelope/tracker_{params['symbol'].replace('/', '-').replace(':', '-')}.json"
 
 # --- AUTHENTICATION ---
-print(f"\n{datetime.utcnow().strftime('%H:%M:%S')} UTC: >>> starting execution for {params['symbol']}")
+current_utc = datetime.now(timezone.utc)
+print(f"\n{current_utc.strftime('%H:%M:%S')} UTC: >>> starting execution for {params['symbol']}")
 with open(key_path, "r") as f:
     api_setup = json.load(f)[key_name]
 bitget = BitgetFutures(api_setup)
@@ -65,7 +66,7 @@ for order in orders:
 trigger_orders = bitget.fetch_open_trigger_orders(params['symbol'])
 for order in trigger_orders:
     bitget.cancel_trigger_order(order['id'], params['symbol'])
-print(f"{datetime.utcnow().strftime('%H:%M:%S')} UTC: all orders cancelled")
+print(f"{datetime.now(timezone.utc).strftime('%H:%M:%S')} UTC: all orders cancelled")
 
 # --- UT BOT ALERTS LOGIC ---
 def calculate_heikin_ashi(data):
@@ -163,8 +164,12 @@ lookback_candles = max(100, params['signal_lookback_period'] + 20)
 data = bitget.fetch_recent_ohlcv(params['symbol'], params['timeframe'], lookback_candles)
 data = calculate_ut_signals(data, params)
 
+# Diagnostisches Logging: Letzte 6 Kerzen anzeigen
+print("\nLast 6 candles signals:")
+print(data[['close', 'x_atr_trailing_stop', 'buy_signal', 'sell_signal']].tail(6))
+
 # Verbesserte Signalerkennung
-current_time = datetime.utcnow()
+current_time = datetime.now(timezone.utc)
 signals = []
 
 # Zeitrahmen in Minuten umrechnen
@@ -197,7 +202,7 @@ for i in range(1, min(params['signal_lookback_period'] + 1, len(data))):
         elif data.iloc[idx]['sell_signal']:
             signals.append(('sell', candle_time, data.iloc[idx]['close']))
 
-print(f"{current_time.strftime('%H:%M:%S')} UTC: found {len(signals)} signals in last {params['signal_lookback_period']} candles")
+print(f"\n{current_time.strftime('%H:%M:%S')} UTC: found {len(signals)} signals in last {params['signal_lookback_period']} candles")
 
 # Entscheidungslogik
 buy_signal = False
@@ -235,13 +240,13 @@ if open_position:
     position_side = position['side']
     position_size = position['contracts'] * position['contractSize']
     entry_price = float(position['info']['openPriceAvg'])
-    print(f"{datetime.utcnow().strftime('%H:%M:%S')} UTC: open {position_side} position - Size: {position_size:.4f}, Entry: {entry_price:.2f}")
+    print(f"{datetime.now(timezone.utc).strftime('%H:%M:%S')} UTC: open {position_side} position - Size: {position_size:.4f}, Entry: {entry_price:.2f}")
 else:
     position_side = None
 
 # --- EXECUTE TRADES ---
 tracker_info = read_tracker_file(tracker_file)
-current_time_utc = datetime.utcnow().strftime('%H:%M:%S')
+current_time_utc = datetime.now(timezone.utc).strftime('%H:%M:%S')
 
 if tracker_info['status'] != "ok_to_trade":
     print(f"{current_time_utc} UTC: status is {tracker_info['status']}, skipping trading")
@@ -328,4 +333,4 @@ if not open_position:
             })
             print(f"{current_time_utc} UTC: stop-loss disabled - no order placed")
 
-print(f"{datetime.utcnow().strftime('%H:%M:%S')} UTC: <<< execution complete\n")
+print(f"{datetime.now(timezone.utc).strftime('%H:%M:%S')} UTC: <<< execution complete\n")
