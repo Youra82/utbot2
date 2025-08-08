@@ -1,6 +1,9 @@
+# run.py
 import os
 import sys
 import json
+import pandas as pd
+import numpy as np
 import ta
 from datetime import datetime
 
@@ -8,37 +11,34 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 
 from utilities.bitget_futures import BitgetFutures
 
-
 # --- CONFIG ---
 params = {
-    'symbol': '/USDT:USDT',
+    'symbol': 'BTC/USDT:USDT',
     'timeframe': '1h',
-    'margin_mode': 'isolated',  # 'cross'
+    'margin_mode': 'isolated',
     'balance_fraction': 1,
     'leverage': 1,
-    'average_type': 'DCM',  # 'SMA', 'EMA', 'WMA', 'DCM' 
-    'average_period': 5,
-    'envelopes': [0.07, 0.11, 0.14],
+    'use_longs': True,
+    'use_shorts': True,
     'stop_loss_pct': 0.4,
-#    'price_jump_pct': 0.3,  # optional, uncomment to use
-    'use_longs': True,  # set to False if you want to use only shorts
-    'use_shorts': True,  # set to False if you want to use only longs
+    # UT Bot Alerts Parameter
+    'ut_key_value': 1,          # Sensitivität des ATR Multiplikators
+    'ut_atr_period': 10,        # ATR Periode
+    'ut_heiken_ashi': False,    # Heikin-Ashi Kerzen verwenden
+    'trade_size_pct': 100,      # Einsatzgröße in % des verfügbaren Guthabens
 }
 
-key_path = 'LiveTradingBots/secret.json'
+# Pfade von LiveTradingBots zu utbot2 geändert
+key_path = 'utbot2/secret.json'
 key_name = 'envelope'
 
-tracker_file = f"LiveTradingBots/code/strategies/envelope/tracker_{params['symbol'].replace('/', '-').replace(':', '-')}.json"
-
-trigger_price_delta = 0.005  # what I use for a 1h timeframe
-# trigger_price_delta = 0.0015  # what I use for a 15m timeframe
+tracker_file = f"utbot2/code/strategies/envelope/tracker_{params['symbol'].replace('/', '-').replace(':', '-')}.json"
 
 # --- AUTHENTICATION ---
 print(f"\n{datetime.now().strftime('%H:%M:%S')}: >>> starting execution for {params['symbol']}")
 with open(key_path, "r") as f:
     api_setup = json.load(f)[key_name]
 bitget = BitgetFutures(api_setup)
-
 
 # --- TRACKER FILE ---
 if not os.path.exists(tracker_file):
@@ -53,264 +53,193 @@ def update_tracker_file(file_path, data):
     with open(file_path, 'w') as file:
         json.dump(data, file)
 
-
 # --- CANCEL OPEN ORDERS ---
 orders = bitget.fetch_open_orders(params['symbol'])
 for order in orders:
     bitget.cancel_order(order['id'], params['symbol'])
 trigger_orders = bitget.fetch_open_trigger_orders(params['symbol'])
-long_orders_left = 0
-short_orders_left = 0
 for order in trigger_orders:
-    if order['side'] == 'buy' and order['info']['tradeSide'] == 'open':
-        long_orders_left += 1
-    elif order['side'] == 'sell' and order['info']['tradeSide'] == 'open':
-        short_orders_left += 1
     bitget.cancel_trigger_order(order['id'], params['symbol'])
-print(f"{datetime.now().strftime('%H:%M:%S')}: orders cancelled, {long_orders_left} longs left, {short_orders_left} shorts left")
+print(f"{datetime.now().strftime('%H:%M:%S')}: all orders cancelled")
 
-
-# --- FETCH OHLCV DATA, CALCULATE INDICATORS ---
-data = bitget.fetch_recent_ohlcv(params['symbol'], params['timeframe'], 100).iloc[:-1]
-if 'DCM' == params['average_type']:
-    ta_obj = ta.volatility.DonchianChannel(data['high'], data['low'], data['close'], window=params['average_period'])
-    data['average'] = ta_obj.donchian_channel_mband()
-elif 'SMA' == params['average_type']:
-    data['average'] = ta.trend.sma_indicator(data['close'], window=params['average_period'])
-elif 'EMA' == params['average_type']:
-    data['average'] = ta.trend.ema_indicator(data['close'], window=params['average_period'])  
-elif 'WMA' == params['average_type']:
-    data['average'] = ta.trend.wma_indicator(data['close'], window=params['average_period'])   
-else:
-    raise ValueError(f"The average type {params['average_type']} is not supported")
-
-for i, e in enumerate(params['envelopes']):
-    data[f'band_high_{i + 1}'] = data['average'] / (1 - e)
-    data[f'band_low_{i + 1}'] = data['average'] * (1 - e)
-print(f"{datetime.now().strftime('%H:%M:%S')}: ohlcv data fetched")
-
-
-# --- CHECKS IF STOP LOSS WAS TRIGGERED ---
-closed_orders = bitget.fetch_closed_trigger_orders(params['symbol'])
-tracker_info = read_tracker_file(tracker_file)
-if len(closed_orders) > 0 and closed_orders[-1]['id'] in tracker_info['stop_loss_ids']:
-    update_tracker_file(tracker_file, {
-        "last_side": closed_orders[-1]['info']['posSide'],
-        "status": "stop_loss_triggered",
-        "stop_loss_ids": [],
-    })
-    print(f"{datetime.now().strftime('%H:%M:%S')}: /!\\ stop loss was triggered")
-
-
-# --- CHECK FOR MULTIPLE OPEN POSITIONS AND CLOSE THE EARLIEST ONE ---
-positions = bitget.fetch_open_positions(params['symbol'])
-if positions:
-    sorted_positions = sorted(positions, key=lambda x: x['timestamp'], reverse=True)
-    latest_position = sorted_positions[0]
-    for pos in sorted_positions[1:]:
-        bitget.flash_close_position(pos['symbol'], side=pos['side'])
-        print(f"{datetime.now().strftime('%H:%M:%S')}: double position case, closing the {pos['side']}.")
-
-
-# --- CHECKS IF A POSITION IS OPEN ---
-position = bitget.fetch_open_positions(params['symbol'])
-open_position = True if len(position) > 0 else False
-if open_position:
-    position = position[0]
-    print(f"{datetime.now().strftime('%H:%M:%S')}: {position['side']} position of {round(position['contracts'] * position['contractSize'],2)} ~ {round(position['contracts'] * position['contractSize'] * position['markPrice'],2)} USDT is running")
-
-
-# --- CHECKS IF CLOSE ALL SHOULD TRIGGER ---
-if 'price_jump_pct' in params and open_position:
-    if position['side'] == 'long':
-        if data['close'].iloc[-1] < float(position['info']['openPriceAvg']) * (1 - params['price_jump_pct']):
-            bitget.flash_close_position(params['symbol'])
-            update_tracker_file(tracker_file, {
-                "last_side": "long",
-                "status": "close_all_triggered",
-                "stop_loss_ids": [],
-            })
-            print(f"{datetime.now().strftime('%H:%M:%S')}: /!\\ close all was triggered")
-
-    elif position['side'] == 'short':
-        if data['close'].iloc[-1] > float(position['info']['openPriceAvg']) * (1 + params['price_jump_pct']):
-            bitget.flash_close_position(params['symbol'])
-            update_tracker_file(tracker_file, {
-                "last_side": "short",
-                "status": "close_all_triggered",
-                "stop_loss_ids": [],
-            })
-            print(f"{datetime.now().strftime('%H:%M:%S')}: /!\\ close all was triggered")
-
-
-# --- OK TO TRADE CHECK ---
-tracker_info = read_tracker_file(tracker_file)
-print(f"{datetime.now().strftime('%H:%M:%S')}: okay to trade check, status was {tracker_info['status']}")
-last_price = data['close'].iloc[-1]
-resume_price = data['average'].iloc[-1]
-if tracker_info['status'] != "ok_to_trade":
-    if ('long' == tracker_info['last_side'] and last_price >= resume_price) or (
-            'short' == tracker_info['last_side'] and last_price <= resume_price):
-        update_tracker_file(tracker_file, {"status": "ok_to_trade", "last_side": tracker_info['last_side']})
-        print(f"{datetime.now().strftime('%H:%M:%S')}: status is now ok_to_trade")
-    else:
-        print(f"{datetime.now().strftime('%H:%M:%S')}: <<< status is still {tracker_info['status']}")
-        sys.exit()
-
-
-# --- SET POSITION MODE, MARGIN MODE, LEVERAGE ---
-if not open_position:
-    bitget.set_margin_mode(params['symbol'], margin_mode=params['margin_mode'])
-    bitget.set_leverage(params['symbol'], margin_mode=params['margin_mode'], leverage=params['leverage'])
-
-
-# --- IF OPEN POSITION CHANGE TP AND SL ---
-if open_position:
-    if position['side'] == 'long':
-        close_side = 'sell'
-        stop_loss_price = float(position['info']['openPriceAvg']) * (1 - params['stop_loss_pct'])
-    elif position['side'] == 'short':
-        close_side = 'buy'
-        stop_loss_price = float(position['info']['openPriceAvg']) * (1 + params['stop_loss_pct'])
-
-    amount = position['contracts'] * position['contractSize']
-    # exit
-    bitget.place_trigger_market_order(
-        symbol=params['symbol'],
-        side=close_side,
-        amount=amount,
-        trigger_price=data['average'].iloc[-1],
-        reduce=True,
-        print_error=True,
-    )
-    # sl
-    sl_order = bitget.place_trigger_market_order(
-        symbol=params['symbol'],
-        side=close_side,
-        amount=amount,
-        trigger_price=stop_loss_price,
-        reduce=True,
-        print_error=True,
-    )
-    info = {
-        "status": "ok_to_trade",
-        "last_side": position['side'],
-        "stop_loss_price": stop_loss_price,
-        "stop_loss_ids": [sl_order['id']],
-    }
-    print(f"{datetime.now().strftime('%H:%M:%S')}: placed close {position['side']} orders: exit price {data['average'].iloc[-1]}, sl price {stop_loss_price}")
-
-else:
-    info = {
-        "status": "ok_to_trade",
-        "last_side": tracker_info['last_side'],
-        "stop_loss_ids": [],
-    }
-
-
-# --- FETCHING AND COMPUTING BALANCE ---
-balance = params['balance_fraction'] * params['leverage'] * bitget.fetch_balance()['USDT']['total']
-print(f"{datetime.now().strftime('%H:%M:%S')}: the trading balance is {balance}")
-
-# --- PLACE ORDERS DEPENDING ON HOW MANY BANDS HAVE ALREADY BEEN HIT ---
-if open_position:
-    long_ok = True if 'long' == position['side'] else False
-    short_ok = True if 'short' == position['side'] else False
-    range_longs = range(len(params['envelopes']) - long_orders_left, len(params['envelopes']))
-    range_shorts = range(len(params['envelopes']) - short_orders_left, len(params['envelopes']))
-else:
-    long_ok = True
-    short_ok = True
-    range_longs = range(len(params['envelopes']))
-    range_shorts = range(len(params['envelopes']))
-
-if not params['use_longs']:
-    long_ok = False
-
-if not params['use_shorts']:
-    short_ok = False
-
-if long_ok:
-    for i in range_longs:
-        entry_limit_price = data[f'band_low_{i + 1}'].iloc[-1]
-        entry_trigger_price = (1 + trigger_price_delta) * entry_limit_price
-        amount = balance / len(params['envelopes']) / entry_limit_price
-        min_amount = bitget.fetch_min_amount_tradable(params['symbol'])
-        if amount >= min_amount:
-            # entry           
-            bitget.place_trigger_limit_order(
-                symbol=params['symbol'],
-                side='buy',
-                amount=amount,
-                trigger_price=entry_trigger_price,
-                price=entry_limit_price,
-                print_error=True,
-            )
-            print(f"{datetime.now().strftime('%H:%M:%S')}: placed open long trigger limit order of {amount}, trigger price {entry_trigger_price}, price {entry_limit_price}")
-            # exit
-            bitget.place_trigger_market_order(
-                symbol=params['symbol'],
-                side='sell',
-                amount=amount,
-                trigger_price=data['average'].iloc[-1],
-                reduce=True,
-                print_error=True,
-            )
-            print(f"{datetime.now().strftime('%H:%M:%S')}: placed exit long trigger market order of {amount}, price {data['average'].iloc[-1]}")
-            # sl
-            sl_order = bitget.place_trigger_market_order(
-                symbol=params['symbol'],
-                side='sell',
-                amount=amount,
-                trigger_price=data[f'band_low_{i + 1}'].iloc[-1] * (1 - params['stop_loss_pct']),
-                reduce=True,
-                print_error=True,
-            )
-            info["stop_loss_ids"].append(sl_order['id'])
-            print(f"{datetime.now().strftime('%H:%M:%S')}: placed sl long trigger market order of {amount}, price {data[f'band_low_{i + 1}'].iloc[-1] * (1 - params['stop_loss_pct'])}")
-        else:
-            print(f"{datetime.now().strftime('%H:%M:%S')}: /!\\ long orders not placed for envelope {i+1}, amount {amount} smaller than minimum requirement {min_amount}")
-
-if short_ok:
-    for i in range_shorts:
-        entry_limit_price = data[f'band_high_{i + 1}'].iloc[-1]
-        entry_trigger_price = (1 - trigger_price_delta) * entry_limit_price
-        amount = balance / len(params['envelopes']) / entry_limit_price
-        min_amount = bitget.fetch_min_amount_tradable(params['symbol'])
-        if amount >= min_amount:
-            # entry     
-            bitget.place_trigger_limit_order(
-                symbol=params['symbol'],
-                side='sell',
-                amount=amount,
-                trigger_price= entry_trigger_price,
-                price=entry_limit_price,
-                print_error=True,
-            )
-            print(f"{datetime.now().strftime('%H:%M:%S')}: placed open short trigger limit order of {amount}, trigger price {entry_trigger_price}, price {entry_limit_price}")
-            # exit
-            bitget.place_trigger_market_order(
-                symbol=params['symbol'],
-                side='buy',
-                amount=amount,
-                trigger_price=data['average'].iloc[-1],
-                reduce=True,
-                print_error=True,
-            )
-            print(f"{datetime.now().strftime('%H:%M:%S')}: placed exit short trigger market order of {amount}, price {data['average'].iloc[-1]}")
-            # sl
-            sl_order = bitget.place_trigger_market_order(
-                symbol=params['symbol'],
-                side='buy',
-                amount=amount,
-                trigger_price=data[f'band_high_{i + 1}'].iloc[-1] * (1 + params['stop_loss_pct']),
-                reduce=True,
-                print_error=True,
-            )
-            info["stop_loss_ids"].append(sl_order['id'])
-            print(f"{datetime.now().strftime('%H:%M:%S')}: placed sl short trigger market order of {amount}, price {data[f'band_high_{i + 1}'].iloc[-1] * (1 + params['stop_loss_pct'])}")
-        else:
-            print(f"{datetime.now().strftime('%H:%M:%S')}: /!\\ short orders not placed for envelope {i+1}, amount {amount} smaller than minimum requirement {min_amount}")
+# --- UT BOT ALERTS LOGIC ---
+def calculate_heikin_ashi(data):
+    ha_data = pd.DataFrame(index=data.index)
+    
+    # Erste Kerze: Normale Werte
+    if not data.empty:
+        ha_close = (data['open'] + data['high'] + data['low'] + data['close']) / 4
+        ha_open = (data['open'].iloc[0] + data['close'].iloc[0]) / 2
+        
+        ha_data['ha_open'] = np.nan
+        ha_data['ha_high'] = np.nan
+        ha_data['ha_low'] = np.nan
+        ha_data['ha_close'] = ha_close
+        
+        for i in range(len(data)):
+            if i == 0:
+                ha_data.iloc[0, ha_data.columns.get_loc('ha_open')] = ha_open
+            else:
+                ha_open = (ha_data['ha_open'].iloc[i-1] + ha_data['ha_close'].iloc[i-1]) / 2
+                ha_data.iloc[i, ha_data.columns.get_loc('ha_open')] = ha_open
             
-update_tracker_file(tracker_file, info)
-print(f"{datetime.now().strftime('%H:%M:%S')}: <<< all done")
+            ha_high = max(data['high'].iloc[i], ha_data['ha_open'].iloc[i], ha_data['ha_close'].iloc[i])
+            ha_low = min(data['low'].iloc[i], ha_data['ha_open'].iloc[i], ha_data['ha_close'].iloc[i])
+            
+            ha_data.iloc[i, ha_data.columns.get_loc('ha_high')] = ha_high
+            ha_data.iloc[i, ha_data.columns.get_loc('ha_low')] = ha_low
+    
+    return ha_data
+
+def calculate_ut_signals(data, params):
+    # Heikin-Ashi berechnen wenn aktiviert
+    if params['ut_heiken_ashi']:
+        ha_data = calculate_heikin_ashi(data)
+        src = ha_data['ha_close']
+    else:
+        src = data['close']
+    
+    # ATR berechnen
+    data['atr'] = ta.volatility.average_true_range(
+        data['high'], data['low'], data['close'], 
+        window=params['ut_atr_period']
+    )
+    
+    n_loss = params['ut_key_value'] * data['atr']
+    
+    # Trailing Stop berechnen
+    x_atr_trailing_stop = [0.0] * len(data)
+    pos = [0] * len(data)
+    
+    for i in range(len(data)):
+        if i == 0:
+            x_atr_trailing_stop[i] = src.iloc[i] - n_loss.iloc[i] if src.iloc[i] > 0 else src.iloc[i] + n_loss.iloc[i]
+            pos[i] = 0
+        else:
+            prev_stop = x_atr_trailing_stop[i-1]
+            
+            if src.iloc[i] > prev_stop and src.iloc[i-1] > prev_stop:
+                x_atr_trailing_stop[i] = max(prev_stop, src.iloc[i] - n_loss.iloc[i])
+            elif src.iloc[i] < prev_stop and src.iloc[i-1] < prev_stop:
+                x_atr_trailing_stop[i] = min(prev_stop, src.iloc[i] + n_loss.iloc[i])
+            else:
+                if src.iloc[i] > prev_stop:
+                    x_atr_trailing_stop[i] = src.iloc[i] - n_loss.iloc[i]
+                else:
+                    x_atr_trailing_stop[i] = src.iloc[i] + n_loss.iloc[i]
+            
+            # Positionslogik
+            if src.iloc[i-1] < x_atr_trailing_stop[i-1] and src.iloc[i] > x_atr_trailing_stop[i]:
+                pos[i] = 1
+            elif src.iloc[i-1] > x_atr_trailing_stop[i-1] and src.iloc[i] < x_atr_trailing_stop[i]:
+                pos[i] = -1
+            else:
+                pos[i] = pos[i-1]
+    
+    data['x_atr_trailing_stop'] = x_atr_trailing_stop
+    data['position'] = pos
+    
+    # Signale generieren
+    data['buy_signal'] = False
+    data['sell_signal'] = False
+    
+    for i in range(1, len(data)):
+        # Long Signal: Preis über Trailing Stop + Crossover
+        if (data['close'].iloc[i] > data['x_atr_trailing_stop'].iloc[i] and 
+            data['close'].iloc[i-1] <= data['x_atr_trailing_stop'].iloc[i-1]):
+            data.loc[data.index[i], 'buy_signal'] = True
+        
+        # Short Signal: Preis unter Trailing Stop + Crossunder
+        if (data['close'].iloc[i] < data['x_atr_trailing_stop'].iloc[i] and 
+            data['close'].iloc[i-1] >= data['x_atr_trailing_stop'].iloc[i-1]):
+            data.loc[data.index[i], 'sell_signal'] = True
+    
+    return data
+
+# --- FETCH DATA AND CALCULATE SIGNALS ---
+data = bitget.fetch_recent_ohlcv(params['symbol'], params['timeframe'], 500)
+data = calculate_ut_signals(data, params)
+
+# Get last signal
+last_row = data.iloc[-1]
+buy_signal = last_row['buy_signal']
+sell_signal = last_row['sell_signal']
+print(f"{datetime.now().strftime('%H:%M:%S')}: last signal - "
+      f"Buy: {buy_signal}, Sell: {sell_signal}")
+
+# --- CHECK OPEN POSITIONS ---
+positions = bitget.fetch_open_positions(params['symbol'])
+open_position = len(positions) > 0
+
+if open_position:
+    position = positions[0]
+    position_side = position['side']
+    print(f"{datetime.now().strftime('%H:%M:%S')}: open {position_side} position")
+else:
+    position_side = None
+
+# --- EXECUTE TRADES ---
+tracker_info = read_tracker_file(tracker_file)
+current_time = datetime.now().strftime('%H:%M:%S')
+
+if tracker_info['status'] != "ok_to_trade":
+    print(f"{current_time}: status is {tracker_info['status']}, skipping trading")
+    sys.exit()
+
+# Fetch balance and calculate trade size
+balance = bitget.fetch_balance()['USDT']['total']
+trade_size = (balance * params['trade_size_pct'] / 100) * params['leverage']
+print(f"{current_time}: available balance: {balance}, trade size: {trade_size}")
+
+# Close opposite position if exists
+if open_position:
+    if (position_side == 'long' and sell_signal) or (position_side == 'short' and buy_signal):
+        bitget.flash_close_position(params['symbol'])
+        print(f"{current_time}: closed {position_side} position due to opposite signal")
+        open_position = False
+
+# Open new positions
+if not open_position:
+    if buy_signal and params['use_longs']:
+        # Place market buy order
+        bitget.place_market_order(params['symbol'], 'buy', trade_size)
+        print(f"{current_time}: opened long position")
+        
+        # Place stop loss
+        current_price = last_row['close']
+        stop_loss_price = current_price * (1 - params['stop_loss_pct'])
+        sl_order = bitget.place_trigger_market_order(
+            symbol=params['symbol'],
+            side='sell',
+            amount=trade_size,
+            trigger_price=stop_loss_price,
+            reduce=True
+        )
+        update_tracker_file(tracker_file, {
+            "status": "ok_to_trade",
+            "last_side": "long",
+            "stop_loss_ids": [sl_order['id']]
+        })
+    
+    elif sell_signal and params['use_shorts']:
+        # Place market sell order
+        bitget.place_market_order(params['symbol'], 'sell', trade_size)
+        print(f"{current_time}: opened short position")
+        
+        # Place stop loss
+        current_price = last_row['close']
+        stop_loss_price = current_price * (1 + params['stop_loss_pct'])
+        sl_order = bitget.place_trigger_market_order(
+            symbol=params['symbol'],
+            side='buy',
+            amount=trade_size,
+            trigger_price=stop_loss_price,
+            reduce=True
+        )
+        update_tracker_file(tracker_file, {
+            "status": "ok_to_trade",
+            "last_side": "short",
+            "stop_loss_ids": [sl_order['id']]
+        })
+
+print(f"{datetime.now().strftime('%H:%M:%S')}: <<< execution complete")
