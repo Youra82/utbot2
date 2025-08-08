@@ -86,7 +86,7 @@ class Strategy:
         self.data['sell_signal'] = (src < trailing_stop) & (src.shift(1) >= trailing_stop.shift(1))
 
 def load_api_credentials():
-    base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     secret_path = os.path.join(base_dir, 'secret.json')
     
     try:
@@ -109,8 +109,7 @@ def run_trading_bot():
     exchange = BitgetFutures({
         'apiKey': api_credentials['apiKey'],
         'secret': api_credentials['secret'],
-        'password': api_credentials['password'],
-        'options': {'defaultType': 'future'}
+        'password': api_credentials['password']
     })
     
     # Hebel für alle Symbole setzen
@@ -125,15 +124,12 @@ def run_trading_bot():
         try:
             # Kontostand abfragen
             balance_data = exchange.fetch_balance()
-            usdt_balance = balance_data['USDT']['free']
+            usdt_balance = float(balance_data['USDT']['total'])  # Geändert zu 'total'
             print(f"Aktueller Kontostand: {usdt_balance:.2f} USDT")
             
             for symbol in CONFIG['symbols']:
-                # OHLCV-Daten abrufen
-                ohlcv = exchange.fetch_recent_ohlcv(symbol, CONFIG['timeframe'], limit=1000)
-                df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-                df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
-                df.set_index('timestamp', inplace=True)
+                # OHLCV-Daten abrufen (direkt als DataFrame)
+                df = exchange.fetch_recent_ohlcv(symbol, CONFIG['timeframe'], limit=1000)
                 
                 # Strategie anwenden
                 strategy_params = {
@@ -156,14 +152,27 @@ def run_trading_bot():
                 
                 # Handel ausführen
                 if not has_position:
+                    trade_size = calculate_position_size(usdt_balance)
+                    
+                    # Amount präzisieren
+                    trade_size = exchange.amount_to_precision(symbol, trade_size)
+                    
                     if last_row['buy_signal'] and not strategy.ignore_longs:
-                        trade_size = calculate_position_size(usdt_balance)
-                        exchange.place_market_order(symbol, 'buy', trade_size)
+                        exchange.place_market_order(
+                            symbol, 
+                            'buy', 
+                            trade_size,
+                            reduce=False  # Wichtig für Positionseröffnung
+                        )
                         print(f"↗️ LONG Position eröffnet: {trade_size:.2f} USDT")
                         
                     elif last_row['sell_signal'] and not strategy.ignore_shorts:
-                        trade_size = calculate_position_size(usdt_balance)
-                        exchange.place_market_order(symbol, 'sell', trade_size)
+                        exchange.place_market_order(
+                            symbol, 
+                            'sell', 
+                            trade_size,
+                            reduce=False  # Wichtig für Positionseröffnung
+                        )
                         print(f"↘️ SHORT Position eröffnet: {trade_size:.2f} USDT")
                 
                 # Warten bis zum nächsten Durchlauf
