@@ -1,6 +1,6 @@
 #!/bin/bash
 
-BOT_PATH="/home/ubuntu/utbot2/code/strategies/envelope/run.py"
+BOT_PATH="/home/ubuntu/utbot2/code/strategies/envelope/run_btc.py"
 LOG_FILE="/home/ubuntu/utbot2/envelope.log"
 ERROR_KEYWORDS=("Traceback" "Exception" "Error" "Failed" "timed out" "credential")
 
