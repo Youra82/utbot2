@@ -50,8 +50,8 @@ params = {
     # Mindestfortschritt einer Kerze (0.0-1.0), bevor sie für Signale berücksichtigt wird
     'min_signal_confirmation': 0.2,
     
-    # Maximale Preisänderung (%) seit Signalgenerierung für gültiges Signal
-    'max_price_change_pct': 2.5,
+    # Maximale Preisänderung (%) seit Signalgenerierung für gültiges Signal (ENTFERNT)
+    # 'max_price_change_pct': 2.5,  # Wurde entfernt gemäß Benutzerwunsch
     
     # Sensitivität des UT-Bot Alerts (Höhere Werte = weniger empfindlich)
     'ut_key_value': 1,
@@ -339,37 +339,19 @@ if signals:
     signal_type, signal_time, signal_price = latest_signal
     
     current_price = data.iloc[-1]['close']
-    price_change = abs(current_price - signal_price) / signal_price * 100
+    signal_reason = f"{signal_type.upper()}-Signal von {signal_time.strftime('%Y-%m-%d %H:%M')} UTC"
     
-    if price_change < params['max_price_change_pct']:
-        if signal_type == 'buy':
-            log_trade_decision('BUY', 'VALID_SIGNAL', {
-                'signal_price': float(signal_price),
-                'current_price': float(current_price),
-                'price_change_pct': float(price_change),
-                'max_allowed_change': params['max_price_change_pct']
-            })
-            buy_signal = True
-            signal_reason = f"Kauf-Signal von {signal_time.strftime('%Y-%m-%d %H:%M')} UTC (Δ: {price_change:.2f}%)"
-        else:
-            log_trade_decision('SELL', 'VALID_SIGNAL', {
-                'signal_price': float(signal_price),
-                'current_price': float(current_price),
-                'price_change_pct': float(price_change),
-                'max_allowed_change': params['max_price_change_pct']
-            })
-            sell_signal = True
-            signal_reason = f"Verkauf-Signal von {signal_time.strftime('%Y-%m-%d %H:%M')} UTC (Δ: {price_change:.2f}%)"
-        logger.info(f"Verwende {signal_reason}")
+    log_trade_decision(signal_type.upper(), 'VALID_SIGNAL', {
+        'signal_time': signal_time.strftime('%Y-%m-%d %H:%M:%S'),
+        'signal_price': float(signal_price),
+        'current_price': float(current_price),
+    })
+    
+    if signal_type == 'buy':
+        buy_signal = True
     else:
-        log_trade_decision(signal_type.upper(), 'PRICE_CHANGE_TOO_HIGH', {
-            'signal_price': float(signal_price),
-            'current_price': float(current_price),
-            'price_change_pct': float(price_change),
-            'threshold': params['max_price_change_pct']
-        })
-        signal_reason = f"Signal abgelaufen (Δ {price_change:.2f}% > Limit {params['max_price_change_pct']}%)"
-        logger.info(signal_reason)
+        sell_signal = True
+    logger.info(f"Verwende {signal_reason}")
 else:
     log_trade_decision('NONE', 'NO_SIGNALS_IN_LOOKBACK', {
         'lookback_period': params['signal_lookback_period'],
@@ -416,6 +398,7 @@ logger.info(f"Longs aktiviert: {params['use_longs']} | Shorts aktiviert: {params
 # --- HANDEL AUSFÜHREN ---
 if tracker_info['status'] != "ok_to_trade":
     status_reason = f"Status ist {tracker_info['status']}, überspringe Handel"
+    log_trade_decision('NONE', 'TRACKER_STATUS', {'status': tracker_info['status']})
     logger.info(status_reason)
     sys.exit()
 
@@ -437,6 +420,19 @@ balance_info = fetch_balance()
 balance = balance_info['USDT']['total']
 trade_size = (balance * params['trade_size_pct'] / 100) * params['leverage']
 logger.info(f"Verfügbarer Kontostand: {balance:.2f} USDT, Handelsgröße: {trade_size:.2f} USDT")
+
+# Mindesthandelsvolumen prüfen
+min_trade_size = 10  # Beispielwert, bitte anpassen
+if trade_size < min_trade_size:
+    min_required = min_trade_size / (params['trade_size_pct'] / 100 * params['leverage'])
+    reason = f"Kontostand zu niedrig! Benötige mindestens {min_required:.2f} USDT für einen Trade (Minimal: {min_trade_size} USDT)"
+    log_trade_decision('NONE', 'INSUFFICIENT_BALANCE', {
+        'current_balance': balance,
+        'min_required': min_required,
+        'min_trade_size': min_trade_size
+    })
+    logger.error(reason)
+    sys.exit()
 
 # Gegenläufige Position schließen
 if open_position:
