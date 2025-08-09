@@ -18,12 +18,14 @@ class BitgetFutures():
         except Exception as e:
             raise Exception(f"Failed to fetch ticker for {symbol}: {e}")
 
-    def fetch_min_amount_tradable(self, symbol: str) -> float:
+    def fetch_min_trade_size(self, symbol: str) -> float:
+        """Holt das Mindesthandelsvolumen für ein Symbol"""
         try:
-            return self.markets[symbol]['limits']['amount']['min']
+            market = self.session.market(symbol)
+            return float(market['limits']['amount']['min'])
         except Exception as e:
-            raise Exception(f"Failed to fetch minimum amount tradable: {e}")        
-        
+            raise Exception(f"Failed to fetch minimum trade size: {e}")
+
     def amount_to_precision(self, symbol: str, amount: float) -> str:
         try:
             return self.session.amount_to_precision(symbol, amount)
