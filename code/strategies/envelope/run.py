@@ -6,13 +6,16 @@ import pandas as pd
 import numpy as np
 import ta
 import pytz
+import time
+import logging
 from datetime import datetime, timedelta, timezone
 
+# Pfad für Modulimporte
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 
 from utilities.bitget_futures import BitgetFutures
 
-# --- CONFIG ---
+# --- KONFIGURATION ---
 params = {
     'symbol': 'BTC/USDT:USDT',
     'timeframe': '15m',
@@ -22,7 +25,7 @@ params = {
     'use_longs': True,
     'use_shorts': True,
     'stop_loss_pct': 0.4,
-    'enable_stop_loss': False,
+    'enable_stop_loss': True,
     'signal_lookback_period': 6,
     'min_signal_confirmation': 0.2,
     'max_price_change_pct': 2.5,
@@ -30,44 +33,97 @@ params = {
     'ut_atr_period': 10,
     'ut_heiken_ashi': False,
     'trade_size_pct': 100,
+    'max_retries': 3,
+    'retry_delay': 2,
 }
 
 # Pfade anpassen
-key_path = 'utbot2/secret.json'
+key_path = '/home/ubuntu/utbot2/secret.json'  # Absoluter Pfad
 key_name = 'envelope'
 
-tracker_file = f"utbot2/code/strategies/envelope/tracker_{params['symbol'].replace('/', '-').replace(':', '-')}.json"
+# Tracker-Datei mit absolutem Pfad
+tracker_file = f"/home/ubuntu/utbot2/code/strategies/envelope/tracker_{params['symbol'].replace('/', '-').replace(':', '-')}.json"
 
-# --- AUTHENTICATION ---
+# --- LOGGING EINRICHTEN ---
+log_dir = '/home/ubuntu/utbot2/logs'
+os.makedirs(log_dir, exist_ok=True)
+log_file = os.path.join(log_dir, 'envelope.log')
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s UTC: %(message)s',
+    datefmt='%H:%M:%S',
+    handlers=[
+        logging.FileHandler(log_file),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger('envelope_bot')
+
+# --- AUTHENTIFIZIERUNG ---
 current_utc = datetime.now(timezone.utc)
-print(f"\n{current_utc.strftime('%H:%M:%S')} UTC: >>> starting execution for {params['symbol']}")
-with open(key_path, "r") as f:
-    api_setup = json.load(f)[key_name]
-bitget = BitgetFutures(api_setup)
+logger.info(f">>> starting execution for {params['symbol']}")
 
-# --- TRACKER FILE ---
-if not os.path.exists(tracker_file):
-    with open(tracker_file, 'w') as file:
-        json.dump({"status": "ok_to_trade", "last_side": None, "stop_loss_ids": []}, file)
+# Verbindung mit Wiederholungslogik
+def create_bitget_connection():
+    for attempt in range(params['max_retries']):
+        try:
+            with open(key_path, "r") as f:
+                api_setup = json.load(f)[key_name]
+            bitget = BitgetFutures(api_setup)
+            logger.info("API-Verbindung erfolgreich hergestellt")
+            return bitget
+        except Exception as e:
+            logger.error(f"Verbindungsfehler (Versuch {attempt+1}/{params['max_retries']}): {str(e)}")
+            if attempt < params['max_retries'] - 1:
+                time.sleep(params['retry_delay'])
+    logger.critical("Kritischer Fehler: API-Verbindung fehlgeschlagen")
+    sys.exit(1)
 
+bitget = create_bitget_connection()
+
+# --- TRACKER-DATEI HANDLING ---
 def read_tracker_file(file_path):
-    with open(file_path, 'r') as file:
-        return json.load(file)
+    try:
+        with open(file_path, 'r') as file:
+            return json.load(file)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {"status": "ok_to_trade", "last_side": None, "stop_loss_ids": []}
 
 def update_tracker_file(file_path, data):
     with open(file_path, 'w') as file:
         json.dump(data, file)
 
-# --- CANCEL OPEN ORDERS ---
-orders = bitget.fetch_open_orders(params['symbol'])
-for order in orders:
-    bitget.cancel_order(order['id'], params['symbol'])
-trigger_orders = bitget.fetch_open_trigger_orders(params['symbol'])
-for order in trigger_orders:
-    bitget.cancel_trigger_order(order['id'], params['symbol'])
-print(f"{datetime.now(timezone.utc).strftime('%H:%M:%S')} UTC: all orders cancelled")
+# Tracker initialisieren
+tracker_info = read_tracker_file(tracker_file)
 
-# --- UT BOT ALERTS LOGIC ---
+# --- ORDER MANAGEMENT ---
+def cancel_all_orders():
+    for attempt in range(params['max_retries']):
+        try:
+            # Stoppe alle aktiven Orders
+            orders = bitget.fetch_open_orders(params['symbol'])
+            for order in orders:
+                bitget.cancel_order(order['id'], params['symbol'])
+            
+            # Stoppe alle Trigger-Orders
+            trigger_orders = bitget.fetch_open_trigger_orders(params['symbol'])
+            for order in trigger_orders:
+                bitget.cancel_trigger_order(order['id'], params['symbol'])
+            
+            logger.info("Alle Orders erfolgreich storniert")
+            return True
+        except Exception as e:
+            logger.error(f"Fehler beim Stornieren von Orders (Versuch {attempt+1}): {str(e)}")
+            if attempt < params['max_retries'] - 1:
+                time.sleep(params['retry_delay'])
+    logger.error("Kritischer Fehler: Orders konnten nicht storniert werden")
+    return False
+
+# Alle bestehenden Orders stornieren
+cancel_all_orders()
+
+# --- UT BOT ALERTS LOGIK ---
 def calculate_heikin_ashi(data):
     ha_data = pd.DataFrame(index=data.index)
     
@@ -131,7 +187,7 @@ def calculate_ut_signals(data, params):
     
     data['x_atr_trailing_stop'] = x_atr_trailing_stop
     
-    # Signale generieren (korrigierte Logik gemäß TradingView)
+    # Signale generieren
     data['buy_signal'] = False
     data['sell_signal'] = False
     
@@ -148,29 +204,42 @@ def calculate_ut_signals(data, params):
     
     return data
 
-# --- FETCH DATA AND CALCULATE SIGNALS ---
-# Warte bis Kerze mindestens 1 Minute alt ist (für 15m-Kerzen)
-now = datetime.now(timezone.utc)
-candle_duration = timedelta(minutes=15)
-seconds_since_candle = (now.minute % 15 * 60 + now.second) if now.minute >= 0 else 0
+# --- DATEN ABRUFEN UND SIGNALE BERECHNEN ---
+def fetch_ohlcv_data():
+    for attempt in range(params['max_retries']):
+        try:
+            # Warte bis Kerze mindestens 1 Minute alt ist (für 15m-Kerzen)
+            now = datetime.now(timezone.utc)
+            candle_duration = timedelta(minutes=15)
+            seconds_since_candle = (now.minute % 15 * 60 + now.second) if now.minute >= 0 else 0
 
-if seconds_since_candle < 60:
-    print(f"{now.strftime('%H:%M:%S')} UTC: Too early in new candle ({seconds_since_candle}s), skipping execution")
-    sys.exit()
+            if seconds_since_candle < 60:
+                logger.info(f"Zu früh in neuer Kerze ({seconds_since_candle}s), überspringe Ausführung")
+                sys.exit()
 
-# Mehr Kerzen holen für Rückblick
-lookback_candles = max(100, params['signal_lookback_period'] + 20)
-data = bitget.fetch_recent_ohlcv(params['symbol'], params['timeframe'], lookback_candles)
+            # Mehr Kerzen holen für Rückblick
+            lookback_candles = max(100, params['signal_lookback_period'] + 20)
+            data = bitget.fetch_recent_ohlcv(params['symbol'], params['timeframe'], lookback_candles)
+            
+            # Zeitzonen für Index setzen
+            data.index = data.index.tz_localize('UTC')
+            return data
+        except Exception as e:
+            logger.error(f"Fehler beim Datenabruf (Versuch {attempt+1}): {str(e)}")
+            if attempt < params['max_retries'] - 1:
+                time.sleep(params['retry_delay'])
+    logger.critical("Kritischer Fehler: Daten konnten nicht abgerufen werden")
+    sys.exit(1)
 
-# Zeitzonen für Index setzen
-data.index = data.index.tz_localize('UTC')
+# OHLCV-Daten abrufen
+data = fetch_ohlcv_data()
 data = calculate_ut_signals(data, params)
 
 # Diagnostische Ausgabe
-print("\nLast 6 candles signals:")
-print(data[['close', 'x_atr_trailing_stop', 'buy_signal', 'sell_signal']].tail(6))
+logger.info("\nLetzte 6 Kerzen Signale:")
+logger.info(data[['close', 'x_atr_trailing_stop', 'buy_signal', 'sell_signal']].tail(6).to_string())
 
-# Signalerkennung mit verbesserten Bedingungen
+# Signalerkennung
 current_time = datetime.now(timezone.utc)
 signals = []
 timeframe_minutes = {
@@ -194,7 +263,7 @@ for i in range(1, min(params['signal_lookback_period'] + 1, len(data))):
         elif data.iloc[idx]['sell_signal']:
             signals.append(('sell', candle_time, data.iloc[idx]['close']))
 
-print(f"\n{current_time.strftime('%H:%M:%S')} UTC: found {len(signals)} signals in last {params['signal_lookback_period']} candles")
+logger.info(f"Gefundene Signale: {len(signals)} in letzten {params['signal_lookback_period']} Kerzen")
 
 # Entscheidungslogik
 buy_signal = False
@@ -213,15 +282,27 @@ if signals:
             buy_signal = True
         else:
             sell_signal = True
-        signal_used = f"{signal_type} signal from {signal_time.strftime('%Y-%m-%d %H:%M')} UTC (Δ: {price_change:.2f}%)"
-        print(f"{current_time.strftime('%H:%M:%S')} UTC: using {signal_used}")
+        signal_used = f"{signal_type} signal von {signal_time.strftime('%Y-%m-%d %H:%M')} UTC (Δ: {price_change:.2f}%)"
+        logger.info(f"Verwende {signal_used}")
     else:
-        print(f"{current_time.strftime('%H:%M:%S')} UTC: signal expired (Δ {price_change:.2f}% > limit {params['max_price_change_pct']}%)")
+        logger.info(f"Signal abgelaufen (Δ {price_change:.2f}% > Limit {params['max_price_change_pct']}%)")
 else:
-    print(f"{current_time.strftime('%H:%M:%S')} UTC: no valid signals found")
+    logger.info("Keine gültigen Signale gefunden")
 
-# --- CHECK OPEN POSITIONS ---
-positions = bitget.fetch_open_positions(params['symbol'])
+# --- OFFENE POSITIONEN PRÜFEN ---
+def fetch_positions():
+    for attempt in range(params['max_retries']):
+        try:
+            positions = bitget.fetch_open_positions(params['symbol'])
+            return positions
+        except Exception as e:
+            logger.error(f"Fehler beim Abrufen von Positionen (Versuch {attempt+1}): {str(e)}")
+            if attempt < params['max_retries'] - 1:
+                time.sleep(params['retry_delay'])
+    logger.error("Kritischer Fehler: Positionen konnten nicht abgerufen werden")
+    return []
+
+positions = fetch_positions()
 open_position = len(positions) > 0
 
 if open_position:
@@ -229,96 +310,121 @@ if open_position:
     position_side = position['side']
     position_size = float(position['contracts']) * float(position['contractSize'])
     entry_price = float(position['entryPrice'])
-    print(f"{datetime.now(timezone.utc).strftime('%H:%M:%S')} UTC: open {position_side} position - Size: {position_size:.4f}, Entry: {entry_price:.2f}")
+    logger.info(f"Offene {position_side} Position - Größe: {position_size:.4f}, Einstieg: {entry_price:.2f}")
 else:
     position_side = None
 
 # Debug-Info
-print(f"\nTrade Decision Summary:")
-print(f"Buy Signal: {buy_signal} | Sell Signal: {sell_signal}")
-print(f"Open Position: {open_position} | Position Side: {position_side}")
-print(f"Use Longs: {params['use_longs']} | Use Shorts: {params['use_shorts']}")
+logger.info(f"\nHandelsentscheidung Zusammenfassung:")
+logger.info(f"Kauf-Signal: {buy_signal} | Verkauf-Signal: {sell_signal}")
+logger.info(f"Offene Position: {open_position} | Position Seite: {position_side}")
+logger.info(f"Longs aktiviert: {params['use_longs']} | Shorts aktiviert: {params['use_shorts']}")
 
-# --- EXECUTE TRADES ---
-tracker_info = read_tracker_file(tracker_file)
-current_time_utc = datetime.now(timezone.utc).strftime('%H:%M:%S')
-
+# --- HANDEL AUSFÜHREN ---
 if tracker_info['status'] != "ok_to_trade":
-    print(f"{current_time_utc} UTC: status is {tracker_info['status']}, skipping trading")
+    logger.info(f"Status ist {tracker_info['status']}, überspringe Handel")
     sys.exit()
 
 # Kontostand abrufen
-balance_info = bitget.fetch_balance()
+def fetch_balance():
+    for attempt in range(params['max_retries']):
+        try:
+            balance_info = bitget.fetch_balance()
+            return balance_info
+        except Exception as e:
+            logger.error(f"Fehler beim Abrufen des Kontostands (Versuch {attempt+1}): {str(e)}")
+            if attempt < params['max_retries'] - 1:
+                time.sleep(params['retry_delay'])
+    logger.error("Kritischer Fehler: Kontostand konnte nicht abgerufen werden")
+    return {'USDT': {'total': 0}}
+
+balance_info = fetch_balance()
 balance = balance_info['USDT']['total']
 trade_size = (balance * params['trade_size_pct'] / 100) * params['leverage']
-print(f"{current_time_utc} UTC: available balance: {balance:.2f} USDT, trade size: {trade_size:.2f} USDT")
+logger.info(f"Verfügbarer Kontostand: {balance:.2f} USDT, Handelsgröße: {trade_size:.2f} USDT")
 
 # Gegenläufige Position schließen
 if open_position:
     if (position_side == 'long' and sell_signal) or (position_side == 'short' and buy_signal):
-        bitget.flash_close_position(params['symbol'])
-        print(f"{current_time_utc} UTC: closed {position_side} position due to opposite signal")
-        open_position = False
-        update_tracker_file(tracker_file, {
-            "status": "ok_to_trade",
-            "last_side": None,
-            "stop_loss_ids": []
-        })
+        try:
+            bitget.flash_close_position(params['symbol'])
+            logger.info(f"Schließe {position_side} Position aufgrund gegenläufigen Signals")
+            open_position = False
+            
+            # Aktualisiere Tracker
+            tracker_info = {
+                "status": "ok_to_trade",
+                "last_side": None,
+                "stop_loss_ids": []
+            }
+            update_tracker_file(tracker_file, tracker_info)
+        except Exception as e:
+            logger.error(f"Fehler beim Schließen der Position: {str(e)}")
 
 # Neue Position eröffnen
 if not open_position:
     if buy_signal and params['use_longs']:
-        bitget.place_market_order(params['symbol'], 'buy', trade_size)
-        print(f"{current_time_utc} UTC: opened long position based on {signal_used}")
-        
-        if params['enable_stop_loss']:
-            current_price = data.iloc[-1]['close']
-            stop_loss_price = current_price * (1 - params['stop_loss_pct'])
-            sl_order = bitget.place_trigger_market_order(
-                symbol=params['symbol'],
-                side='sell',
-                amount=trade_size,
-                trigger_price=stop_loss_price,
-                reduce=True
-            )
-            update_tracker_file(tracker_file, {
-                "status": "ok_to_trade",
-                "last_side": "long",
-                "stop_loss_ids": [sl_order['id']]
-            })
-            print(f"{current_time_utc} UTC: placed stop-loss at {stop_loss_price:.2f}")
-        else:
-            update_tracker_file(tracker_file, {
-                "status": "ok_to_trade",
-                "last_side": "long",
-                "stop_loss_ids": []
-            })
+        try:
+            bitget.place_market_order(params['symbol'], 'buy', trade_size)
+            logger.info(f"Öffne Long-Position basierend auf {signal_used}")
+            
+            if params['enable_stop_loss']:
+                current_price = data.iloc[-1]['close']
+                stop_loss_price = current_price * (1 - params['stop_loss_pct'])
+                sl_order = bitget.place_trigger_market_order(
+                    symbol=params['symbol'],
+                    side='sell',
+                    amount=trade_size,
+                    trigger_price=stop_loss_price,
+                    reduce=True
+                )
+                tracker_info = {
+                    "status": "ok_to_trade",
+                    "last_side": "long",
+                    "stop_loss_ids": [sl_order['id']] if sl_order else []
+                }
+                update_tracker_file(tracker_file, tracker_info)
+                logger.info(f"Stop-Loss gesetzt bei {stop_loss_price:.2f}")
+            else:
+                tracker_info = {
+                    "status": "ok_to_trade",
+                    "last_side": "long",
+                    "stop_loss_ids": []
+                }
+                update_tracker_file(tracker_file, tracker_info)
+        except Exception as e:
+            logger.error(f"Fehler beim Öffnen der Long-Position: {str(e)}")
     
     elif sell_signal and params['use_shorts']:
-        bitget.place_market_order(params['symbol'], 'sell', trade_size)
-        print(f"{current_time_utc} UTC: opened short position based on {signal_used}")
-        
-        if params['enable_stop_loss']:
-            current_price = data.iloc[-1]['close']
-            stop_loss_price = current_price * (1 + params['stop_loss_pct'])
-            sl_order = bitget.place_trigger_market_order(
-                symbol=params['symbol'],
-                side='buy',
-                amount=trade_size,
-                trigger_price=stop_loss_price,
-                reduce=True
-            )
-            update_tracker_file(tracker_file, {
-                "status": "ok_to_trade",
-                "last_side": "short",
-                "stop_loss_ids": [sl_order['id']]
-            })
-            print(f"{current_time_utc} UTC: placed stop-loss at {stop_loss_price:.2f}")
-        else:
-            update_tracker_file(tracker_file, {
-                "status": "ok_to_trade",
-                "last_side": "short",
-                "stop_loss_ids": []
-            })
+        try:
+            bitget.place_market_order(params['symbol'], 'sell', trade_size)
+            logger.info(f"Öffne Short-Position basierend auf {signal_used}")
+            
+            if params['enable_stop_loss']:
+                current_price = data.iloc[-1]['close']
+                stop_loss_price = current_price * (1 + params['stop_loss_pct'])
+                sl_order = bitget.place_trigger_market_order(
+                    symbol=params['symbol'],
+                    side='buy',
+                    amount=trade_size,
+                    trigger_price=stop_loss_price,
+                    reduce=True
+                )
+                tracker_info = {
+                    "status": "ok_to_trade",
+                    "last_side": "short",
+                    "stop_loss_ids": [sl_order['id']] if sl_order else []
+                }
+                update_tracker_file(tracker_file, tracker_info)
+                logger.info(f"Stop-Loss gesetzt bei {stop_loss_price:.2f}")
+            else:
+                tracker_info = {
+                    "status": "ok_to_trade",
+                    "last_side": "short",
+                    "stop_loss_ids": []
+                }
+                update_tracker_file(tracker_file, tracker_info)
+        except Exception as e:
+            logger.error(f"Fehler beim Öffnen der Short-Position: {str(e)}")
 
-print(f"{datetime.now(timezone.utc).strftime('%H:%M:%S')} UTC: <<< execution complete\n")
+logger.info(f"<<< Ausführung abgeschlossen\n")
