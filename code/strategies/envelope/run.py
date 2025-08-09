@@ -25,7 +25,7 @@ params = {
     'use_longs': True,
     'use_shorts': True,
     'stop_loss_pct': 0.4,
-    'enable_stop_loss': True,
+    'enable_stop_loss': False,
     'signal_lookback_period': 6,
     'min_signal_confirmation': 0.2,
     'max_price_change_pct': 2.5,
