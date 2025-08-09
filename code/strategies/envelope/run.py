@@ -15,33 +15,71 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 
 from utilities.bitget_futures import BitgetFutures
 
-# --- KONFIGURATION ---
+# --- KONFIGURATION MIT DETAILBESCHREIBUNGEN ---
 params = {
+    # Handelsinstrument (z.B. BTC/USDT:USDT)
     'symbol': 'BTC/USDT:USDT',
+    
+    # Zeitrahmen für Kerzendaten (1m, 5m, 15m, 30m, 1h, 4h, 1d)
     'timeframe': '15m',
+    
+    # Margin-Modus: 'isolated' (isoliert) oder 'crossed' (Cross-Margin)
     'margin_mode': 'isolated',
+    
+    # Bruchteil des Kontos, der für Trades verwendet wird (0.0 - 1.0)
     'balance_fraction': 1,
+    
+    # Hebelwirkung für Positionen
     'leverage': 1,
+    
+    # Long-Positionen aktivieren
     'use_longs': True,
+    
+    # Short-Positionen aktivieren
     'use_shorts': True,
+    
+    # Stop-Loss in Prozent vom Einstiegspreis (0.4 = 0.4%)
     'stop_loss_pct': 0.4,
-    'enable_stop_loss': False,
+    
+    # Stop-Loss-Orders aktivieren
+    'enable_stop_loss': True,
+    
+    # Anzahl der Kerzen, in denen nach Signalen gesucht wird
     'signal_lookback_period': 6,
+    
+    # Mindestfortschritt einer Kerze (0.0-1.0), bevor sie für Signale berücksichtigt wird
     'min_signal_confirmation': 0.2,
+    
+    # Maximale Preisänderung (%) seit Signalgenerierung für gültiges Signal
     'max_price_change_pct': 2.5,
+    
+    # Sensitivität des UT-Bot Alerts (Höhere Werte = weniger empfindlich)
     'ut_key_value': 1,
+    
+    # Periodenlänge für den Average True Range (ATR)
     'ut_atr_period': 10,
+    
+    # Signale auf Basis von Heikin-Ashi-Kerzen berechnen
     'ut_heiken_ashi': False,
+    
+    # Prozentsatz des Kontos pro Trade (100 = voller Kontoeinsatz)
     'trade_size_pct': 100,
+    
+    # Maximale Wiederholungsversuche bei API-Fehlern
     'max_retries': 3,
+    
+    # Wartezeit zwischen Wiederholungsversuchen in Sekunden
     'retry_delay': 2,
 }
 
-# Pfade anpassen
-key_path = '/home/ubuntu/utbot2/secret.json'  # Absoluter Pfad
+# --- PFADEINSTELLUNGEN ---
+# Absoluter Pfad zur API-Schlüsseldatei
+key_path = '/home/ubuntu/utbot2/secret.json'
+
+# Schlüsselname in der secret.json
 key_name = 'envelope'
 
-# Tracker-Datei mit absolutem Pfad
+# Tracker-Datei mit absolutem Pfad (speichert Handelsstatus)
 tracker_file = f"/home/ubuntu/utbot2/code/strategies/envelope/tracker_{params['symbol'].replace('/', '-').replace(':', '-')}.json"
 
 # --- LOGGING EINRICHTEN ---
@@ -49,6 +87,7 @@ log_dir = '/home/ubuntu/utbot2/logs'
 os.makedirs(log_dir, exist_ok=True)
 log_file = os.path.join(log_dir, 'envelope.log')
 
+# Logger-Konfiguration
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s UTC: %(message)s',
@@ -125,6 +164,7 @@ cancel_all_orders()
 
 # --- UT BOT ALERTS LOGIK ---
 def calculate_heikin_ashi(data):
+    """Berechnet Heikin-Ashi-Kerzen aus OHLCV-Daten"""
     ha_data = pd.DataFrame(index=data.index)
     
     if not data.empty:
@@ -152,6 +192,7 @@ def calculate_heikin_ashi(data):
     return ha_data
 
 def calculate_ut_signals(data, params):
+    """Berechnet Trading-Signale basierend auf UT-Bot-Algorithmus"""
     if params['ut_heiken_ashi']:
         ha_data = calculate_heikin_ashi(data)
         src = ha_data['ha_close']
@@ -206,6 +247,7 @@ def calculate_ut_signals(data, params):
 
 # --- DATEN ABRUFEN UND SIGNALE BERECHNEN ---
 def fetch_ohlcv_data():
+    """Holt OHLCV-Daten mit Wiederholungslogik"""
     for attempt in range(params['max_retries']):
         try:
             # Warte bis Kerze mindestens 1 Minute alt ist (für 15m-Kerzen)
@@ -291,6 +333,7 @@ else:
 
 # --- OFFENE POSITIONEN PRÜFEN ---
 def fetch_positions():
+    """Holt offene Positionen mit Wiederholungslogik"""
     for attempt in range(params['max_retries']):
         try:
             positions = bitget.fetch_open_positions(params['symbol'])
@@ -327,6 +370,7 @@ if tracker_info['status'] != "ok_to_trade":
 
 # Kontostand abrufen
 def fetch_balance():
+    """Holt Kontostand mit Wiederholungslogik"""
     for attempt in range(params['max_retries']):
         try:
             balance_info = bitget.fetch_balance()
