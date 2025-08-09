@@ -50,9 +50,6 @@ params = {
     # Mindestfortschritt einer Kerze (0.0-1.0), bevor sie für Signale berücksichtigt wird
     'min_signal_confirmation': 0.2,
     
-    # Maximale Preisänderung (%) seit Signalgenerierung für gültiges Signal (ENTFERNT)
-    # 'max_price_change_pct': 2.5,  # Wurde entfernt gemäß Benutzerwunsch
-    
     # Sensitivität des UT-Bot Alerts (Höhere Werte = weniger empfindlich)
     'ut_key_value': 1,
     
@@ -422,17 +419,23 @@ trade_size = (balance * params['trade_size_pct'] / 100) * params['leverage']
 logger.info(f"Verfügbarer Kontostand: {balance:.2f} USDT, Handelsgröße: {trade_size:.2f} USDT")
 
 # Mindesthandelsvolumen prüfen
-min_trade_size = 10  # Beispielwert, bitte anpassen
-if trade_size < min_trade_size:
-    min_required = min_trade_size / (params['trade_size_pct'] / 100 * params['leverage'])
-    reason = f"Kontostand zu niedrig! Benötige mindestens {min_required:.2f} USDT für einen Trade (Minimal: {min_trade_size} USDT)"
-    log_trade_decision('NONE', 'INSUFFICIENT_BALANCE', {
-        'current_balance': balance,
-        'min_required': min_required,
-        'min_trade_size': min_trade_size
-    })
-    logger.error(reason)
-    sys.exit()
+try:
+    min_trade_size = bitget.fetch_min_trade_size(params['symbol'])
+    current_price = data.iloc[-1]['close']
+    min_trade_size_usdt = min_trade_size * current_price
+    
+    if trade_size < min_trade_size_usdt:
+        reason = f"Handelsgröße zu klein! Min. {min_trade_size_usdt:.2f} USDT benötigt (aktuell: {trade_size:.2f} USDT)"
+        log_trade_decision('NONE', 'INSUFFICIENT_TRADE_SIZE', {
+            'min_trade_size': min_trade_size,
+            'min_trade_size_usdt': min_trade_size_usdt,
+            'current_trade_size': trade_size
+        })
+        logger.error(reason)
+        sys.exit()
+except Exception as e:
+    logger.error(f"Fehler beim Abrufen des Mindesthandelsvolumens: {str(e)}")
+    # Wir fahren fort, aber es könnte zu einem Fehler bei der Orderplatzierung kommen
 
 # Gegenläufige Position schließen
 if open_position:
