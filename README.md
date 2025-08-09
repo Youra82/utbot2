@@ -10,6 +10,7 @@ _A homemade humble library to run automated python crypto trading bots_
 
 Statusüberwachung des Bots aktivieren:
 >chmod +x monitor_bot.sh
+
 > ./monitor_bot.sh
 
 \
