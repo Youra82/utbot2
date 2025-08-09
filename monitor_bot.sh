@@ -33,7 +33,7 @@ print_header "HANDELSSTATISTIK"
 signals_line=$(grep "Gefundene Signale" "$LOG_FILE" | tail -1)
 trades_count=$(grep "POSITION_OPENED" "$LOG_FILE" | grep "TRADE_DECISION" | wc -l)
 balance_line=$(grep "Verfügbarer Kontostand" "$LOG_FILE" | tail -1)
-min_trade_info=$(grep "INSUFFICIENT_BALANCE" "$LOG_FILE" | tail -1 | jq -r '.details')
+min_trade_info=$(grep "INSUFFICIENT_TRADE_SIZE" "$LOG_FILE" | tail -1 | jq -r '.details')
 
 # Verbesserte Extraktion
 signals_count=$(echo "$signals_line" | grep -oP '\d+ Signale' | awk '{print $1}')
@@ -65,7 +65,7 @@ print_header "SIGNALANALYSE"
 {
     echo "Zeit | Signal | Aktion | Grund"
     echo "-----------------------------------------------"
-    grep -E "Gefundene Signale|Verwende|Signal abgelaufen|Öffne|Schließe|Status ist|Kontostand zu niedrig" "$LOG_FILE" \
+    grep -E "Gefundene Signale|Verwende|Signal abgelaufen|Öffne|Schließe|Status ist|Kontostand zu niedrig|Handelsgröße zu klein" "$LOG_FILE" \
     | tac \
     | awk '
         /Gefundene Signale/ {signals=$5; next}
@@ -88,6 +88,11 @@ print_header "SIGNALANALYSE"
         }
         /Kontostand zu niedrig/ {
             printf "%s | - | ❌ IGNORIERT | %s\n", $1, $0
+        }
+        /Handelsgröße zu klein/ {
+            reason = ""
+            for(i=3; i<=NF; i++) reason = reason $i " "
+            printf "%s | - | ❌ IGNORIERT | %s\n", $1, reason
         }
         /Öffne Long-Position/ {
             signal = "Kauf"
