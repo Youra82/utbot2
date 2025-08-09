@@ -33,6 +33,7 @@ print_header "HANDELSSTATISTIK"
 signals_line=$(grep "Gefundene Signale" "$LOG_FILE" | tail -1)
 trades_count=$(grep "POSITION_OPENED" "$LOG_FILE" | grep "TRADE_DECISION" | wc -l)
 balance_line=$(grep "Verfügbarer Kontostand" "$LOG_FILE" | tail -1)
+min_trade_info=$(grep "INSUFFICIENT_BALANCE" "$LOG_FILE" | tail -1 | jq -r '.details')
 
 # Verbesserte Extraktion
 signals_count=$(echo "$signals_line" | grep -oP '\d+ Signale' | awk '{print $1}')
@@ -41,6 +42,7 @@ balance=$(echo "$balance_line" | grep -oP '\d+\.\d{2}' | head -1)
 echo "Signale (letzte Ausführung) : ${signals_count:-0}"
 echo "Eröffnete Trades (gesamt)   : ${trades_count:-0}"
 echo "Aktueller Kontostand        : ${balance:-0} USDT"
+echo "Mindesthandelsvolumen       : ${min_trade_info:-n/a}"
 
 # 3. Detaillierte Handelsentscheidungen
 print_header "DETAILLIERTE HANDELSENTSCHEDUNGEN"
@@ -63,7 +65,7 @@ print_header "SIGNALANALYSE"
 {
     echo "Zeit | Signal | Aktion | Grund"
     echo "-----------------------------------------------"
-    grep -E "Gefundene Signale|Verwende|Signal abgelaufen|Öffne|Schließe|Status ist" "$LOG_FILE" \
+    grep -E "Gefundene Signale|Verwende|Signal abgelaufen|Öffne|Schließe|Status ist|Kontostand zu niedrig" "$LOG_FILE" \
     | tac \
     | awk '
         /Gefundene Signale/ {signals=$5; next}
@@ -79,14 +81,13 @@ print_header "SIGNALANALYSE"
             for(i=4; i<=NF; i++) reason = reason $i " "
             printf "%s | %s | ✅ REAGIERT | %s\n", $1, signal, reason
         }
-        /Signal abgelaufen/ {
-            signal = ($4 == "Kauf-Signal") ? "Kauf" : "Verkauf"
-            printf "%s | %s | ❌ IGNORIERT | Preisänderung zu groß\n", $1, signal
-        }
         /Status ist/ {
             status = $4
             sub(/,/, "", status)
             printf "%s | - | ❌ IGNORIERT | Tracker-Status: %s\n", $1, status
+        }
+        /Kontostand zu niedrig/ {
+            printf "%s | - | ❌ IGNORIERT | %s\n", $1, $0
         }
         /Öffne Long-Position/ {
             signal = "Kauf"
