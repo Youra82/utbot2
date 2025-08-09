@@ -12,6 +12,8 @@ Statusüberwachung des Bots aktivieren:
 >chmod +x monitor_bot.sh
 
 > ./monitor_bot.sh
+Crontabeinstellung:
+> */15 * * * * cd /home/ubuntu/utbot2/code/strategies/envelope && /usr/bin/python3 run.py >> /home/ubuntu/utbot2/logs/envelope.log 2>&1
 
 \
 ⭐ Bots and strategies
