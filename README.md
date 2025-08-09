@@ -8,7 +8,7 @@ _A homemade humble library to run automated python crypto trading bots_
 > git clone https://github.com/Youra82/utbot2.git \
 > bash utbot2/install.sh
 
-Statusüberwachung des Bots aktivieren:
+Monitor_bot.sh aktivieren:
 >chmod +x monitor_bot.sh
 
 > ./monitor_bot.sh
