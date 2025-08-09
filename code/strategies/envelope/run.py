@@ -212,10 +212,12 @@ def calculate_ut_signals(data, params):
     
     for i in range(len(data)):
         if i == 0:
+            # Ersten Wert initialisieren
             x_atr_trailing_stop[i] = src.iloc[i] - n_loss.iloc[i]
         else:
             prev_stop = x_atr_trailing_stop[i-1]
             
+            # TradingView-Logik exakt implementiert
             if src.iloc[i] > prev_stop and src.iloc[i-1] > prev_stop:
                 x_atr_trailing_stop[i] = max(prev_stop, src.iloc[i] - n_loss.iloc[i])
             elif src.iloc[i] < prev_stop and src.iloc[i-1] < prev_stop:
@@ -228,19 +230,30 @@ def calculate_ut_signals(data, params):
     
     data['x_atr_trailing_stop'] = x_atr_trailing_stop
     
-    # Signale generieren
+    # EMA(1) berechnen (entspricht dem Preis selbst)
+    data['ema1'] = src
+    
+    # Signale generieren (exakt wie in TradingView)
     data['buy_signal'] = False
     data['sell_signal'] = False
     
     for i in range(1, len(data)):
-        # Kaufsignal: Close kreuzt über x_atr_trailing_stop
-        if (data['close'].iloc[i] > data['x_atr_trailing_stop'].iloc[i] and 
-            data['close'].iloc[i-1] <= data['x_atr_trailing_stop'].iloc[i-1]):
+        # Kaufsignal: EMA1 kreuzt über Trailing Stop UND Preis > Trailing Stop
+        crossover_up = (
+            data['ema1'].iloc[i] > data['x_atr_trailing_stop'].iloc[i] and 
+            data['ema1'].iloc[i-1] <= data['x_atr_trailing_stop'].iloc[i-1]
+        )
+        
+        # Verkaufssignal: EMA1 kreuzt unter Trailing Stop UND Preis < Trailing Stop
+        crossover_down = (
+            data['ema1'].iloc[i] < data['x_atr_trailing_stop'].iloc[i] and 
+            data['ema1'].iloc[i-1] >= data['x_atr_trailing_stop'].iloc[i-1]
+        )
+        
+        if crossover_up and src.iloc[i] > data['x_atr_trailing_stop'].iloc[i]:
             data.loc[data.index[i], 'buy_signal'] = True
         
-        # Verkaufssignal: Close kreuzt unter x_atr_trailing_stop
-        if (data['close'].iloc[i] < data['x_atr_trailing_stop'].iloc[i] and 
-            data['close'].iloc[i-1] >= data['x_atr_trailing_stop'].iloc[i-1]):
+        if crossover_down and src.iloc[i] < data['x_atr_trailing_stop'].iloc[i]:
             data.loc[data.index[i], 'sell_signal'] = True
     
     return data
@@ -278,8 +291,8 @@ data = fetch_ohlcv_data()
 data = calculate_ut_signals(data, params)
 
 # Diagnostische Ausgabe
-logger.info("\nLetzte 6 Kerzen Signale:")
-logger.info(data[['close', 'x_atr_trailing_stop', 'buy_signal', 'sell_signal']].tail(6).to_string())
+logger.info("\nLetzte 10 Kerzen Signale und Indikatoren:")
+logger.info(data[['open', 'high', 'low', 'close', 'atr', 'x_atr_trailing_stop', 'buy_signal', 'sell_signal']].tail(10).to_string())
 
 # Signalerkennung
 current_time = datetime.now(timezone.utc)
@@ -311,6 +324,7 @@ logger.info(f"Gefundene Signale: {len(signals)} in letzten {params['signal_lookb
 buy_signal = False
 sell_signal = False
 signal_used = None
+signal_reason = "Keine Signale erkannt"
 
 if signals:
     latest_signal = signals[-1]
@@ -322,14 +336,20 @@ if signals:
     if price_change < params['max_price_change_pct']:
         if signal_type == 'buy':
             buy_signal = True
+            signal_reason = f"Kauf-Signal von {signal_time.strftime('%Y-%m-%d %H:%M')} UTC (Δ: {price_change:.2f}%)"
         else:
             sell_signal = True
-        signal_used = f"{signal_type} signal von {signal_time.strftime('%Y-%m-%d %H:%M')} UTC (Δ: {price_change:.2f}%)"
-        logger.info(f"Verwende {signal_used}")
+            signal_reason = f"Verkauf-Signal von {signal_time.strftime('%Y-%m-%d %H:%M')} UTC (Δ: {price_change:.2f}%)"
+        logger.info(f"Verwende {signal_reason}")
     else:
-        logger.info(f"Signal abgelaufen (Δ {price_change:.2f}% > Limit {params['max_price_change_pct']}%)")
+        signal_reason = f"Signal abgelaufen (Δ {price_change:.2f}% > Limit {params['max_price_change_pct']}%)"
+        logger.info(signal_reason)
 else:
-    logger.info("Keine gültigen Signale gefunden")
+    logger.info(signal_reason)
+
+# Signalzusammenfassung für Monitoring
+signal_status = "KAUF" if buy_signal else "VERKAUF" if sell_signal else "KEIN SIGNAL"
+logger.info(f"Signalanalyse abgeschlossen: {signal_status} - {signal_reason}")
 
 # --- OFFENE POSITIONEN PRÜFEN ---
 def fetch_positions():
@@ -365,7 +385,8 @@ logger.info(f"Longs aktiviert: {params['use_longs']} | Shorts aktiviert: {params
 
 # --- HANDEL AUSFÜHREN ---
 if tracker_info['status'] != "ok_to_trade":
-    logger.info(f"Status ist {tracker_info['status']}, überspringe Handel")
+    status_reason = f"Status ist {tracker_info['status']}, überspringe Handel"
+    logger.info(status_reason)
     sys.exit()
 
 # Kontostand abrufen
@@ -392,7 +413,8 @@ if open_position:
     if (position_side == 'long' and sell_signal) or (position_side == 'short' and buy_signal):
         try:
             bitget.flash_close_position(params['symbol'])
-            logger.info(f"Schließe {position_side} Position aufgrund gegenläufigen Signals")
+            close_reason = f"Schließe {position_side} Position aufgrund gegenläufigen Signals"
+            logger.info(close_reason)
             open_position = False
             
             # Aktualisiere Tracker
@@ -410,7 +432,8 @@ if not open_position:
     if buy_signal and params['use_longs']:
         try:
             bitget.place_market_order(params['symbol'], 'buy', trade_size)
-            logger.info(f"Öffne Long-Position basierend auf {signal_used}")
+            action_reason = f"Öffne Long-Position basierend auf {signal_reason}"
+            logger.info(action_reason)
             
             if params['enable_stop_loss']:
                 current_price = data.iloc[-1]['close']
@@ -442,7 +465,8 @@ if not open_position:
     elif sell_signal and params['use_shorts']:
         try:
             bitget.place_market_order(params['symbol'], 'sell', trade_size)
-            logger.info(f"Öffne Short-Position basierend auf {signal_used}")
+            action_reason = f"Öffne Short-Position basierend auf {signal_reason}"
+            logger.info(action_reason)
             
             if params['enable_stop_loss']:
                 current_price = data.iloc[-1]['close']
@@ -471,4 +495,11 @@ if not open_position:
         except Exception as e:
             logger.error(f"Fehler beim Öffnen der Short-Position: {str(e)}")
 
-logger.info(f"<<< Ausführung abgeschlossen\n")
+# Handelszusammenfassung für Monitoring
+if buy_signal or sell_signal:
+    action_taken = "Position eröffnet" if not open_position else "Gegenposition geschlossen"
+else:
+    action_taken = "Keine Aktion durchgeführt"
+
+logger.info(f"Handelsaktion: {action_taken}")
+logger.info(f"<<< Ausführung abgeschlossen um {datetime.now(timezone.utc).strftime('%H:%M:%S')} UTC\n")
