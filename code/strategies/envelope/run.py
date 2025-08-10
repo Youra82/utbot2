@@ -1,192 +1,79 @@
 #!/usr/bin/env python3
 import json
 import time
+from datetime import datetime
 import logging
-from datetime import datetime, timezone
+import ccxt  # Beispiel für Exchange-Anbindung, falls verwendet
+# ... (weitere Importe wie benötigt)
 
-# Strategieparameter mit Beschreibung (komplett)
-STRATEGIEPARAMETER = {
-    "ema_fast": {
-        "wert": 9,
-        "beschreibung": "Schneller EMA für Signal-Generierung"
-    },
-    "ema_slow": {
-        "wert": 21,
-        "beschreibung": "Langsamer EMA für Trendbestimmung"
-    },
-    "min_trade_size": {
-        "wert": 0.001,
-        "beschreibung": "Minimale Positionsgröße in BTC für einen Trade"
-    },
-    "max_risk_per_trade": {
-        "wert": 0.02,
-        "beschreibung": "Maximaler Risikoprozentanteil des Kontostands pro Trade"
-    },
-    # Weitere Parameter hier ergänzen...
-}
+# === Benutzerdefinierte Parameter ===
+TRADING_SYMBOL = "BTC-USDT"         # Handelscoin
+TIMEFRAME = "1h"                    # Timeframe für Kerzen
+LEVERAGE = 5                       # Hebel
+POSITION_SIZE_PERCENT = 10          # Einsatz in % vom Gesamtkonto
 
-LOG_FILE = "/home/ubuntu/utbot2/logs/envelope.log"
-TRACKER_FILE = "/home/ubuntu/utbot2/code/strategies/envelope/tracker_BTC-USDT-USDT.json"
+# === Beispiel: Logging Setup ===
+logging.basicConfig(
+    filename='/home/ubuntu/utbot2/logs/envelope.log',
+    level=logging.INFO,
+    format='%(asctime)s %(levelname)s %(message)s'
+)
 
-# Logging konfigurieren
-logging.basicConfig(filename=LOG_FILE, level=logging.INFO, format='%(asctime)s %(message)s')
+def load_secret():
+    with open("/home/ubuntu/utbot2/secret.json") as f:
+        return json.load(f)
 
-def log_strategieparameter():
-    """Loggt die aktuellen Strategieparameter mit Beschreibung."""
-    param_lines = []
-    for key, val in STRATEGIEPARAMETER.items():
-        param_lines.append(f"{key}: {val['wert']} ({val['beschreibung']})")
-    logging.info("Strategieparameter: " + " | ".join(param_lines))
+def get_balance(exchange, symbol):
+    # Beispiel: Gesamt-Kontostand in USDT auslesen
+    balance = exchange.fetch_balance()
+    total_usdt = balance['total'].get('USDT', 0)
+    return total_usdt
 
-def lade_tracker():
-    """Lädt den Tracker (z.B. aktueller Status) aus JSON."""
-    try:
-        with open(TRACKER_FILE, "r") as f:
-            return json.load(f)
-    except Exception as e:
-        logging.error(f"Fehler beim Laden des Tracker-Files: {e}")
-        return {}
+def calculate_position_size(total_balance, percent):
+    # Berechnet Positionsgröße in USDT, basierend auf Prozentangabe
+    position_usdt = (percent / 100) * total_balance
+    return position_usdt
 
-def speichere_tracker(tracker):
-    """Speichert den Tracker als JSON."""
-    try:
-        with open(TRACKER_FILE, "w") as f:
-            json.dump(tracker, f, indent=2)
-    except Exception as e:
-        logging.error(f"Fehler beim Speichern des Tracker-Files: {e}")
+def main():
+    secret = load_secret()
 
-def ermittle_signal(marktdaten):
-    """
-    Kompromisslose Signalgenerierung nach Vorgabe:
-    - Beispiel: EMA-Schnittpunkt (Dummy-Code hier, ersetze mit deinem Originalalgorithmus)
-    """
-    # Platzhalter: immer Kauf-Signal wenn fast EMA > slow EMA, sonst kein Signal
-    ema_fast = marktdaten.get("ema_fast", 0)
-    ema_slow = marktdaten.get("ema_slow", 0)
-
-    if ema_fast > ema_slow:
-        return "Kauf"
-    elif ema_fast < ema_slow:
-        return "Verkauf"
-    else:
-        return None
-
-def pruefe_handelsbedingungen(signal, kontostand, min_trade_size):
-    """
-    Prüft alle Handelsbedingungen detailliert und liefert Grund, warum Trade
-    nicht möglich ist, falls zutreffend.
-    """
-    grunde = []
-
-    if signal is None:
-        grunde.append("Kein gültiges Handelssignal vorhanden")
-    if kontostand <= 0:
-        grunde.append("Kontostand ist 0 oder negativ")
-    if kontostand < min_trade_size:
-        grunde.append(f"Kontostand ({kontostand:.4f} USDT) zu niedrig für Mindest-Tradegröße ({min_trade_size} BTC)")
-    
-    # Beispiel: hier könnten weitere Bedingungen geprüft werden:
-    # - Positionsgröße zu klein
-    # - Status im Tracker ungünstig
-    # - Signal abgelaufen
-    # - usw.
-
-    if grunde:
-        return False, grunde
-    return True, []
-
-def berechne_positionsgroesse(kontostand, risiko_prozent, min_trade_size):
-    """
-    Berechnet Positionsgröße basierend auf Risiko und Kontostand.
-    Falls Positionsgröße unter min_trade_size, wird Hebel vorgeschlagen.
-    """
-    maximale_positionsgroesse = kontostand * risiko_prozent
-    if maximale_positionsgroesse < min_trade_size:
-        hebel = min_trade_size / maximale_positionsgroesse if maximale_positionsgroesse > 0 else float('inf')
-        return maximale_positionsgroesse, hebel
-    else:
-        return min_trade_size, 1
-
-def fuehre_trade_aus(signal, positionsgroesse):
-    """
-    Dummy-Funktion: Hier wird der Trade gestartet.
-    In Wirklichkeit z.B. API-Call an Exchange.
-    """
-    logging.info(json.dumps({
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "symbol": "BTC-USDT",
-        "signal": signal,
-        "decision": "Trade ausgeführt",
-        "details": f"Positionsgröße {positionsgroesse:.6f} BTC"
-    }))
-
-def log_handelsentscheidung(timestamp, symbol, signal, decision, details):
-    """Schreibt eine strukturierte Log-Zeile mit Handelsentscheidung."""
-    log_entry = json.dumps({
-        "timestamp": timestamp,
-        "symbol": symbol,
-        "signal": signal,
-        "decision": decision,
-        "details": details
+    # Beispiel: Exchange initialisieren (ccxt)
+    exchange = ccxt.binance({
+        'apiKey': secret['apiKey'],
+        'secret': secret['apiSecret'],
+        'enableRateLimit': True,
+        'options': {'defaultType': 'future'}
     })
-    logging.info(f"TRADE_DECISION: {log_entry}")
 
-def main_loop():
-    log_strategieparameter()
-    tracker = lade_tracker()
+    # Hebel setzen (Beispiel für Binance Futures)
+    market = exchange.market(TRADING_SYMBOL)
+    exchange.set_leverage(LEVERAGE, TRADING_SYMBOL)
 
-    # Beispiel für Kontostand - in Realität aus API oder Tracker laden
-    kontostand = 1000.00  # USDT, dummy-Wert, bitte anpassen
-    risiko_prozent = STRATEGIEPARAMETER["max_risk_per_trade"]["wert"]
-    min_trade_size = STRATEGIEPARAMETER["min_trade_size"]["wert"]
+    # Gesamtkontostand ermitteln
+    total_balance = get_balance(exchange, TRADING_SYMBOL)
 
-    # Dummy-Marktdaten (ersetze mit Echt-Datenquelle)
-    marktdaten = {
-        "ema_fast": 10,
-        "ema_slow": 8
-    }
+    # Positionsgröße berechnen
+    position_usdt = calculate_position_size(total_balance, POSITION_SIZE_PERCENT)
 
-    signal = ermittle_signal(marktdaten)
-    timestamp = datetime.now(timezone.utc).isoformat()
-    symbol = "BTC-USDT"
+    logging.info(f"Starte Trading für {TRADING_SYMBOL} mit Timeframe {TIMEFRAME}, Hebel {LEVERAGE} und Positionsgröße {position_usdt:.2f} USDT ({POSITION_SIZE_PERCENT} % vom Kontostand)")
 
-    # Signal-Log
-    logging.info(f"Gefundene Signale: {signal if signal else 'Kein Signal'}")
+    # Hier geht deine bisherige Logik los, z.B. Kerzen laden, Signale prüfen, Trades eröffnen...
+    # Nutze TRADING_SYMBOL, TIMEFRAME, position_usdt und LEVERAGE überall
 
-    # Prüfe Handelsbedingungen
-    erlaubnis, grunde = pruefe_handelsbedingungen(signal, kontostand, min_trade_size)
+    # Beispiel-Ausgabe
+    print(f"Trading-Symbol: {TRADING_SYMBOL}")
+    print(f"Timeframe: {TIMEFRAME}")
+    print(f"Hebel: {LEVERAGE}")
+    print(f"Einsatz (USDT): {position_usdt:.2f}")
 
-    if not erlaubnis:
-        details = "; ".join(grunde)
-        log_handelsentscheidung(timestamp, symbol, signal if signal else "-", "Trade abgelehnt", details)
+    # --- Dein Trading-Loop ---
+    while True:
+        # Hole aktuelle Kerzen, berechne Signale etc.
+        # Öffne/Schließe Positionen basierend auf Signalen und position_usdt
 
-        # Wenn Kontostand zu niedrig
-        if any("Kontostand" in g for g in grunde):
-            maximale_positionsgroesse, hebel = berechne_positionsgroesse(kontostand, risiko_prozent, min_trade_size)
-            info = f"Minimale Positionsgröße: {min_trade_size} BTC, Aktuell mögliche Größe: {maximale_positionsgroesse:.6f} BTC"
-            if hebel > 1:
-                info += f"; Empfohlener Hebel: {hebel:.2f}x"
-            logging.info(f"Handelsgröße-Info: {info}")
-        return
-
-    # Berechne Positionsgröße
-    positionsgroesse, hebel = berechne_positionsgroesse(kontostand, risiko_prozent, min_trade_size)
-    if hebel > 1:
-        logging.info(f"Handelsgröße kleiner als Mindestgröße, empfohlener Hebel: {hebel:.2f}x")
-
-    fuehre_trade_aus(signal, positionsgroesse)
-    log_handelsentscheidung(timestamp, symbol, signal, "Trade ausgeführt", f"Positionsgröße {positionsgroesse:.6f} BTC")
-
-    # Tracker ggf. aktualisieren
-    # (z.B. Position als offen markieren, Zeitstempel setzen)
-    tracker["letzte_position"] = {
-        "zeit": timestamp,
-        "signal": signal,
-        "positionsgroesse": positionsgroesse
-    }
-    speichere_tracker(tracker)
+        # Für Demo: nur Sleep und break
+        time.sleep(10)
+        break
 
 if __name__ == "__main__":
-    while True:
-        main_loop()
-        time.sleep(60)  # alle 60 Sekunden prüfen, anpassen nach Bedarf
+    main()
