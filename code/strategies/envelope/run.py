@@ -386,6 +386,21 @@ if sell_signal and not params['use_shorts']:
     logger.warning("Verkaufssignal ignoriert, da Short-Positionen deaktiviert sind.")
     sys.exit()
 
+# +++ HINZUGEFÜGTE FUNKTION +++
+# Definition für fetch_balance, um den NameError zu beheben
+def fetch_balance():
+    """Holt Kontostand mit Wiederholungslogik"""
+    for attempt in range(params['max_retries']):
+        try:
+            balance_info = bitget.fetch_balance()
+            return balance_info
+        except Exception as e:
+            logger.error(f"Fehler beim Abrufen des Kontostands (Versuch {attempt+1}): {str(e)}")
+            if attempt < params['max_retries'] - 1:
+                time.sleep(params['retry_delay'])
+    logger.error("Kritischer Fehler: Kontostand konnte nicht abgerufen werden")
+    return {'USDT': {'total': 0.0}} # Sicherer Fallback-Wert
+
 # 5. Prüfung: Kontostand und Mindesthandelsgröße
 logger.info("Prüfe Kontostand und Mindesthandelsgröße...")
 balance_info = fetch_balance()
