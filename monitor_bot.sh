@@ -17,32 +17,24 @@ print_header() {
 
 # 1. Parameterübersicht mit Erklärungen
 print_header "STRATEGIEPARAMETER"
-params_section=$(awk '/params = \{/,/^}/' "$RUN_FILE")
-echo "$params_section" | awk -F '#' '/^ *'\''/ {
-    param = $1;
-    gsub(/^ *'\''|,/, "", param);
-    gsub(/:.*/, "", param);
-    getline;
-    desc = $0;
-    gsub(/^ *# */, "", desc);
-    printf "%-25s: %s\n", param, desc;
-}'
+grep "Strategieparameter:" "$LOG_FILE" | tail -1 | sed 's/.*Strategieparameter://' | sed 's/^ *//'
 
 # 2. Handelsstatistiken
 print_header "HANDELSSTATISTIK"
 signals_line=$(grep "Gefundene Signale" "$LOG_FILE" | tail -1)
 trades_count=$(grep "POSITION_OPENED" "$LOG_FILE" | grep "TRADE_DECISION" | wc -l)
 balance_line=$(grep "Verfügbarer Kontostand" "$LOG_FILE" | tail -1)
-min_trade_info=$(grep "INSUFFICIENT_TRADE_SIZE" "$LOG_FILE" | tail -1 | jq -r '.details')
+position_size_line=$(grep "Berechnete Positionsgröße" "$LOG_FILE" | tail -1)
 
 # Verbesserte Extraktion
 signals_count=$(echo "$signals_line" | grep -oP '\d+ Signale' | awk '{print $1}')
 balance=$(echo "$balance_line" | grep -oP '\d+\.\d{2}' | head -1)
+position_size=$(echo "$position_size_line" | grep -oP '[\d.]+(?= BTC)')
 
 echo "Signale (letzte Ausführung) : ${signals_count:-0}"
 echo "Eröffnete Trades (gesamt)   : ${trades_count:-0}"
 echo "Aktueller Kontostand        : ${balance:-0} USDT"
-echo "Mindesthandelsvolumen       : ${min_trade_info:-n/a}"
+echo "Berechnete Positionsgröße   : ${position_size:-0} BTC"
 
 # 3. Detaillierte Handelsentscheidungen
 print_header "DETAILLIERTE HANDELSENTSCHEDUNGEN"
