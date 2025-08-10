@@ -1,90 +1,76 @@
 #!/bin/bash
 
-# --- KONFIGURATION ---
-# Pfad zur Log-Datei des Bots
+# Pfad zur Log-Datei
 LOG_FILE="/home/ubuntu/utbot2/logs/envelope.log"
+# Pfad zur run.py, um Parameter auszulesen
+RUN_PY_FILE="/home/ubuntu/utbot2/code/strategies/envelope/run.py"
 
-# --- FUNKTIONEN ---
-
-# Funktion, um Parameter aus der Log-Datei zu extrahieren und zu formatieren
-function show_params() {
-    echo "## Übersicht aller eingestellten Parameter"
-    echo "----------------------------------------"
-    # Sucht nach der letzten Zeile mit "Eingestellte Parameter:" und druckt die folgenden Zeilen
-    # bis zur nächsten leeren Zeile oder einem ">>>" Zeichen
-    awk '/Eingestellte Parameter:/,/^--- ENDE ZUSAMMENFASSUNG ---/{if($0!~/Eingestellte Parameter/ && $0!~/END/ && $0!~/^---/ && $0!~/^$/) print}' "$LOG_FILE" | tail -$(grep -c '^' "$LOG_FILE") | uniq | grep '^-'
-}
-
-# Funktion, um die Anzahl der Signale und Trades zu extrahieren
-function show_stats() {
-    echo "## Statistik"
-    echo "------------------"
-    SIGNALS=$(grep 'Anzahl erzeugter Signale im Lookback' "$LOG_FILE" | tail -1 | awk -F': ' '{print $2}')
-    echo "- Anzahl der erzeugten Signale: ${SIGNALS:-0}"
-    TRADES=$(grep 'Anzahl der Trades seit Beginn' "$LOG_FILE" | tail -1 | awk -F': ' '{print $2}')
-    echo "- Anzahl der Trades: ${TRADES:-0}"
-}
-
-# Funktion, um den Kontostand zu extrahieren
-function show_balance() {
-    echo "## Kontostand"
-    echo "------------------"
-    BALANCE=$(grep 'Aktueller Kontostand' "$LOG_FILE" | tail -1 | awk -F': ' '{print $2}')
-    echo "- Kontostand: ${BALANCE:-Nicht verfügbar}"
-}
-
-# Funktion, um detaillierte Gründe für fehlgeschlagene Trades zu extrahieren
-function show_trade_reasons() {
-    echo "## Detaillierte Handelsentscheidungen und Gründe"
-    echo "----------------------------------------------"
-    DECISIONS=$(grep 'TRADE_DECISION' "$LOG_FILE" | tail -50)
-    if [ -z "$DECISIONS" ]; then
-        echo "Keine Handelsentscheidungen im Log gefunden."
-    else
-        echo "$DECISIONS" | while read -r line; do
-            JSON_PART=$(echo "$line" | sed 's/.*TRADE_DECISION: //')
-            if echo "$JSON_PART" | jq . &>/dev/null; then
-                echo "---"
-                TIMESTAMP=$(echo "$JSON_PART" | jq -r '.timestamp')
-                SIGNAL=$(echo "$JSON_PART" | jq -r '.signal')
-                DECISION=$(echo "$JSON_PART" | jq -r '.decision')
-                DETAILS=$(echo "$JSON_PART" | jq -r '.details')
-                echo "Zeitstempel: $TIMESTAMP"
-                echo "Signal: $SIGNAL"
-                echo "Entscheidung: $DECISION"
-                if [ "$DETAILS" != "null" ] && [ "$DETAILS" != "" ]; then
-                    echo "Details:"
-                    echo "$DETAILS" | jq -r 'to_entries[] | "  - \(.key): \(.value)"'
-                fi
-            fi
-        done
-        echo "---"
-    fi
-}
-
-# --- HAUPTTEIL DES SKRIPTS ---
-
-if [ ! -f "$LOG_FILE" ]; then
-    echo "Fehler: Die Log-Datei '$LOG_FILE' wurde nicht gefunden."
-    exit 1
+# Stelle sicher, dass jq installiert ist
+if ! command -v jq &> /dev/null
+then
+    echo "jq konnte nicht gefunden werden. Bitte installieren: sudo apt-get install jq"
+    exit
 fi
 
-clear
-echo "================================================="
-echo "   Trading-Bot Monitor - Status für $(date +'%Y-%m-%d %H:%M:%S')"
-echo "================================================="
+# --- Farbcodes für die Ausgabe ---
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
+RED='\033[0;31m'
+NC='\033[0m' # No Color
+
+echo -e "${CYAN}=======================================================${NC}"
+echo -e "${CYAN}          ENVELOPE TRADING BOT MONITORING            ${NC}"
+echo -e "${CYAN}=======================================================${NC}"
+echo -e "Letzte Aktualisierung: $(date)"
 echo ""
 
-show_params
+# --- 1. Übersicht aller eingestellten Parameter ---
+echo -e "${YELLOW}--- KONFIGURATIONSPARAMETER ---${NC}"
+echo "'symbol': '$(grep "'symbol':" $RUN_PY_FILE | head -n 1 | cut -d"'" -f2)' - Das zu handelnde Währungspaar."
+echo "'timeframe': '$(grep "'timeframe':" $RUN_PY_FILE | head -n 1 | cut -d"'" -f2)' - Die Zeiteinheit der Kerzen."
+echo "'margin_mode': '$(grep "'margin_mode':" $RUN_PY_FILE | head -n 1 | cut -d"'" -f2)' - Margin-Modus (isolated/crossed)."
+echo "'leverage': $(grep "'leverage':" $RUN_PY_FILE | head -n 1 | awk '{print $NF}' | tr -d ',' ) - Eingestellter Hebel."
+echo "'use_longs': $(grep "'use_longs':" $RUN_PY_FILE | head -n 1 | awk '{print $NF}' | tr -d ',' ) - Long-Positionen erlaubt."
+echo "'use_shorts': $(grep "'use_shorts':" $RUN_PY_FILE | head -n 1 | awk '{print $NF}' | tr -d ',' ) - Short-Positionen erlaubt."
 echo ""
 
-show_stats
+# --- 2. Übersicht der Strategieparameter ---
+echo -e "${YELLOW}--- STRATEGIEPARAMETER (UT-BOT) ---${NC}"
+echo "'ut_key_value': $(grep "'ut_key_value':" $RUN_PY_FILE | head -n 1 | awk '{print $NF}' | tr -d ',' ) - Sensitivität des ATR-Stops (höher = weniger empfindlich)."
+echo "'ut_atr_period': $(grep "'ut_atr_period':" $RUN_PY_FILE | head -n 1 | awk '{print $NF}' | tr -d ',' ) - Periodenlänge für die ATR-Berechnung."
+echo "'ut_heiken_ashi': $(grep "'ut_heiken_ashi':" $RUN_PY_FILE | head -n 1 | awk '{print $NF}' | tr -d ',' ) - Nutzung von Heikin-Ashi-Kerzen für Signale."
+echo "'signal_lookback_period': $(grep "'signal_lookback_period':" $RUN_PY_FILE | head -n 1 | awk '{print $NF}' | tr -d ',' ) - Anzahl der Kerzen, die rückwirkend geprüft werden."
 echo ""
 
-show_balance
+
+# --- 3. Bot-Statistiken aus dem Log ---
+echo -e "${YELLOW}--- BOT-STATISTIKEN (seit Log-Start) ---${NC}"
+SIGNALS_GENERATED=$(grep -c "VALID_SIGNAL_DETECTED" "$LOG_FILE")
+TRADES_OPENED=$(grep -c "POSITION_OPENED" "$LOG_FILE")
+
+echo -e "Erzeugte Signale: ${GREEN}$SIGNALS_GENERATED${NC}"
+echo -e "Ausgeführte Trades: ${GREEN}$TRADES_OPENED${NC}"
 echo ""
 
-show_trade_reasons
-echo ""
+# --- 4. Aktueller Status ---
+echo -e "${YELLOW}--- AKTUELLER STATUS (letzter Durchlauf) ---${NC}"
+LAST_BALANCE=$(grep "Verfügbarer Kontostand:" "$LOG_FILE" | tail -n 1 | awk -F': ' '{print $2}')
+LAST_DECISION_JSON=$(grep "TRADE_DECISION:" "$LOG_FILE" | tail -n 1 | sed 's/.*TRADE_DECISION: //')
 
-echo "================================================="
+if [ -z "$LAST_BALANCE" ]; then
+    echo -e "Kontostand: ${RED}Noch nicht im Log gefunden.${NC}"
+else
+    echo -e "Letzter Kontostand: ${GREEN}${LAST_BALANCE}${NC}"
+fi
+
+echo ""
+echo -e "${YELLOW}--- LETZTE HANDLUNGSENTSCHEIDUNG ---${NC}"
+if [ -z "$LAST_DECISION_JSON" ]; then
+    echo -e "${RED}Keine Handelsentscheidung im Log gefunden.${NC}"
+else
+    # Nutze jq, um die JSON-Ausgabe schön zu formatieren
+    echo "$LAST_DECISION_JSON" | jq .
+fi
+
+echo -e "${CYAN}=======================================================${NC}"
