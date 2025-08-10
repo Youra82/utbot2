@@ -1,122 +1,77 @@
 #!/bin/bash
 # monitor_bot.sh - Erweiterte Überwachung des Trading-Bots
 
-# Konfiguration
 LOG_FILE="/home/ubuntu/utbot2/logs/envelope.log"
 TRACKER_FILE="/home/ubuntu/utbot2/code/strategies/envelope/tracker_BTC-USDT-USDT.json"
-RUN_FILE="/home/ubuntu/utbot2/code/strategies/envelope/run.py"
-SECRET_FILE="/home/ubuntu/utbot2/secret.json"
-KEY_NAME="envelope"
 
-# Funktionen
 print_header() {
     echo "============================================================"
     echo "$1"
     echo "============================================================"
 }
 
-# 1. Parameterübersicht mit Erklärungen
+# 1. Strategieparameter inkl. Erklärung
 print_header "STRATEGIEPARAMETER"
-grep "Strategieparameter:" "$LOG_FILE" | tail -1 | sed 's/.*Strategieparameter://' | sed 's/^ *//'
+grep "Strategieparameter:" "$LOG_FILE" | tail -1 | sed 's/Strategieparameter: //'
 
-# 2. Handelsstatistiken
-print_header "HANDELSSTATISTIK"
+# 2. Anzahl der erzeugten Signale (letzte Ausführung)
+print_header "ANZAHL SIGNATUREN"
 signals_line=$(grep "Gefundene Signale" "$LOG_FILE" | tail -1)
-trades_count=$(grep "POSITION_OPENED" "$LOG_FILE" | grep "TRADE_DECISION" | wc -l)
-balance_line=$(grep "Verfügbarer Kontostand" "$LOG_FILE" | tail -1)
-position_size_line=$(grep "Berechnete Positionsgröße" "$LOG_FILE" | tail -1)
+signals=$(echo "$signals_line" | sed 's/.*Gefundene Signale: //')
+echo "Signale (letzte Ausführung): ${signals:-0}"
 
-# Verbesserte Extraktion
-signals_count=$(echo "$signals_line" | grep -oP '\d+ Signale' | awk '{print $1}')
-balance=$(echo "$balance_line" | grep -oP '\d+\.\d{2}' | head -1)
-position_size=$(echo "$position_size_line" | grep -oP '[\d.]+(?= BTC)')
+# 3. Anzahl der Trades (erfolgreiche Trade-Ausführungen)
+print_header "ANZAHL TRADES"
+trade_count=$(grep -c "\"decision\": \"Trade ausgeführt\"" "$LOG_FILE")
+echo "Trades insgesamt: $trade_count"
 
-echo "Signale (letzte Ausführung) : ${signals_count:-0}"
-echo "Eröffnete Trades (gesamt)   : ${trades_count:-0}"
-echo "Aktueller Kontostand        : ${balance:-0} USDT"
-echo "Berechnete Positionsgröße   : ${position_size:-0} BTC"
-
-# 3. Detaillierte Handelsentscheidungen
-print_header "DETAILLIERTE HANDELSENTSCHEDUNGEN"
-{
-    echo "Zeit | Symbol | Signal | Entscheidung | Details"
-    echo "------------------------------------------------------------"
-    grep "TRADE_DECISION" "$LOG_FILE" | tail -10 | while read -r line; do
-        json_data=$(echo "$line" | sed 's/.*TRADE_DECISION: //')
-        timestamp=$(echo "$json_data" | jq -r '.timestamp')
-        symbol=$(echo "$json_data" | jq -r '.symbol')
-        signal=$(echo "$json_data" | jq -r '.signal')
-        decision=$(echo "$json_data" | jq -r '.decision')
-        details=$(echo "$json_data" | jq -r '.details | tostring' | sed 's/^{//;s/}$//;s/"//g')
-        printf "%s | %s | %s | %s | %s\n" "$timestamp" "$symbol" "$signal" "$decision" "$details"
-    done
-} | column -t -s "|"
-
-# 4. Signalanalyse
-print_header "SIGNALANALYSE"
-{
-    echo "Zeit | Signal | Aktion | Grund"
-    echo "-----------------------------------------------"
-    grep -E "Gefundene Signale|Verwende|Signal abgelaufen|Öffne|Schließe|Status ist|Kontostand zu niedrig|Handelsgröße zu klein" "$LOG_FILE" \
-    | tac \
-    | awk '
-        /Gefundene Signale/ {signals=$5; next}
-        /Verwende Kauf-Signal/ {
-            signal = "Kauf"
-            reason = ""
-            for(i=4; i<=NF; i++) reason = reason $i " "
-            printf "%s | %s | ✅ REAGIERT | %s\n", $1, signal, reason
-        }
-        /Verwende Verkauf-Signal/ {
-            signal = "Verkauf"
-            reason = ""
-            for(i=4; i<=NF; i++) reason = reason $i " "
-            printf "%s | %s | ✅ REAGIERT | %s\n", $1, signal, reason
-        }
-        /Status ist/ {
-            status = $4
-            sub(/,/, "", status)
-            printf "%s | - | ❌ IGNORIERT | Tracker-Status: %s\n", $1, status
-        }
-        /Kontostand zu niedrig/ {
-            printf "%s | - | ❌ IGNORIERT | %s\n", $1, $0
-        }
-        /Handelsgröße zu klein/ {
-            reason = ""
-            for(i=3; i<=NF; i++) reason = reason $i " "
-            printf "%s | - | ❌ IGNORIERT | %s\n", $1, reason
-        }
-        /Öffne Long-Position/ {
-            signal = "Kauf"
-            reason = $0
-            printf "%s | %s | 🟢 POSITION ERÖFFNET | %s\n", $1, signal, reason
-        }
-        /Öffne Short-Position/ {
-            signal = "Verkauf"
-            reason = $0
-            printf "%s | %s | 🟢 POSITION ERÖFFNET | %s\n", $1, signal, reason
-        }
-        /Schließe .* Position/ {
-            signal = ($4 == "long") ? "Long" : "Short"
-            reason = $0
-            printf "%s | %s | 🔴 POSITION GESCHLOSSEN | %s\n", $1, signal, reason
-        }
-    ' \
-    | head -10
-} | column -t -s "|"
-
-# 5. Letzte Log-Einträge
-print_header "LETZTE SYSTEMEREIGNISSE"
-grep -v "TRADE_DECISION" "$LOG_FILE" | tail -n 15
-
-# 6. Positionsstatus
-print_header "AKTUELLE POSITIONEN"
-position_line=$(grep -A 1 "Offene Position" "$LOG_FILE" | tail -1 | grep -v "Kontostand")
-if [[ -n "$position_line" ]]; then
-    echo "$position_line"
+# 4. Aktueller Kontostand aus Tracker
+print_header "AKTUELLER KONTOSTAND (aus Tracker)"
+if [ -f "$TRACKER_FILE" ]; then
+    kontostand=$(jq -r '.kontostand // empty' "$TRACKER_FILE")
+    if [ -n "$kontostand" ]; then
+        echo "Kontostand laut Tracker: $kontostand USDT"
+    else
+        echo "Kontostand nicht im Tracker verfügbar"
+    fi
 else
-    echo "Keine aktiven Positionen"
+    echo "Tracker-Datei nicht gefunden"
 fi
+
+# 5. Detaillierte Gründe für nicht ausgeführte Trades (letzte 20)
+print_header "GRÜNDE FÜR NICHT AUSGEFÜHRTE TRADES (letzte 20)"
+grep "Trade abgelehnt" "$LOG_FILE" | tail -20 | while read -r line; do
+    json_part=$(echo "$line" | sed 's/.*TRADE_DECISION: //')
+    timestamp=$(echo "$json_part" | jq -r '.timestamp')
+    signal=$(echo "$json_part" | jq -r '.signal')
+    details=$(echo "$json_part" | jq -r '.details')
+    echo "[$timestamp] Signal: $signal | Grund: $details"
+done
+
+# 6. Info zu Mindest-Tradegröße und Hebel (falls in Logs vorhanden)
+print_header "MINDEST-TRADEGRÖSSE & HEBEL-INFO"
+grep "Handelsgröße-Info" "$LOG_FILE" | tail -5
+grep "empfohlener Hebel" "$LOG_FILE" | tail -5
+
+# 7. Aktuelle offene Position (aus Tracker, falls vorhanden)
+print_header "AKTUELLE POSITIONEN (aus Tracker)"
+if [ -f "$TRACKER_FILE" ]; then
+    letzte_pos=$(jq -r '.letzte_position // empty' "$TRACKER_FILE")
+    if [ -n "$letzte_pos" ]; then
+        zeit=$(echo "$letzte_pos" | jq -r '.zeit')
+        signal=$(echo "$letzte_pos" | jq -r '.signal')
+        groesse=$(echo "$letzte_pos" | jq -r '.positionsgroesse')
+        echo "Letzte Position: Zeit=$zeit | Signal=$signal | Positionsgröße=${groesse} BTC"
+    else
+        echo "Keine aktive Position im Tracker gefunden"
+    fi
+else
+    echo "Tracker-Datei nicht gefunden"
+fi
+
+# 8. Letzte 15 System-Logeinträge (ohne Trade-Entscheidungen)
+print_header "LETZTE SYSTEMEREIGNISSE (ohne Trade-Entscheidungen)"
+grep -v "TRADE_DECISION" "$LOG_FILE" | tail -15
 
 echo ""
 echo "Überwachung abgeschlossen um $(date)"
