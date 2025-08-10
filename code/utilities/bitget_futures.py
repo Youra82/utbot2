@@ -142,9 +142,9 @@ class BitgetFutures():
         """Sets the leverage for a given symbol."""
         try:
             self.session.set_leverage(leverage, symbol, params)
-        except ccxt.ExchangeError as e:
-            if "Leverage already set" in str(e) or "not need to be modified" in str(e):
-                print(f"Info: Leverage for {symbol} is already set to {leverage}x.")
+        except (ccxt.ExchangeError, TypeError) as e: # Hinzugefügt: TypeError-Behandlung
+            if "Leverage already set" in str(e) or "not need to be modified" in str(e) or "'NoneType' object is not iterable" in str(e):
+                print(f"Info: Leverage for {symbol} is already set to {leverage}x or an API error occurred that can be ignored.")
             else:
                 raise Exception(f"Failed to set leverage: {e}")
         except Exception as e:
