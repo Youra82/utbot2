@@ -1,3 +1,4 @@
+# run.py
 import os
 import sys
 import json
@@ -8,11 +9,28 @@ import pytz
 import time
 import logging
 from datetime import datetime, timedelta, timezone
+import requests # NEU: Für Telegram-Benachrichtigungen
 
 # Pfad für Modulimporte
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 
 from utilities.bitget_futures import BitgetFutures
+
+# --- TELEGRAM-FUNKTION UND KONFIGURATION ---
+def send_telegram_message(message):
+    bot_token = 'HIER_IHREN_BOT_TOKEN_EINFÜGEN'
+    chat_id = 'HIER_IHRE_CHAT_ID_EINFÜGEN'
+    url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+    payload = {
+        'chat_id': chat_id,
+        'text': message,
+        'parse_mode': 'Markdown'
+    }
+    try:
+        response = requests.post(url, data=payload)
+        response.raise_for_status()
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Fehler beim Senden der Telegram-Nachricht: {e}")
 
 # --- KONFIGURATION MIT DETAILBESCHREIBUNGEN ---
 params = {
@@ -287,6 +305,10 @@ if signals:
     signal_type, signal_time, signal_price = latest_signal
     signal_reason = f"{signal_type.upper()}-Signal von {signal_time.strftime('%Y-%m-%d %H:%M')} UTC"
     
+    # NEU: Telegram-Benachrichtigung für das Signal
+    telegram_msg = f"🔔 *Signal erkannt:* {signal_type.upper()}-Signal von {signal_time.strftime('%Y-%m-%d %H:%M')} UTC"
+    send_telegram_message(telegram_msg)
+    
     log_trade_decision(signal_type.upper(), 'VALID_SIGNAL_DETECTED', {
         'signal_time': signal_time.strftime('%Y-%m-%d %H:%M:%S'),
         'signal_price': float(signal_price),
@@ -321,6 +343,9 @@ open_position = len(positions) > 0
 
 if tracker_info['status'] != "ok_to_trade":
     reason = f"Tracker-Status ist '{tracker_info['status']}'"
+    # NEU: Telegram-Benachrichtigung für übersprungenen Trade
+    telegram_msg = f"⚠️ *Handel übersprungen:* Grund: Der Tracker-Status ist '{tracker_info['status']}'."
+    send_telegram_message(telegram_msg)
     log_trade_decision('NONE', 'TRADE_SKIPPED_TRACKER_STATUS', {'reason': reason})
     logger.warning(f"Handel übersprungen: {reason}")
     sys.exit()
@@ -335,17 +360,30 @@ if open_position:
     position_size = float(positions[0]['contracts']) * float(positions[0]['contractSize'])
     entry_price = float(positions[0]['entryPrice'])
     logger.info(f"Bestehende offene Position gefunden: {position_side.upper()} | Größe: {position_size:.4f} | Einstieg: {entry_price:.2f}")
+    
+    # NEU: Telegram-Nachricht bei offener Position
+    telegram_msg = f"ℹ️ *Offene Position:* {position_side.upper()} bei {entry_price:.2f} USDT."
+    send_telegram_message(telegram_msg)
+
 
     if (position_side == 'long' and sell_signal) or (position_side == 'short' and buy_signal):
         logger.info(f"Gegenläufiges Signal ({'Verkauf' if sell_signal else 'Kauf'}) erkannt. Schließe offene {position_side}-Position.")
         try:
             current_price = data.iloc[-1]['close']
             bitget.flash_close_position(params['symbol'])
+            
+            # NEU: Telegram-Benachrichtigung bei Positions-Schließung
+            telegram_msg = f"🚪 *Position geschlossen:* {position_side.upper()} bei {current_price:.2f} USDT aufgrund von gegenteiligem Signal."
+            send_telegram_message(telegram_msg)
+
             log_trade_decision(position_side.upper(), 'POSITION_CLOSED_DUE_TO_OPPOSITE_SIGNAL', {'exit_price': current_price})
             logger.info("Position erfolgreich geschlossen, mache Platz für neuen Trade.")
             open_position = False
             update_tracker_file(tracker_file, {"status": "ok_to_trade", "last_side": None, "stop_loss_ids": []})
         except Exception as e:
+            # NEU: Telegram-Benachrichtigung bei Fehler
+            telegram_msg = f"❌ *Fehler beim Schließen der Position:* {str(e)}"
+            send_telegram_message(telegram_msg)
             log_trade_decision(position_side.upper(), 'POSITION_CLOSE_ERROR', {'error': str(e)})
             logger.error(f"Kritischer Fehler beim Schließen der Position: {str(e)}")
             sys.exit()
@@ -356,11 +394,17 @@ if open_position:
         sys.exit()
 
 if buy_signal and not params['use_longs']:
+    # NEU: Telegram-Benachrichtigung, wenn Long-Trades deaktiviert sind
+    telegram_msg = f"⚠️ *Signal ignoriert:* Kaufsignal erkannt, aber Long-Trades sind deaktiviert."
+    send_telegram_message(telegram_msg)
     log_trade_decision('BUY', 'TRADE_SKIPPED_STRATEGY_DISABLED', {'reason': "Long-Positionen sind in den Parametern deaktiviert ('use_longs': False)."})
     logger.warning("Kaufsignal ignoriert, da Long-Positionen deaktiviert sind.")
     sys.exit()
 
 if sell_signal and not params['use_shorts']:
+    # NEU: Telegram-Benachrichtigung, wenn Short-Trades deaktiviert sind
+    telegram_msg = f"⚠️ *Signal ignoriert:* Verkaufssignal erkannt, aber Short-Trades sind deaktiviert."
+    send_telegram_message(telegram_msg)
     log_trade_decision('SELL', 'TRADE_SKIPPED_STRATEGY_DISABLED', {'reason': "Short-Positionen sind in den Parametern deaktiviert ('use_shorts': False)."})
     logger.warning("Verkaufssignal ignoriert, da Short-Positionen deaktiviert sind.")
     sys.exit()
@@ -412,6 +456,10 @@ if trade_size_usdt < min_trade_cost:
         reason = "Kontostand ist 0."
         details = {'current_balance': balance, 'message': "Kein Guthaben zum Handeln vorhanden."}
 
+    # NEU: Telegram-Benachrichtigung bei zu geringem Kontostand
+    telegram_msg = f"❌ *Handel fehlgeschlagen:* {reason}"
+    send_telegram_message(telegram_msg)
+
     log_trade_decision('NONE', 'INSUFFICIENT_FUNDS', details)
     logger.error(f"FEHLER: {reason}")
     if 'suggested_leverage' in details:
@@ -442,9 +490,17 @@ if buy_signal and params['use_longs']:
             tracker_info = {"status": "in_trade", "last_side": "long", "stop_loss_ids": []}
         
         update_tracker_file(tracker_file, tracker_info)
+        
+        # NEU: Telegram-Benachrichtigung für erfolgreichen Trade
+        telegram_msg = f"✅ *Long-Position eröffnet:* bei {current_price:.2f} USDT\nStop-Loss bei {stop_loss_price:.2f}"
+        send_telegram_message(telegram_msg)
+
         log_trade_decision('BUY', 'POSITION_OPENED', {'size_usdt': trade_size_usdt, 'price': current_price, 'stop_loss': stop_loss_price})
         action_taken = f"Long-Position eröffnet"
     except Exception as e:
+        # NEU: Telegram-Benachrichtigung bei Fehler
+        telegram_msg = f"❌ *Fehler Long-Position:* {str(e)}"
+        send_telegram_message(telegram_msg)
         log_trade_decision('BUY', 'POSITION_OPEN_ERROR', {'error': str(e)})
         logger.error(f"Fehler beim Öffnen der Long-Position: {str(e)}")
 
@@ -469,9 +525,17 @@ elif sell_signal and params['use_shorts']:
             tracker_info = {"status": "in_trade", "last_side": "short", "stop_loss_ids": []}
 
         update_tracker_file(tracker_file, tracker_info)
+
+        # NEU: Telegram-Benachrichtigung für erfolgreichen Trade
+        telegram_msg = f"✅ *Short-Position eröffnet:* bei {current_price:.2f} USDT\nStop-Loss bei {stop_loss_price:.2f}"
+        send_telegram_message(telegram_msg)
+
         log_trade_decision('SELL', 'POSITION_OPENED', {'size_usdt': trade_size_usdt, 'price': current_price, 'stop_loss': stop_loss_price})
         action_taken = f"Short-Position eröffnet"
     except Exception as e:
+        # NEU: Telegram-Benachrichtigung bei Fehler
+        telegram_msg = f"❌ *Fehler Short-Position:* {str(e)}"
+        send_telegram_message(telegram_msg)
         log_trade_decision('SELL', 'POSITION_OPEN_ERROR', {'error': str(e)})
         logger.error(f"Fehler beim Öffnen der Short-Position: {str(e)}")
 
