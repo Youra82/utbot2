@@ -1,77 +1,107 @@
 #!/bin/bash
-# monitor_bot.sh - Erweiterte Überwachung des Trading-Bots
 
+# --- KONFIGURATION ---
+# Pfad zur Log-Datei des Bots
 LOG_FILE="/home/ubuntu/utbot2/logs/envelope.log"
-TRACKER_FILE="/home/ubuntu/utbot2/code/strategies/envelope/tracker_BTC-USDT-USDT.json"
 
-print_header() {
-    echo "============================================================"
-    echo "$1"
-    echo "============================================================"
+# --- FUNKTIONEN ---
+
+# Funktion, um Parameter aus der Log-Datei zu extrahieren und zu formatieren
+function show_params() {
+    echo "## Übersicht aller eingestellten Parameter"
+    echo "----------------------------------------"
+    # Extrahiert alle Parameter und ihre Werte aus der letzten Zusammenfassung
+    awk '/--- MONITORING ZUSAMMENFASSUNG ---/{flag=1;next}/--- ENDE ZUSAMMENFASSUNG ---/{flag=0}flag' "$LOG_FILE" | grep -v 'Anzahl' | grep -v 'Kontostand' | grep -v 'Eingestellte'
 }
 
-# 1. Strategieparameter inkl. Erklärung
-print_header "STRATEGIEPARAMETER"
-grep "Strategieparameter:" "$LOG_FILE" | tail -1 | sed 's/Strategieparameter: //'
+# Funktion, um die Anzahl der Signale und Trades zu extrahieren
+function show_stats() {
+    echo "## Statistik"
+    echo "------------------"
+    # Extrahiert die Anzahl der erzeugten Signale
+    SIGNALS=$(grep 'Anzahl erzeugter Signale im Lookback' "$LOG_FILE" | tail -1 | awk -F': ' '{print $2}')
+    echo "- Anzahl der erzeugten Signale: ${SIGNALS:-0}"
+    
+    # Extrahiert die Gesamtzahl der Trades aus der letzten Zusammenfassung
+    TRADES=$(grep 'Anzahl der Trades seit Beginn' "$LOG_FILE" | tail -1 | awk -F': ' '{print $2}')
+    echo "- Anzahl der Trades: ${TRADES:-0}"
+}
 
-# 2. Anzahl der erzeugten Signale (letzte Ausführung)
-print_header "ANZAHL SIGNATUREN"
-signals_line=$(grep "Gefundene Signale" "$LOG_FILE" | tail -1)
-signals=$(echo "$signals_line" | sed 's/.*Gefundene Signale: //')
-echo "Signale (letzte Ausführung): ${signals:-0}"
+# Funktion, um den Kontostand zu extrahieren
+function show_balance() {
+    echo "## Kontostand"
+    echo "------------------"
+    # Extrahiert den aktuellen Kontostand
+    BALANCE=$(grep 'Aktueller Kontostand' "$LOG_FILE" | tail -1 | awk -F': ' '{print $2}')
+    echo "- Kontostand: ${BALANCE:-Nicht verfügbar}"
+}
 
-# 3. Anzahl der Trades (erfolgreiche Trade-Ausführungen)
-print_header "ANZAHL TRADES"
-trade_count=$(grep -c "\"decision\": \"Trade ausgeführt\"" "$LOG_FILE")
-echo "Trades insgesamt: $trade_count"
+# Funktion, um detaillierte Gründe für fehlgeschlagene Trades zu extrahieren
+function show_trade_reasons() {
+    echo "## Detaillierte Handelsentscheidungen und Gründe"
+    echo "----------------------------------------------"
+    
+    # Grep nach allen TRADE_DECISION-Einträgen
+    # 'tail -50' zeigt die letzten 50 Entscheidungen an, um die Ausgabe übersichtlich zu halten
+    DECISIONS=$(grep 'TRADE_DECISION' "$LOG_FILE" | tail -50)
 
-# 4. Aktueller Kontostand aus Tracker
-print_header "AKTUELLER KONTOSTAND (aus Tracker)"
-if [ -f "$TRACKER_FILE" ]; then
-    kontostand=$(jq -r '.kontostand // empty' "$TRACKER_FILE")
-    if [ -n "$kontostand" ]; then
-        echo "Kontostand laut Tracker: $kontostand USDT"
+    # Wenn keine Entscheidungen gefunden wurden
+    if [ -z "$DECISIONS" ]; then
+        echo "Keine Handelsentscheidungen im Log gefunden."
     else
-        echo "Kontostand nicht im Tracker verfügbar"
+        echo "$DECISIONS" | while read -r line; do
+            # Entfernt das Präfix bis zum JSON-Objekt
+            JSON_PART=$(echo "$line" | sed 's/.*TRADE_DECISION: //')
+            
+            # Formatiert die JSON-Ausgabe mit jq für bessere Lesbarkeit
+            # Überprüft, ob das JSON-Objekt valide ist, bevor es verarbeitet wird
+            if echo "$JSON_PART" | jq . &>/dev/null; then
+                echo "---"
+                TIMESTAMP=$(echo "$JSON_PART" | jq -r '.timestamp')
+                SIGNAL=$(echo "$JSON_PART" | jq -r '.signal')
+                DECISION=$(echo "$JSON_PART" | jq -r '.decision')
+                DETAILS=$(echo "$JSON_PART" | jq -r '.details')
+
+                echo "Zeitstempel: $TIMESTAMP"
+                echo "Signal: $SIGNAL"
+                echo "Entscheidung: $DECISION"
+                
+                # Prüft, ob es Details gibt und zeigt diese an
+                if [ "$DETAILS" != "null" ] && [ "$DETAILS" != "" ]; then
+                    echo "Details:"
+                    # jq verwenden, um die Details als Schlüssel-Wert-Paare auszugeben
+                    echo "$DETAILS" | jq -r 'to_entries[] | "  - \(.key): \(.value)"'
+                fi
+            fi
+        done
+        echo "---"
     fi
-else
-    echo "Tracker-Datei nicht gefunden"
+}
+
+# --- HAUPTTEIL DES SKRIPTS ---
+
+# Prüfen, ob die Log-Datei existiert
+if [ ! -f "$LOG_FILE" ]; then
+    echo "Fehler: Die Log-Datei '$LOG_FILE' wurde nicht gefunden."
+    exit 1
 fi
 
-# 5. Detaillierte Gründe für nicht ausgeführte Trades (letzte 20)
-print_header "GRÜNDE FÜR NICHT AUSGEFÜHRTE TRADES (letzte 20)"
-grep "Trade abgelehnt" "$LOG_FILE" | tail -20 | while read -r line; do
-    json_part=$(echo "$line" | sed 's/.*TRADE_DECISION: //')
-    timestamp=$(echo "$json_part" | jq -r '.timestamp')
-    signal=$(echo "$json_part" | jq -r '.signal')
-    details=$(echo "$json_part" | jq -r '.details')
-    echo "[$timestamp] Signal: $signal | Grund: $details"
-done
-
-# 6. Info zu Mindest-Tradegröße und Hebel (falls in Logs vorhanden)
-print_header "MINDEST-TRADEGRÖSSE & HEBEL-INFO"
-grep "Handelsgröße-Info" "$LOG_FILE" | tail -5
-grep "empfohlener Hebel" "$LOG_FILE" | tail -5
-
-# 7. Aktuelle offene Position (aus Tracker, falls vorhanden)
-print_header "AKTUELLE POSITIONEN (aus Tracker)"
-if [ -f "$TRACKER_FILE" ]; then
-    letzte_pos=$(jq -r '.letzte_position // empty' "$TRACKER_FILE")
-    if [ -n "$letzte_pos" ]; then
-        zeit=$(echo "$letzte_pos" | jq -r '.zeit')
-        signal=$(echo "$letzte_pos" | jq -r '.signal')
-        groesse=$(echo "$letzte_pos" | jq -r '.positionsgroesse')
-        echo "Letzte Position: Zeit=$zeit | Signal=$signal | Positionsgröße=${groesse} BTC"
-    else
-        echo "Keine aktive Position im Tracker gefunden"
-    fi
-else
-    echo "Tracker-Datei nicht gefunden"
-fi
-
-# 8. Letzte 15 System-Logeinträge (ohne Trade-Entscheidungen)
-print_header "LETZTE SYSTEMEREIGNISSE (ohne Trade-Entscheidungen)"
-grep -v "TRADE_DECISION" "$LOG_FILE" | tail -15
-
+clear
+echo "================================================="
+echo "   Trading-Bot Monitor - Status für $(date +'%Y-%m-%d %H:%M:%S')"
+echo "================================================="
 echo ""
-echo "Überwachung abgeschlossen um $(date)"
+
+show_params
+echo ""
+
+show_stats
+echo ""
+
+show_balance
+echo ""
+
+show_trade_reasons
+echo ""
+
+echo "================================================="
