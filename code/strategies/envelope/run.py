@@ -30,7 +30,7 @@ params = {
     'balance_fraction': 1,
     
     # Hebelwirkung für Positionen
-    'leverage': 1,
+    'leverage': 10,
     
     # Long-Positionen aktivieren
     'use_longs': True,
