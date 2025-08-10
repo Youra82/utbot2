@@ -30,7 +30,7 @@ params = {
     'balance_fraction': 1,
     
     # Hebelwirkung für Positionen
-    'leverage': 15,
+    'leverage': 1,
     
     # Long-Positionen aktivieren
     'use_longs': True,
@@ -49,6 +49,9 @@ params = {
     
     # Mindestfortschritt einer Kerze (0.0-1.0), bevor sie für Signale berücksichtigt wird
     'min_signal_confirmation': 0.2,
+    
+    # Maximale Preisänderung (%) seit Signalgenerierung für gültiges Signal (ENTFERNT)
+    # 'max_price_change_pct': 2.5,  # Wurde entfernt gemäß Benutzerwunsch
     
     # Sensitivität des UT-Bot Alerts (Höhere Werte = weniger empfindlich)
     'ut_key_value': 1,
@@ -69,10 +72,6 @@ params = {
     'retry_delay': 2,
 }
 
-# Logge alle Parameter bei Start
-logger_params = "\n".join([f"{k}: {v}" for k, v in params.items()])
-logger.info(f"Strategieparameter:\n{logger_params}")
-
 # --- PFADEINSTELLUNGEN ---
 # Absoluter Pfad zur API-Schlüsseldatei
 key_path = '/home/ubuntu/utbot2/secret.json'
@@ -81,8 +80,7 @@ key_path = '/home/ubuntu/utbot2/secret.json'
 key_name = 'envelope'
 
 # Tracker-Datei mit absolutem Pfad (speichert Handelsstatus)
-symbol_safe = params['symbol'].replace('/', '-').replace(':', '-')
-tracker_file = f"/home/ubuntu/utbot2/code/strategies/envelope/tracker_{symbol_safe}.json"
+tracker_file = f"/home/ubuntu/utbot2/code/strategies/envelope/tracker_{params['symbol'].replace('/', '-').replace(':', '-')}.json"
 
 # --- LOGGING EINRICHTEN ---
 log_dir = '/home/ubuntu/utbot2/logs'
@@ -420,31 +418,21 @@ def fetch_balance():
 
 balance_info = fetch_balance()
 balance = balance_info['USDT']['total']
-trade_size_usdt = (balance * params['trade_size_pct'] / 100) * params['leverage']
-logger.info(f"Verfügbarer Kontostand: {balance:.2f} USDT, Handelsgröße: {trade_size_usdt:.2f} USDT")
-
-# Position in BTC berechnen
-current_price = data.iloc[-1]['close']
-trade_size_btc = trade_size_usdt / current_price
-logger.info(f"Berechnete Positionsgröße: {trade_size_btc:.6f} BTC")
+trade_size = (balance * params['trade_size_pct'] / 100) * params['leverage']
+logger.info(f"Verfügbarer Kontostand: {balance:.2f} USDT, Handelsgröße: {trade_size:.2f} USDT")
 
 # Mindesthandelsvolumen prüfen
-try:
-    min_trade_size_btc = bitget.fetch_min_trade_size(params['symbol'])
-    min_trade_size_usdt = min_trade_size_btc * current_price
-    
-    if trade_size_btc < min_trade_size_btc:
-        reason = f"Handelsgröße zu klein! Min. {min_trade_size_usdt:.2f} USDT benötigt (aktuell: {trade_size_usdt:.2f} USDT)"
-        log_trade_decision('NONE', 'INSUFFICIENT_TRADE_SIZE', {
-            'min_trade_size_btc': min_trade_size_btc,
-            'min_trade_size_usdt': min_trade_size_usdt,
-            'current_trade_size_usdt': trade_size_usdt
-        })
-        logger.error(reason)
-        sys.exit()
-except Exception as e:
-    logger.error(f"Fehler beim Abrufen des Mindesthandelsvolumens: {str(e)}")
-    # Wir fahren fort, aber es könnte zu einem Fehler bei der Orderplatzierung kommen
+min_trade_size = 10  # Beispielwert, bitte anpassen
+if trade_size < min_trade_size:
+    min_required = min_trade_size / (params['trade_size_pct'] / 100 * params['leverage'])
+    reason = f"Kontostand zu niedrig! Benötige mindestens {min_required:.2f} USDT für einen Trade (Minimal: {min_trade_size} USDT)"
+    log_trade_decision('NONE', 'INSUFFICIENT_BALANCE', {
+        'current_balance': balance,
+        'min_required': min_required,
+        'min_trade_size': min_trade_size
+    })
+    logger.error(reason)
+    sys.exit()
 
 # Gegenläufige Position schließen
 if open_position:
@@ -480,7 +468,7 @@ if not open_position:
     if buy_signal and params['use_longs']:
         try:
             current_price = data.iloc[-1]['close']
-            bitget.place_market_order(params['symbol'], 'buy', trade_size_btc)
+            bitget.place_market_order(params['symbol'], 'buy', trade_size)
             action_reason = f"Öffne Long-Position basierend auf {signal_reason}"
             logger.info(action_reason)
             
@@ -490,7 +478,7 @@ if not open_position:
                 sl_order = bitget.place_trigger_market_order(
                     symbol=params['symbol'],
                     side='sell',
-                    amount=trade_size_btc,
+                    amount=trade_size,
                     trigger_price=stop_loss_price,
                     reduce=True
                 )
@@ -510,7 +498,7 @@ if not open_position:
                 update_tracker_file(tracker_file, tracker_info)
             
             log_trade_decision('BUY', 'POSITION_OPENED', {
-                'size': trade_size_btc,
+                'size': trade_size,
                 'price': current_price,
                 'stop_loss': stop_loss_price
             })
@@ -521,7 +509,7 @@ if not open_position:
     elif sell_signal and params['use_shorts']:
         try:
             current_price = data.iloc[-1]['close']
-            bitget.place_market_order(params['symbol'], 'sell', trade_size_btc)
+            bitget.place_market_order(params['symbol'], 'sell', trade_size)
             action_reason = f"Öffne Short-Position basierend auf {signal_reason}"
             logger.info(action_reason)
             
@@ -531,7 +519,7 @@ if not open_position:
                 sl_order = bitget.place_trigger_market_order(
                     symbol=params['symbol'],
                     side='buy',
-                    amount=trade_size_btc,
+                    amount=trade_size,
                     trigger_price=stop_loss_price,
                     reduce=True
                 )
@@ -551,7 +539,7 @@ if not open_position:
                 update_tracker_file(tracker_file, tracker_info)
             
             log_trade_decision('SELL', 'POSITION_OPENED', {
-                'size': trade_size_btc,
+                'size': trade_size,
                 'price': current_price,
                 'stop_loss': stop_loss_price
             })
