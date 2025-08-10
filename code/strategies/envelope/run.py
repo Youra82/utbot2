@@ -17,66 +17,28 @@ from utilities.bitget_futures import BitgetFutures
 
 # --- KONFIGURATION MIT DETAILBESCHREIBUNGEN ---
 params = {
-    # Handelsinstrument (z.B. BTC/USDT:USDT)
     'symbol': 'BTC/USDT:USDT',
-    
-    # Zeitrahmen für Kerzendaten (1m, 5m, 15m, 30m, 1h, 4h, 1d)
     'timeframe': '15m',
-    
-    # Margin-Modus: 'isolated' (isoliert) oder 'crossed' (Cross-Margin)
     'margin_mode': 'isolated',
-    
-    # Bruchteil des Kontos, der für Trades verwendet wird (0.0 - 1.0)
     'balance_fraction': 1,
-    
-    # Hebelwirkung für Positionen
     'leverage': 1,
-    
-    # Long-Positionen aktivieren
     'use_longs': True,
-    
-    # Short-Positionen aktivieren
     'use_shorts': True,
-    
-    # Stop-Loss in Prozent vom Einstiegspreis (0.4 = 0.4%)
     'stop_loss_pct': 0.4,
-    
-    # Stop-Loss-Orders aktivieren
     'enable_stop_loss': True,
-    
-    # Anzahl der Kerzen, in denen nach Signalen gesucht wird
     'signal_lookback_period': 6,
-    
-    # Mindestfortschritt einer Kerze (0.0-1.0), bevor sie für Signale berücksichtigt wird
     'min_signal_confirmation': 0.2,
-    
-    # Sensitivität des UT-Bot Alerts (Höhere Werte = weniger empfindlich)
     'ut_key_value': 1,
-    
-    # Periodenlänge für den Average True Range (ATR)
     'ut_atr_period': 10,
-    
-    # Signale auf Basis von Heikin-Ashi-Kerzen berechnen
     'ut_heiken_ashi': False,
-    
-    # Prozentsatz des Kontos pro Trade (100 = voller Kontoeinsatz)
     'trade_size_pct': 100,
-    
-    # Maximale Wiederholungsversuche bei API-Fehlern
     'max_retries': 3,
-    
-    # Wartezeit zwischen Wiederholungsversuchen in Sekunden
     'retry_delay': 2,
 }
 
 # --- PFADEINSTELLUNGEN ---
-# Absoluter Pfad zur API-Schlüsseldatei
 key_path = '/home/ubuntu/utbot2/secret.json'
-
-# Schlüsselname in der secret.json
 key_name = 'envelope'
-
-# Tracker-Datei mit absolutem Pfad (speichert Handelsstatus)
 tracker_file = f"/home/ubuntu/utbot2/code/strategies/envelope/tracker_{params['symbol'].replace('/', '-').replace(':', '-')}.json"
 
 # --- LOGGING EINRICHTEN ---
@@ -84,7 +46,6 @@ log_dir = '/home/ubuntu/utbot2/logs'
 os.makedirs(log_dir, exist_ok=True)
 log_file = os.path.join(log_dir, 'envelope.log')
 
-# Logger-Konfiguration
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s UTC: %(message)s',
@@ -96,7 +57,14 @@ logging.basicConfig(
 )
 logger = logging.getLogger('envelope_bot')
 
-# --- AUTHENTIFIZIERUNG ---
+# --------------------------
+# --- MONITORAUSGABE: VORZEITIGE ZUSAMMENFASSUNG FÜR ZUVERLÄSSIGKEIT ---
+logger.info("--- MONITORING ZUSAMMENFASSUNG ---")
+logger.info("Eingestellte Parameter:")
+for key, value in params.items():
+    logger.info(f"- {key}: {value}")
+# --------------------------
+
 current_utc = datetime.now(timezone.utc)
 logger.info(f">>> starting execution for {params['symbol']}")
 
@@ -130,19 +98,16 @@ def update_tracker_file(file_path, data):
     with open(file_path, 'w') as file:
         json.dump(data, file)
 
-# Tracker initialisieren
 tracker_info = read_tracker_file(tracker_file)
 
 # --- ORDER MANAGEMENT ---
 def cancel_all_orders():
     for attempt in range(params['max_retries']):
         try:
-            # Stoppe alle aktiven Orders
             orders = bitget.fetch_open_orders(params['symbol'])
             for order in orders:
                 bitget.cancel_order(order['id'], params['symbol'])
             
-            # Stoppe alle Trigger-Orders
             trigger_orders = bitget.fetch_open_trigger_orders(params['symbol'])
             for order in trigger_orders:
                 bitget.cancel_trigger_order(order['id'], params['symbol'])
@@ -156,57 +121,42 @@ def cancel_all_orders():
     logger.error("Kritischer Fehler: Orders konnten nicht storniert werden")
     return False
 
-# Alle bestehenden Orders stornieren
 cancel_all_orders()
 
 # --- UT BOT ALERTS LOGIK ---
 def calculate_heikin_ashi(data):
-    """Berechnet Heikin-Ashi-Kerzen aus OHLCV-Daten"""
     ha_data = pd.DataFrame(index=data.index)
-    
     if not data.empty:
         ha_close = (data['open'] + data['high'] + data['low'] + data['close']) / 4
         ha_open = (data['open'].iloc[0] + data['close'].iloc[0]) / 2
-        
         ha_data['ha_open'] = np.nan
         ha_data['ha_high'] = np.nan
         ha_data['ha_low'] = np.nan
         ha_data['ha_close'] = ha_close
-        
         for i in range(len(data)):
             if i == 0:
                 ha_data.iloc[0, ha_data.columns.get_loc('ha_open')] = ha_open
             else:
                 ha_open = (ha_data['ha_open'].iloc[i-1] + ha_data['ha_close'].iloc[i-1]) / 2
                 ha_data.iloc[i, ha_data.columns.get_loc('ha_open')] = ha_open
-            
             ha_high = max(data['high'].iloc[i], ha_data['ha_open'].iloc[i], ha_data['ha_close'].iloc[i])
             ha_low = min(data['low'].iloc[i], ha_data['ha_open'].iloc[i], ha_data['ha_close'].iloc[i])
-            
             ha_data.iloc[i, ha_data.columns.get_loc('ha_high')] = ha_high
             ha_data.iloc[i, ha_data.columns.get_loc('ha_low')] = ha_low
-    
     return ha_data
 
 def calculate_ut_signals(data, params):
-    """Berechnet Trading-Signale basierend auf UT-Bot-Algorithmus"""
     if params['ut_heiken_ashi']:
         ha_data = calculate_heikin_ashi(data)
         src = ha_data['ha_close']
     else:
         src = data['close']
-    
-    # ATR berechnen
     data['atr'] = ta.volatility.average_true_range(
         data['high'], data['low'], data['close'], 
         window=params['ut_atr_period']
     )
-    
     n_loss = params['ut_key_value'] * data['atr']
-    
-    # Trailing Stop berechnen
     x_atr_trailing_stop = np.zeros(len(data))
-    
     for i in range(len(data)):
         if i == 0:
             x_atr_trailing_stop[i] = src.iloc[i] - n_loss.iloc[i]
@@ -220,40 +170,28 @@ def calculate_ut_signals(data, params):
                     x_atr_trailing_stop[i] = src.iloc[i] - n_loss.iloc[i]
                 else:
                     x_atr_trailing_stop[i] = src.iloc[i] + n_loss.iloc[i]
-    
     data['x_atr_trailing_stop'] = x_atr_trailing_stop
-    data['ema1'] = src  # EMA(1) entspricht dem Preis
-    
-    # Signale generieren (exakt wie in TradingView)
+    data['ema1'] = src
     data['buy_signal'] = False
     data['sell_signal'] = False
-    
     for i in range(1, len(data)):
-        # TradingView: (ema > stop) and (ema[1] <= stop[1])
         buy_condition = (
             data['ema1'].iloc[i] > data['x_atr_trailing_stop'].iloc[i] and
             data['ema1'].iloc[i-1] <= data['x_atr_trailing_stop'].iloc[i-1] and
             src.iloc[i] > data['x_atr_trailing_stop'].iloc[i]
         )
-        
-        # TradingView: (ema < stop) and (ema[1] >= stop[1])
         sell_condition = (
             data['ema1'].iloc[i] < data['x_atr_trailing_stop'].iloc[i] and
             data['ema1'].iloc[i-1] >= data['x_atr_trailing_stop'].iloc[i-1] and
             src.iloc[i] < data['x_atr_trailing_stop'].iloc[i]
         )
-        
         if buy_condition:
             data.loc[data.index[i], 'buy_signal'] = True
-            
         if sell_condition:
             data.loc[data.index[i], 'sell_signal'] = True
-    
     return data
 
-# --- TRADE-ENTSCHEIDUNGSPROTOKOLL ---
 def log_trade_decision(signal_type, decision_reason, details=None):
-    """Protokolliert Handelsentscheidungen im JSON-Format"""
     decision_data = {
         'timestamp': datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S'),
         'symbol': params['symbol'],
@@ -265,10 +203,8 @@ def log_trade_decision(signal_type, decision_reason, details=None):
 
 # --- DATEN ABRUFEN UND SIGNALE BERECHNEN ---
 def fetch_ohlcv_data():
-    """Holt OHLCV-Daten mit Wiederholungslogik"""
     for attempt in range(params['max_retries']):
         try:
-            # Warte bis Kerze mindestens 1 Minute alt ist (für 15m-Kerzen)
             now = datetime.now(timezone.utc)
             timeframe_minutes = {'1m': 1, '5m': 5, '15m': 15, '30m': 30, '1h': 60, '2h': 120, '4h': 240, '1d': 1440}
             candle_duration = timedelta(minutes=timeframe_minutes.get(params['timeframe'], 60))
@@ -277,13 +213,11 @@ def fetch_ohlcv_data():
             if seconds_since_candle < 60:
                 log_trade_decision('NONE', 'EXECUTION_SKIPPED', {'reason': f"Zu früh in neuer Kerze ({seconds_since_candle}s), überspringe Ausführung"})
                 logger.info(f"Zu früh in neuer Kerze ({seconds_since_candle}s), überspringe Ausführung")
+                # ACHTUNG: Hier wird beendet, bevor die Parameter am Ende geloggt werden können
                 sys.exit()
 
-            # Mehr Kerzen holen für Rückblick
             lookback_candles = max(100, params['signal_lookback_period'] + 20)
             data = bitget.fetch_recent_ohlcv(params['symbol'], params['timeframe'], lookback_candles)
-            
-            # Zeitzonen für Index setzen
             data.index = data.index.tz_localize('UTC')
             return data
         except Exception as e:
@@ -294,15 +228,12 @@ def fetch_ohlcv_data():
     logger.critical("Kritischer Fehler: Daten konnten nicht abgerufen werden")
     sys.exit(1)
 
-# OHLCV-Daten abrufen
 data = fetch_ohlcv_data()
 data = calculate_ut_signals(data, params)
 
-# Diagnostische Ausgabe
 logger.info("\nLetzte 10 Kerzen Signale und Indikatoren:")
 logger.info(data[['open', 'high', 'low', 'close', 'atr', 'x_atr_trailing_stop', 'buy_signal', 'sell_signal']].tail(10).to_string())
 
-# Signalerkennung
 current_time = datetime.now(timezone.utc)
 signals = []
 timeframe_minutes = {
@@ -314,12 +245,8 @@ candle_duration = timedelta(minutes=timeframe_minutes.get(params['timeframe'], 6
 for i in range(1, min(params['signal_lookback_period'] + 1, len(data))):
     idx = -i
     candle_time = data.index[idx]
-    
-    # Kerzenfortschritt prüfen
     time_elapsed = current_time - candle_time
     candle_completion = min(1.0, time_elapsed.total_seconds() / candle_duration.total_seconds())
-    
-    # Nur signifikant fortgeschrittene Kerzen berücksichtigen
     if candle_completion >= params['min_signal_confirmation']:
         if data.iloc[idx]['buy_signal']:
             signals.append(('buy', candle_time, data.iloc[idx]['close']))
@@ -333,7 +260,6 @@ for i in range(1, min(params['signal_lookback_period'] + 1, len(data))):
 
 logger.info(f"Gefundene Signale: {len(signals)} in letzten {params['signal_lookback_period']} Kerzen")
 
-# Entscheidungslogik
 buy_signal = False
 sell_signal = False
 signal_used = None
@@ -342,16 +268,13 @@ signal_reason = "Keine Signale erkannt"
 if signals:
     latest_signal = signals[-1]
     signal_type, signal_time, signal_price = latest_signal
-    
     current_price = data.iloc[-1]['close']
     signal_reason = f"{signal_type.upper()}-Signal von {signal_time.strftime('%Y-%m-%d %H:%M')} UTC"
-    
     log_trade_decision(signal_type.upper(), 'VALID_SIGNAL', {
         'signal_time': signal_time.strftime('%Y-%m-%d %H:%M:%S'),
         'signal_price': float(signal_price),
         'current_price': float(current_price),
     })
-    
     if signal_type == 'buy':
         buy_signal = True
     else:
@@ -365,13 +288,10 @@ else:
     })
     logger.info(signal_reason)
 
-# Signalzusammenfassung für Monitoring
 signal_status = "KAUF" if buy_signal else "VERKAUF" if sell_signal else "KEIN SIGNAL"
 logger.info(f"Signalanalyse abgeschlossen: {signal_status} - {signal_reason}")
 
-# --- OFFENE POSITIONEN PRÜFEN ---
 def fetch_positions():
-    """Holt offene Positionen mit Wiederholungslogik"""
     for attempt in range(params['max_retries']):
         try:
             positions = bitget.fetch_open_positions(params['symbol'])
@@ -395,22 +315,18 @@ if open_position:
 else:
     position_side = None
 
-# Debug-Info
 logger.info(f"\nHandelsentscheidung Zusammenfassung:")
 logger.info(f"Kauf-Signal: {buy_signal} | Verkauf-Signal: {sell_signal}")
 logger.info(f"Offene Position: {open_position} | Position Seite: {position_side}")
 logger.info(f"Longs aktiviert: {params['use_longs']} | Shorts aktiviert: {params['use_shorts']}")
 
-# --- HANDEL AUSFÜHREN ---
 if tracker_info['status'] != "ok_to_trade":
     status_reason = f"Status ist {tracker_info['status']}, überspringe Handel"
     log_trade_decision('NONE', 'TRACKER_STATUS_BLOCKED', {'status': tracker_info['status']})
     logger.info(status_reason)
     sys.exit()
 
-# Kontostand abrufen
 def fetch_balance():
-    """Holt Kontostand mit Wiederholungslogik"""
     for attempt in range(params['max_retries']):
         try:
             balance_info = bitget.fetch_balance()
@@ -423,17 +339,13 @@ def fetch_balance():
     logger.error("Kritischer Fehler: Kontostand konnte nicht abgerufen werden")
     return {'USDT': {'total': 0}}
 
-# Funktion zur Berechnung des benötigten Hebels
 def calculate_required_leverage(current_balance, min_trade_size, trade_size_pct):
     if current_balance <= 0:
         return "N/A"
-    
     base_trade_size_without_leverage = current_balance * (trade_size_pct / 100)
     if base_trade_size_without_leverage == 0:
         return "N/A"
-        
     needed_leverage = min_trade_size / base_trade_size_without_leverage
-    
     return needed_leverage
 
 balance_info = fetch_balance()
@@ -441,16 +353,13 @@ balance = balance_info['USDT']['total']
 trade_size = (balance * params['trade_size_pct'] / 100) * params['leverage']
 logger.info(f"Verfügbarer Kontostand: {balance:.2f} USDT, Handelsgröße: {trade_size:.2f} USDT")
 
-# Mindesthandelsvolumen prüfen
-min_trade_size = 10  # Beispielwert, bitte anpassen
+min_trade_size = 10
 if trade_size < min_trade_size:
     min_required = min_trade_size / (params['trade_size_pct'] / 100 * params['leverage'])
     required_leverage = calculate_required_leverage(balance, min_trade_size, params['trade_size_pct'])
-    
     reason = f"Kontostand zu niedrig! Benötige mindestens {min_required:.2f} USDT für einen Trade (Minimal: {min_trade_size} USDT)."
     if required_leverage != "N/A":
         reason += f" Ein Hebel von {required_leverage:.2f} wäre nötig, um die Mindesttradegröße zu erreichen."
-    
     log_trade_decision('NONE', 'INSUFFICIENT_BALANCE', {
         'current_balance': balance,
         'min_required_balance': min_required,
@@ -460,7 +369,6 @@ if trade_size < min_trade_size:
     logger.error(reason)
     sys.exit()
 
-# Gegenläufige Position schließen
 if open_position:
     if (position_side == 'long' and sell_signal) or (position_side == 'short' and buy_signal):
         try:
@@ -468,17 +376,13 @@ if open_position:
             bitget.flash_close_position(params['symbol'])
             close_reason = f"Schließe {position_side} Position aufgrund gegenläufigen Signals"
             logger.info(close_reason)
-            
             log_trade_decision(position_side.upper(), 'POSITION_CLOSED', {
                 'reason': 'OPPOSITE_SIGNAL',
                 'size': position_size,
                 'entry_price': entry_price,
                 'exit_price': current_price
             })
-            
             open_position = False
-            
-            # Aktualisiere Tracker
             tracker_info = {
                 "status": "ok_to_trade",
                 "last_side": None,
@@ -490,7 +394,6 @@ if open_position:
             log_trade_decision(position_side.upper(), 'CLOSE_ERROR', {'error': str(e)})
             logger.error(f"Fehler beim Schließen der Position: {str(e)}")
 
-# Neue Position eröffnen
 if not open_position:
     if buy_signal and params['use_longs']:
         try:
@@ -498,7 +401,6 @@ if not open_position:
             bitget.place_market_order(params['symbol'], 'buy', trade_size)
             action_reason = f"Öffne Long-Position basierend auf {signal_reason}"
             logger.info(action_reason)
-            
             stop_loss_price = None
             if params['enable_stop_loss']:
                 stop_loss_price = current_price * (1 - params['stop_loss_pct'])
@@ -525,7 +427,6 @@ if not open_position:
                     "trades_count": tracker_info['trades_count'] + 1
                 }
                 update_tracker_file(tracker_file, tracker_info)
-            
             log_trade_decision('BUY', 'POSITION_OPENED', {
                 'size': trade_size,
                 'price': current_price,
@@ -534,14 +435,12 @@ if not open_position:
         except Exception as e:
             log_trade_decision('BUY', 'OPEN_ERROR', {'error': str(e)})
             logger.error(f"Fehler beim Öffnen der Long-Position: {str(e)}")
-    
     elif sell_signal and params['use_shorts']:
         try:
             current_price = data.iloc[-1]['close']
             bitget.place_market_order(params['symbol'], 'sell', trade_size)
             action_reason = f"Öffne Short-Position basierend auf {signal_reason}"
             logger.info(action_reason)
-            
             stop_loss_price = None
             if params['enable_stop_loss']:
                 stop_loss_price = current_price * (1 + params['stop_loss_pct'])
@@ -568,7 +467,6 @@ if not open_position:
                     "trades_count": tracker_info['trades_count'] + 1
                 }
                 update_tracker_file(tracker_file, tracker_info)
-            
             log_trade_decision('SELL', 'POSITION_OPENED', {
                 'size': trade_size,
                 'price': current_price,
@@ -587,8 +485,6 @@ if not open_position:
         log_trade_decision('NONE', 'NO_ACTION_TAKEN', {'reason': "Kein gültiges Signal für eine neue Position vorhanden."})
         logger.info("Kein gültiges Signal für eine neue Position vorhanden.")
 
-
-# Handelszusammenfassung für Monitoring
 if buy_signal or sell_signal:
     action_taken = "Position eröffnet oder Gegenposition geschlossen"
 else:
@@ -597,13 +493,8 @@ else:
 logger.info(f"Handelsaktion: {action_taken}")
 logger.info(f"<<< Ausführung abgeschlossen um {datetime.now(timezone.utc).strftime('%H:%M:%S')} UTC\n")
 
-# --- MONITORING ZUSAMMENFASSUNG ---
-logger.info("--- MONITORING ZUSAMMENFASSUNG ---")
-
-logger.info("Eingestellte Parameter:")
-for key, value in params.items():
-    logger.info(f"- {key}: {value}")
-
+# --------------------------
+# --- MONITORAUSGABE: ZUSÄTZLICHE STATISTIKEN AM ENDE ---
 logger.info(f"Anzahl erzeugter Signale im Lookback: {len(signals)}")
 logger.info(f"Anzahl der Trades seit Beginn: {tracker_info['trades_count']}")
 
@@ -613,3 +504,4 @@ else:
     logger.info("Kontostand konnte nicht ermittelt werden.")
 
 logger.info("--- ENDE ZUSAMMENFASSUNG ---")
+# --------------------------
