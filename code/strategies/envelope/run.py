@@ -1,4 +1,3 @@
-# run.py
 import os
 import sys
 import json
@@ -30,7 +29,7 @@ params = {
     'balance_fraction': 1,
     
     # Hebelwirkung für Positionen
-    'leverage': 1,
+    'leverage': 10,
     
     # Long-Positionen aktivieren
     'use_longs': True,
@@ -280,8 +279,6 @@ for i in range(1, min(params['signal_lookback_period'] + 1, len(data))):
         elif data.iloc[idx]['sell_signal']:
             signals.append(('sell', candle_time, data.iloc[idx]['close']))
 
-logger.info(f"Gefundene gültige Signale: {len(signals)} in letzten {params['signal_lookback_period']} Kerzen")
-
 buy_signal = False
 sell_signal = False
 signal_reason = "Kein Signal im Lookback-Zeitraum gefunden."
@@ -296,6 +293,12 @@ if signals:
         'current_price': float(data.iloc[-1]['close']),
     })
     logger.info(f"Signal erkannt: {signal_reason}")
+
+    # NEUER CODE: Setzt die Flaggen, damit die Ausführung nicht frühzeitig stoppt
+    if signal_type == 'buy':
+        buy_signal = True
+    elif signal_type == 'sell':
+        sell_signal = True
 
 # --- OFFENE POSITIONEN PRÜFEN ---
 def fetch_positions():
