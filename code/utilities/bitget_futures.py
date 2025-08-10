@@ -3,13 +3,16 @@ import time
 import pandas as pd
 from typing import Any, Optional, Dict, List
 
+
 class BitgetFutures():
     def __init__(self, api_setup: Optional[Dict[str, Any]] = None) -> None:
-        if api_setup is None:
+
+        if api_setup == None:
             self.session = ccxt.bitget()
         else:
             api_setup.setdefault("options", {"defaultType": "future"})
             self.session = ccxt.bitget(api_setup)
+
         self.markets = self.session.load_markets()
   
     def fetch_ticker(self, symbol: str) -> Dict[str, Any]:
@@ -18,18 +21,12 @@ class BitgetFutures():
         except Exception as e:
             raise Exception(f"Failed to fetch ticker for {symbol}: {e}")
 
-    def fetch_min_trade_size(self, symbol: str) -> float:
-        """Holt das Mindesthandelsvolumen für ein Symbol"""
+    def fetch_min_amount_tradable(self, symbol: str) -> float:
         try:
-            market = self.session.market(symbol)
-            return float(market['limits']['amount']['min'])
+            return self.markets[symbol]['limits']['amount']['min']
         except Exception as e:
-            raise Exception(f"Failed to fetch minimum trade size: {e}")
-
-    def calculate_position_size(self, usdt_amount: float, current_price: float) -> float:
-        """Berechnet die Positionsgröße in BTC basierend auf USDT-Betrag"""
-        return usdt_amount / current_price
-
+            raise Exception(f"Failed to fetch minimum amount tradable: {e}")        
+        
     def amount_to_precision(self, symbol: str, amount: float) -> str:
         try:
             return self.session.amount_to_precision(symbol, amount)
@@ -89,7 +86,11 @@ class BitgetFutures():
     def fetch_open_positions(self, symbol: str) -> List[Dict[str, Any]]:
         try:
             positions = self.session.fetch_positions([symbol], params={'productType': 'USDT-FUTURES', 'marginCoin': 'USDT'})
-            return [p for p in positions if float(p['info']['holdVol']) > 0]
+            real_positions = []
+            for position in positions:
+                if float(position['contracts']) > 0:
+                    real_positions.append(position)
+            return real_positions
         except Exception as e:
             raise Exception(f"Failed to fetch open positions: {e}")
 
@@ -97,7 +98,7 @@ class BitgetFutures():
         try:
             return self.session.close_position(symbol, side=side)
         except Exception as e:
-            raise Exception(f"Failed to close position for {symbol}", e)
+            raise Exception(f"Failed to fetch closed order for {symbol}", e)
 
     def set_margin_mode(self, symbol: str, margin_mode: str = 'isolated') -> None:
         try:
@@ -142,8 +143,7 @@ class BitgetFutures():
     def fetch_recent_ohlcv(self, symbol: str, timeframe: str, limit: int = 1000) -> pd.DataFrame:
         bitget_fetch_limit = 200
         timeframe_to_milliseconds = {
-            '1m': 60000, '5m': 300000, '15m': 900000, '30m': 1800000, 
-            '1h': 3600000, '2h': 7200000, '4h': 14400000, '1d': 86400000,
+            '1m': 60000, '5m': 300000, '15m': 900000, '30m': 1800000, '1h': 3600000, '2h': 7200000, '4h': 14400000, '1d': 86400000,
         }
         end_timestamp = int(time.time() * 1000)
         start_timestamp = end_timestamp - (limit * timeframe_to_milliseconds[timeframe])
@@ -151,10 +151,8 @@ class BitgetFutures():
 
         ohlcv_data = []
         while current_timestamp < end_timestamp:
-            request_end_timestamp = min(
-                current_timestamp + (bitget_fetch_limit * timeframe_to_milliseconds[timeframe]),
-                end_timestamp
-            )
+            request_end_timestamp = min(current_timestamp + (bitget_fetch_limit * timeframe_to_milliseconds[timeframe]),
+                                        end_timestamp)
             try:
                 fetched_data = self.session.fetch_ohlcv(
                     symbol,
@@ -180,18 +178,24 @@ class BitgetFutures():
 
     def place_market_order(self, symbol: str, side: str, amount: float, reduce: bool = False) -> Dict[str, Any]:
         try:
-            params = {'reduceOnly': reduce}
+            params = {
+                'reduceOnly': reduce,
+            }
             amount = self.amount_to_precision(symbol, amount)
             return self.session.create_order(symbol, 'market', side, amount, params=params)
+
         except Exception as e:
             raise Exception(f"Failed to place market order of {amount} {symbol}: {e}")
 
     def place_limit_order(self, symbol: str, side: str, amount: float, price: float, reduce: bool = False) -> Dict[str, Any]:
         try:
-            params = {'reduceOnly': reduce}
+            params = {
+                'reduceOnly': reduce,
+            }
             amount = self.amount_to_precision(symbol, amount)
             price = self.price_to_precision(symbol, price)
             return self.session.create_order(symbol, 'limit', side, amount, price, params=params)
+
         except Exception as e:
             raise Exception(f"Failed to place limit order of {amount} {symbol} at price {price}: {e}")
 
