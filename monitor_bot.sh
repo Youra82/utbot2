@@ -25,17 +25,18 @@ echo -e "${CYAN}=======================================================${NC}"
 echo -e "Letzte Aktualisierung: $(date)"
 echo ""
 
-# --- 1. Übersicht aller eingestellten Parameter ---
+# --- 1. Übersicht aller eingestellten Parameter (KORRIGIERT) ---
 echo -e "${YELLOW}--- KONFIGURATIONSPARAMETER ---${NC}"
-echo "'symbol': '$(grep "'symbol':" $RUN_PY_FILE | head -n 1 | cut -d"'" -f2)' - Das zu handelnde Währungspaar."
-echo "'timeframe': '$(grep "'timeframe':" $RUN_PY_FILE | head -n 1 | cut -d"'" -f2)' - Die Zeiteinheit der Kerzen."
-echo "'margin_mode': '$(grep "'margin_mode':" $RUN_PY_FILE | head -n 1 | cut -d"'" -f2)' - Margin-Modus (isolated/crossed)."
+# Robusteres Auslesen mit awk, das das letzte Feld nimmt und Kommas/Anführungszeichen entfernt
+echo "'symbol': '$(grep "'symbol':" $RUN_PY_FILE | head -n 1 | awk '{print $NF}' | tr -d "',")' - Das zu handelnde Währungspaar."
+echo "'timeframe': '$(grep "'timeframe':" $RUN_PY_FILE | head -n 1 | awk '{print $NF}' | tr -d "',")' - Die Zeiteinheit der Kerzen."
+echo "'margin_mode': '$(grep "'margin_mode':" $RUN_PY_FILE | head -n 1 | awk '{print $NF}' | tr -d "',")' - Margin-Modus (isolated/crossed)."
 echo "'leverage': $(grep "'leverage':" $RUN_PY_FILE | head -n 1 | awk '{print $NF}' | tr -d ',' ) - Eingestellter Hebel."
 echo "'use_longs': $(grep "'use_longs':" $RUN_PY_FILE | head -n 1 | awk '{print $NF}' | tr -d ',' ) - Long-Positionen erlaubt."
 echo "'use_shorts': $(grep "'use_shorts':" $RUN_PY_FILE | head -n 1 | awk '{print $NF}' | tr -d ',' ) - Short-Positionen erlaubt."
 echo ""
 
-# --- 2. Übersicht der Strategieparameter ---
+# --- 2. Übersicht der Strategieparameter (KORRIGIERT) ---
 echo -e "${YELLOW}--- STRATEGIEPARAMETER (UT-BOT) ---${NC}"
 echo "'ut_key_value': $(grep "'ut_key_value':" $RUN_PY_FILE | head -n 1 | awk '{print $NF}' | tr -d ',' ) - Sensitivität des ATR-Stops (höher = weniger empfindlich)."
 echo "'ut_atr_period': $(grep "'ut_atr_period':" $RUN_PY_FILE | head -n 1 | awk '{print $NF}' | tr -d ',' ) - Periodenlänge für die ATR-Berechnung."
@@ -53,9 +54,10 @@ echo -e "Erzeugte Signale: ${GREEN}$SIGNALS_GENERATED${NC}"
 echo -e "Ausgeführte Trades: ${GREEN}$TRADES_OPENED${NC}"
 echo ""
 
-# --- 4. Aktueller Status ---
+# --- 4. Aktueller Status (KORRIGIERT) ---
 echo -e "${YELLOW}--- AKTUELLER STATUS (letzter Durchlauf) ---${NC}"
-LAST_BALANCE=$(grep "Verfügbarer Kontostand:" "$LOG_FILE" | tail -n 1 | awk -F': ' '{print $2}')
+# Robusteres Auslesen mit sed, das alles bis zum letzten ": " entfernt
+LAST_BALANCE=$(grep "Verfügbarer Kontostand:" "$LOG_FILE" | tail -n 1 | sed 's/.*: //')
 LAST_DECISION_JSON=$(grep "TRADE_DECISION:" "$LOG_FILE" | tail -n 1 | sed 's/.*TRADE_DECISION: //')
 
 if [ -z "$LAST_BALANCE" ]; then
