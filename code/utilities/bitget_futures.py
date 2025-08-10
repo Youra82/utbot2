@@ -26,6 +26,10 @@ class BitgetFutures():
         except Exception as e:
             raise Exception(f"Failed to fetch minimum trade size: {e}")
 
+    def calculate_position_size(self, usdt_amount: float, current_price: float) -> float:
+        """Berechnet die Positionsgröße in BTC basierend auf USDT-Betrag"""
+        return usdt_amount / current_price
+
     def amount_to_precision(self, symbol: str, amount: float) -> str:
         try:
             return self.session.amount_to_precision(symbol, amount)
