@@ -263,6 +263,20 @@ def log_trade_decision(signal_type, decision_code, details=None):
     }
     logger.info(f"TRADE_DECISION: {json.dumps(decision_data)}")
 
+# NEUE LOGIK: fetch_balance muss hier stehen, bevor es aufgerufen wird.
+def fetch_balance():
+    """Holt Kontostand mit Wiederholungslogik"""
+    for attempt in range(params['max_retries']):
+        try:
+            balance_info = bitget.fetch_balance()
+            return balance_info
+        except Exception as e:
+            logger.error(f"Fehler beim Abrufen des Kontostands (Versuch {attempt+1}): {str(e)}")
+            if attempt < params['max_retries'] - 1:
+                time.sleep(params['retry_delay'])
+    logger.error("Kritischer Fehler: Kontostand konnte nicht abgerufen werden")
+    return {'USDT': {'total': 0.0}}
+
 # --- DATEN ABRUFEN UND SIGNALE BERECHNEN ---
 def fetch_ohlcv_data():
     for attempt in range(params['max_retries']):
@@ -334,22 +348,36 @@ open_position = len(positions) > 0
 # #################### ÜBERARBEITETER HANDELS-LOGIKBLOCK ######################
 # #############################################################################
 
+# NEUE LOGIK: Abgleich des lokalen Status mit dem tatsächlichen Börsen-Status
+# Dies behebt das Problem, dass der Bot in "in_trade" stecken bleibt,
+# wenn eine Position extern (manuell, durch SL/TP) geschlossen wurde.
+if tracker_info['status'] == "in_trade" and not open_position:
+    old_status = tracker_info['status']
+    tracker_info = {"status": "ok_to_trade", "last_side": None, "stop_loss_ids": []}
+    update_tracker_file(tracker_file, tracker_info)
+    
+    telegram_msg = f"ℹ️ *Status-Abgleich:* Alter Tracker-Status war '{old_status}', aber keine offene Position gefunden. Status auf 'ok_to_trade' zurückgesetzt."
+    send_telegram_message(telegram_msg)
+    
+    logger.warning(f"Tracker-Status war '{old_status}', aber es wurde keine offene Position gefunden. Status in 'tracker.json' auf 'ok_to_trade' zurückgesetzt.")
+    
+# Prüfe den Status nach dem Abgleich
+if tracker_info['status'] != "ok_to_trade":
+    reason = f"Tracker-Status ist '{tracker_info['status']}'"
+    telegram_msg = f"⚠️ *Handel übersprungen:* Grund: Der Tracker-Status ist '{tracker_info['status']}'."
+    send_telegram_message(telegram_msg)
+    log_trade_decision('NONE', 'TRADE_SKIPPED_TRACKER_STATUS', {'reason': reason})
+    logger.warning(f"Handel übersprungen: {reason}")
+    sys.exit()
+
 # 1. Fall: Kein Signal gefunden.
 if not buy_signal and not sell_signal:
     log_trade_decision('NONE', 'NO_VALID_SIGNAL', {'lookback_period': params['signal_lookback_period'], 'min_confirmation': params['min_signal_confirmation']})
     logger.info("Kein aktives Handelssignal gefunden. Beende Ausführung.")
     sys.exit()
 
-# 2. Fall: Ein Signal wurde erkannt, aber der Bot ist bereits in einem Trade (aus vorherigem Durchlauf).
-if tracker_info['status'] != "ok_to_trade":
-    reason = f"Tracker-Status ist '{tracker_info['status']}'"
-    telegram_msg = f"⚠️ *Handel übersprungen:* Grund: Der Bot ist bereits in einem Trade und hat ein neues Signal erkannt. Tracker-Status ist '{tracker_info['status']}'."
-    send_telegram_message(telegram_msg)
-    log_trade_decision('NONE', 'TRADE_SKIPPED_TRACKER_STATUS', {'reason': reason})
-    logger.warning(f"Handel übersprungen: {reason}")
-    sys.exit()
 
-# 3. Fall: Es besteht eine offene Position.
+# 2. Fall: Es besteht eine offene Position.
 if open_position:
     position_side = positions[0]['side']
     entry_price = float(positions[0]['entryPrice'])
@@ -380,7 +408,7 @@ if open_position:
         logger.info(reason + " Keine Aktion erforderlich.")
         sys.exit()
 
-# 4. Fall: Kein offener Trade und ein gültiges Signal -> neue Position eröffnen.
+# 3. Fall: Kein offener Trade und ein gültiges Signal -> neue Position eröffnen.
 logger.info("Prüfe Kontostand und Mindesthandelsgröße...")
 balance_info = fetch_balance()
 balance = balance_info.get('USDT', {}).get('total', 0.0)
