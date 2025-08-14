@@ -62,7 +62,7 @@ params = {
     'use_shorts': True,
     
     # Stop-Loss in Prozent vom Einstiegspreis (0.4 = 0.4%)
-    'stop_loss_pct': 0.004, # Korrigiert auf 0.4% = 0.004
+    'stop_loss_pct': 0.004,
     
     # Stop-Loss-Orders aktivieren
     'enable_stop_loss': True,
@@ -345,7 +345,7 @@ positions = fetch_positions()
 open_position = len(positions) > 0
 
 # #############################################################################
-# #################### ÜBERARBEITETER HANDELS-LOGIKBLOCK ######################
+# #################### KORRIGIERTER HANDELS-LOGIKBLOCK ######################
 # #############################################################################
 
 # NEUE LOGIK: Abgleich des lokalen Status mit dem tatsächlichen Börsen-Status
@@ -380,9 +380,8 @@ if not buy_signal and not sell_signal:
 # 2. Fall: Es besteht eine offene Position.
 if open_position:
     position_side = positions[0]['side']
-    entry_price = float(positions[0]['entryPrice'])
     
-    # Unterfall A: Gegenläufiges Signal -> Position schließen
+    # Unterfall A: Gegensignal -> Position schließen
     if (position_side == 'long' and sell_signal) or (position_side == 'short' and buy_signal):
         try:
             current_price = data.iloc[-1]['close']
@@ -401,12 +400,16 @@ if open_position:
             log_trade_decision(position_side.upper(), 'POSITION_CLOSE_ERROR', {'error': str(e)})
             logger.error(f"Kritischer Fehler beim Schließen der Position: {str(e)}")
             sys.exit()
+            
     # Unterfall B: Signal in die gleiche Richtung -> Nichts tun
     else:
         reason = f"Ein {'Kauf' if buy_signal else 'Verkauf'}-Signal wurde erkannt, aber es besteht bereits eine offene {position_side}-Position in die gleiche Richtung."
         log_trade_decision('NONE', 'TRADE_SKIPPED_ALREADY_IN_POSITION', {'signal': 'buy' if buy_signal else 'sell', 'position_side': position_side})
         logger.info(reason + " Keine Aktion erforderlich.")
-        sys.exit()
+        
+    logger.info(f"<<< Ausführung abgeschlossen um {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')} UTC\n")
+    sys.exit()
+
 
 # 3. Fall: Kein offener Trade und ein gültiges Signal -> neue Position eröffnen.
 logger.info("Prüfe Kontostand und Mindesthandelsgröße...")
@@ -417,12 +420,9 @@ trade_size_usdt = (balance * (params['trade_size_pct'] / 100)) * params['leverag
 logger.info(f"Verfügbarer Kontostand: {balance:.2f} USDT")
 logger.info(f"Geplante Handelsgröße (inkl. Hebel {params['leverage']}x): {trade_size_usdt:.2f} USDT")
 
-try:
-    min_trade_cost = bitget.fetch_min_cost(params['symbol'])
-except Exception as e:
-    logger.error(f"Konnte minimale Handelskosten nicht abrufen: {e}. Verwende Fallback von 5 USDT.")
-    min_trade_cost = 5.0
-
+# Korrigierte Logik: 'fetch_min_cost' aus der BitgetFutures-Klasse entfernen
+# da sie nicht existiert, und einen festen Fallback-Wert verwenden.
+min_trade_cost = 5.0
 logger.info(f"Minimale erforderliche Handelsgröße (Kosten): {min_trade_cost:.2f} USDT")
 
 if trade_size_usdt < min_trade_cost:
@@ -522,6 +522,7 @@ elif sell_signal and params['use_shorts']:
         logger.error(f"Fehler beim Öffnen der Short-Position: {str(e)}")
         
 else:
+    # Dieser Fall wird erreicht, wenn 'use_longs' oder 'use_shorts' False ist.
     telegram_msg = f"⚠️ *Signal ignoriert:* {signal_reason}. Trading ist in diese Richtung deaktiviert."
     send_telegram_message(telegram_msg)
     log_trade_decision('NONE', 'TRADE_SKIPPED_STRATEGY_DISABLED', {'reason': "Trade in diese Richtung deaktiviert."})
