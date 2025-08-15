@@ -16,13 +16,20 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 
 from utilities.bitget_futures import BitgetFutures
 
-# --- TELEGRAM-FUNKTION UND KONFIGURATION ---
+# --- TELEGRAM-KONFIGURATION (wird später aus secret.json geladen) ---
+telegram_bot_token = None
+telegram_chat_id = None
+
+# --- TELEGRAM-FUNKTION ---
 def send_telegram_message(message):
-    bot_token = 'HIER_IHREN_BOT_TOKEN_EINFÜGEN'
-    chat_id = 'HIER_IHRE_CHAT_ID_EINFÜGEN'
-    url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+    global telegram_bot_token, telegram_chat_id
+    if not telegram_bot_token or not telegram_chat_id:
+        logger.warning("Telegram-Daten in secret.json nicht gefunden. Nachricht wird nicht gesendet.")
+        return
+
+    url = f"https://api.telegram.org/bot{telegram_bot_token}/sendMessage"
     payload = {
-        'chat_id': chat_id,
+        'chat_id': telegram_chat_id,
         'text': message,
         'parse_mode': 'Markdown'
     }
@@ -117,11 +124,26 @@ logger = logging.getLogger('envelope_bot')
 current_utc = datetime.now(timezone.utc)
 logger.info(f">>> starting execution for {params['symbol']}")
 
+# --- LADE ZUGANGSDATEN ---
+try:
+    with open(key_path, "r") as f:
+        secrets = json.load(f)
+        api_setup = secrets[key_name]
+        telegram_setup = secrets.get('telegram', {})
+    
+    # Lade Telegram-Daten in die globalen Variablen
+    telegram_bot_token = telegram_setup.get('bot_token')
+    telegram_chat_id = telegram_setup.get('chat_id')
+except FileNotFoundError:
+    logger.critical(f"Kritischer Fehler: secret.json nicht unter {key_path} gefunden.")
+    sys.exit(1)
+except KeyError as e:
+    logger.critical(f"Kritischer Fehler: Fehlender Schlüssel '{e}' in secret.json.")
+    sys.exit(1)
+
 def create_bitget_connection():
     for attempt in range(params['max_retries']):
         try:
-            with open(key_path, "r") as f:
-                api_setup = json.load(f)[key_name]
             bitget = BitgetFutures(api_setup)
             logger.info("API-Verbindung erfolgreich hergestellt")
             return bitget
@@ -130,17 +152,27 @@ def create_bitget_connection():
             if attempt < params['max_retries'] - 1:
                 time.sleep(params['retry_delay'])
     logger.critical("Kritischer Fehler: API-Verbindung fehlgeschlagen")
+    send_telegram_message("❌ *Kritischer Fehler:* API-Verbindung zu Bitget fehlgeschlagen. Bot wird beendet.")
     sys.exit(1)
 
 bitget = create_bitget_connection()
 
+# ######################################################################
+# ############# KORRIGIERTER START-SETUP BLOCK #########################
+# ######################################################################
 try:
     bitget.set_margin_mode(params['symbol'], params['margin_mode'])
     bitget.set_leverage(params['symbol'], params['leverage'])
     logger.info(f"Initial: Margin-Modus auf '{params['margin_mode']}' und Hebel auf '{params['leverage']}' gesetzt.")
 except Exception as e:
-    logger.error(f"Kritischer Fehler: Konnte Margin-Modus oder Hebel nicht einstellen: {e}")
-    sys.exit(1)
+    # Prüfen, ob es der erwartete Fehler ist, wenn eine Position offen ist (Fehlercode 45117)
+    if "45117" in str(e) or "margin mode cannot be adjusted" in str(e):
+        logger.info("Margin-Modus/Hebel bereits durch offene Position festgelegt. Überspringe Setup.")
+    else:
+        # Wenn es ein anderer, unerwarteter Fehler ist, dann beenden
+        logger.error(f"Kritischer Fehler: Konnte Margin-Modus oder Hebel nicht einstellen: {e}")
+        send_telegram_message(f"❌ *Kritischer Fehler:* Margin-Modus/Hebel konnte nicht eingestellt werden: {e}")
+        sys.exit(1)
 
 # --- TRACKER-DATEI HANDLING ---
 def read_tracker_file(file_path):
@@ -263,7 +295,7 @@ def log_trade_decision(signal_type, decision_code, details=None):
     }
     logger.info(f"TRADE_DECISION: {json.dumps(decision_data)}")
 
-# NEUE LOGIK: fetch_balance muss hier stehen, bevor es aufgerufen wird.
+# --- DATEN- UND KONTO-FUNKTIONEN ---
 def fetch_balance():
     """Holt Kontostand mit Wiederholungslogik"""
     for attempt in range(params['max_retries']):
@@ -277,7 +309,6 @@ def fetch_balance():
     logger.error("Kritischer Fehler: Kontostand konnte nicht abgerufen werden")
     return {'USDT': {'total': 0.0}}
 
-# --- DATEN ABRUFEN UND SIGNALE BERECHNEN ---
 def fetch_ohlcv_data():
     for attempt in range(params['max_retries']):
         try:
@@ -292,6 +323,7 @@ def fetch_ohlcv_data():
     logger.critical("Kritischer Fehler: Daten konnten nicht abgerufen werden")
     sys.exit(1)
 
+# --- SIGNALE BERECHNEN ---
 data = fetch_ohlcv_data()
 data = calculate_ut_signals(data, params)
 
@@ -348,9 +380,7 @@ open_position = len(positions) > 0
 # #################### KORRIGIERTER HANDELS-LOGIKBLOCK ######################
 # #############################################################################
 
-# NEUE LOGIK: Abgleich des lokalen Status mit dem tatsächlichen Börsen-Status
-# Dies behebt das Problem, dass der Bot in "in_trade" stecken bleibt,
-# wenn eine Position extern (manuell, durch SL/TP) geschlossen wurde.
+# Abgleich des lokalen Status mit dem tatsächlichen Börsen-Status
 if tracker_info['status'] == "in_trade" and not open_position:
     old_status = tracker_info['status']
     tracker_info = {"status": "ok_to_trade", "last_side": None, "stop_loss_ids": []}
@@ -364,8 +394,6 @@ if tracker_info['status'] == "in_trade" and not open_position:
 # Prüfe den Status nach dem Abgleich
 if tracker_info['status'] != "ok_to_trade":
     reason = f"Tracker-Status ist '{tracker_info['status']}'"
-    telegram_msg = f"⚠️ *Handel übersprungen:* Grund: Der Tracker-Status ist '{tracker_info['status']}'."
-    send_telegram_message(telegram_msg)
     log_trade_decision('NONE', 'TRADE_SKIPPED_TRACKER_STATUS', {'reason': reason})
     logger.warning(f"Handel übersprungen: {reason}")
     sys.exit()
@@ -420,8 +448,6 @@ trade_size_usdt = (balance * (params['trade_size_pct'] / 100)) * params['leverag
 logger.info(f"Verfügbarer Kontostand: {balance:.2f} USDT")
 logger.info(f"Geplante Handelsgröße (inkl. Hebel {params['leverage']}x): {trade_size_usdt:.2f} USDT")
 
-# Korrigierte Logik: 'fetch_min_cost' aus der BitgetFutures-Klasse entfernen
-# da sie nicht existiert, und einen festen Fallback-Wert verwenden.
 min_trade_cost = 5.0
 logger.info(f"Minimale erforderliche Handelsgröße (Kosten): {min_trade_cost:.2f} USDT")
 
@@ -523,9 +549,8 @@ elif sell_signal and params['use_shorts']:
         
 else:
     # Dieser Fall wird erreicht, wenn 'use_longs' oder 'use_shorts' False ist.
-    telegram_msg = f"⚠️ *Signal ignoriert:* {signal_reason}. Trading ist in diese Richtung deaktiviert."
-    send_telegram_message(telegram_msg)
     log_trade_decision('NONE', 'TRADE_SKIPPED_STRATEGY_DISABLED', {'reason': "Trade in diese Richtung deaktiviert."})
+    logger.info(f"Signal ignoriert: {signal_reason}. Trading in diese Richtung ist in den Parametern deaktiviert.")
     
 logger.info(f"Handelsaktion: {action_taken}")
 logger.info(f"<<< Ausführung abgeschlossen um {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')} UTC\n")
