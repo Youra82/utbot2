@@ -215,22 +215,19 @@ data = calculate_ut_signals(data, params)
 logger.info("\nLetzte 10 Kerzen Signale und Indikatoren:")
 logger.info(data[['open', 'high', 'low', 'close', 'atr', 'x_atr_trailing_stop', 'buy_signal', 'sell_signal']].tail(10).to_string())
 
-current_time = datetime.now(timezone.utc)
-signals = []
-timeframe_minutes = {'1m': 1, '5m': 5, '15m': 15, '30m': 30, '1h': 60, '4h': 240, '1d': 1440}
-candle_duration = timedelta(minutes=timeframe_minutes.get(params['timeframe'], 60))
 
-for i in range(1, min(params['signal_lookback_period'] + 1, len(data))):
-    idx = -i
-    candle_time = data.index[idx]
-    time_elapsed = current_time - candle_time
-    candle_completion = min(1.0, time_elapsed.total_seconds() / candle_duration.total_seconds())
-    if candle_completion >= params['min_signal_confirmation']:
-        if data.iloc[idx]['buy_signal']: signals.append(('buy', candle_time))
-        elif data.iloc[idx]['sell_signal']: signals.append(('sell', candle_time))
+# #############################################################################
+# #################### START: VERBESSERTE SIGNALLOGIK #########################
+# #############################################################################
 
-buy_signal = any(s[0] == 'buy' for s in signals)
-sell_signal = any(s[0] == 'sell' for s in signals)
+# Wir prüfen nur die letzte, vollständig geschlossene Kerze (Index -2) auf ein Signal.
+# Das verhindert verspätete Einstiege durch alte Signale.
+last_closed_candle = data.iloc[-2]
+
+buy_signal = last_closed_candle['buy_signal']
+sell_signal = last_closed_candle['sell_signal']
+
+logger.info(f"Signalprüfung auf letzter Kerze ({last_closed_candle.name}): Buy={buy_signal}, Sell={sell_signal}")
 
 # --- OFFENE POSITIONEN PRÜFEN ---
 def fetch_positions():
@@ -244,45 +241,63 @@ def fetch_positions():
 positions = fetch_positions()
 open_position = len(positions) > 0
 
+
 # #############################################################################
-# #################### FINALER HANDELS-LOGIKBLOCK #############################
+# #################### START: FINALER HANDELS-LOGIKBLOCK ######################
 # #############################################################################
 
 # Status-Abgleich: Lokalen Tracker mit der Börse synchronisieren
 if tracker_info['status'] == "in_trade" and not open_position:
     logger.warning(f"Tracker-Status war '{tracker_info['status']}', aber keine offene Position gefunden. Setze auf 'ok_to_trade' zurück.")
     send_telegram_message("ℹ️ *Status-Abgleich:* Keine offene Position gefunden. Bot ist wieder bereit zu handeln.")
-    update_tracker_file(tracker_file, {"status": "ok_to_trade", "last_side": None, "stop_loss_ids": []})
-    tracker_info = read_tracker_file(tracker_file)
+    tracker_info = {"status": "ok_to_trade", "last_side": None, "stop_loss_ids": []}
+    update_tracker_file(tracker_file, tracker_info)
 
-# Fall 1: Eine Position ist offen -> Verwalten oder Schließen
+
+# Fall 1: Eine Position ist offen -> Verwalten oder bei Gegensignal schließen
 if open_position:
-    position_side = positions[0]['side']
-    # Schließen, wenn ein Gegensignal vorliegt
+    position_info = positions[0]
+    position_side = position_info['side']
+    
+    # Position schließen, wenn ein Gegensignal vorliegt
     if (position_side == 'long' and sell_signal) or (position_side == 'short' and buy_signal):
         try:
+            # --- WICHTIG: Zuerst den alten Stop-Loss stornieren ---
+            sl_ids = tracker_info.get("stop_loss_ids", [])
+            if sl_ids:
+                logger.info(f"Storniere {len(sl_ids)} alte Stop-Loss-Order(s): {sl_ids}")
+                for sl_id in sl_ids:
+                    try:
+                        bitget.cancel_trigger_order(sl_id, params['symbol'])
+                    except Exception as sl_cancel_error:
+                        logger.error(f"Konnte Stop-Loss-Order {sl_id} nicht stornieren: {sl_cancel_error}")
+            
+            # --- Dann die Position schließen ---
             current_price = data.iloc[-1]['close']
             bitget.flash_close_position(params['symbol'])
+            
             log_trade_decision('SELL' if position_side == 'long' else 'BUY', 'POSITION_CLOSED_DUE_TO_OPPOSITE_SIGNAL', {'exit_price': current_price})
             logger.info(f"{position_side.upper()} Position bei {current_price} wegen Gegensignal geschlossen.")
             send_telegram_message(f"🚪 *Position geschlossen:* {position_side.upper()} bei {current_price:.2f} USDT aufgrund eines Gegensignals.")
+            
+            # --- Zuletzt den Tracker zurücksetzen ---
             update_tracker_file(tracker_file, {"status": "ok_to_trade", "last_side": None, "stop_loss_ids": []})
+            
         except Exception as e:
             log_trade_decision('NONE', 'POSITION_CLOSE_ERROR', {'error': str(e)})
             logger.error(f"Fehler beim Schließen der Position: {str(e)}")
             send_telegram_message(f"❌ *Fehler beim Schließen der Position:* {str(e)}")
+    
     # Nichts tun, wenn kein Gegensignal vorliegt
     else:
         logger.info(f"Offene {position_side}-Position wird gehalten. Kein Gegensignal gefunden.")
-        log_trade_decision('NONE', 'HOLDING_POSITION', {'side': position_side})
+        log_trade_decision('NONE', 'HOLDING_POSITION', {'side': position_side, 'entryPrice': position_info.get('entryPrice')})
 
 # Fall 2: Keine Position offen -> Prüfen, ob eine neue eröffnet werden soll
-else:
-    # Sicherstellen, dass der Tracker auch wirklich auf "ok_to_trade" steht
-    if tracker_info['status'] != "ok_to_trade":
-        logger.warning(f"Inkonsistenz: Keine Position offen, aber Tracker-Status ist '{tracker_info['status']}'. Setze zurück.")
-        update_tracker_file(tracker_file, {"status": "ok_to_trade", "last_side": None, "stop_loss_ids": []})
-
+# HINWEIS: Dies ist ein `elif`. Wenn eine Position in diesem Durchlauf geschlossen wurde, wird hier nicht weitergemacht.
+# Ändere `elif not open_position:` zu `else:` wenn du das "Stop-and-Reverse"-Verhalten möchtest.
+elif not open_position:
+    
     # Eine neue Position eröffnen, wenn ein gültiges Signal vorliegt
     if (buy_signal and params['use_longs']) or (sell_signal and params['use_shorts']):
         balance_info = fetch_balance()
@@ -300,8 +315,11 @@ else:
             try:
                 current_price = data.iloc[-1]['close']
                 amount_to_trade = trade_size_usdt / current_price
+                
+                # --- Position eröffnen ---
                 bitget.place_market_order(params['symbol'], side, amount_to_trade)
                 
+                # --- Neuen Stop-Loss platzieren ---
                 stop_loss_price = None
                 if params['enable_stop_loss']:
                     stop_loss_price = current_price * (1 - params['stop_loss_pct']) if side == 'buy' else current_price * (1 + params['stop_loss_pct'])
@@ -314,9 +332,6 @@ else:
                 log_trade_decision(side.upper(), 'POSITION_OPENED', {'price': current_price, 'stop_loss': stop_loss_price})
                 logger.info(f"{position_type}-Position bei {current_price} eröffnet.")
                 
-                # ##################################################
-                # ############# KORRIGIERTE ZEILE HIER #############
-                # ##################################################
                 sl_text = f"{stop_loss_price:.2f}" if stop_loss_price is not None else "N/A"
                 telegram_msg = f"✅ *{position_type}-Position eröffnet:* bei {current_price:.2f} USDT\nStop-Loss bei {sl_text}"
                 send_telegram_message(telegram_msg)
@@ -330,5 +345,6 @@ else:
     else:
         logger.info("Keine offene Position und kein neues Handelssignal gefunden.")
         log_trade_decision('NONE', 'NO_VALID_SIGNAL', {})
+
 
 logger.info(f"<<< Ausführung abgeschlossen um {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')} UTC\n")
