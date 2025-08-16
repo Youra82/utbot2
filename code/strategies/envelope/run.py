@@ -314,8 +314,6 @@ elif not open_position:
                     sl_order = bitget.place_trigger_market_order(params['symbol'], 'sell' if side == 'buy' else 'buy', amount_to_trade, stop_loss_price, reduce=True)
                     
                     # --- START: VERBESSERTE LOGIK ZUM SPEICHERN DER ID ---
-                    logger.info(f"API Response from SL order: {sl_order}")
-                    
                     stop_loss_id = None
                     if sl_order:
                         if 'id' in sl_order and sl_order['id']:
@@ -327,6 +325,7 @@ elif not open_position:
                         logger.info(f"Successfully extracted Stop-Loss ID: {stop_loss_id}")
                         update_tracker_file(tracker_file, {"status": "in_trade", "last_side": side, "stop_loss_ids": [stop_loss_id]})
                     else:
+
                         logger.error("KONNTE STOP-LOSS ID NICHT AUS DER API ANTWORT EXTRAHIEREN!")
                         update_tracker_file(tracker_file, {"status": "in_trade", "last_side": side, "stop_loss_ids": []})
                     # --- ENDE: VERBESSERTE LOGIK ---
@@ -352,4 +351,3 @@ elif not open_position:
         log_trade_decision('NONE', 'NO_VALID_SIGNAL', {})
 
 logger.info(f"<<< Ausführung abgeschlossen um {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')} UTC\n")
-
