@@ -313,7 +313,13 @@ else:
 
                 log_trade_decision(side.upper(), 'POSITION_OPENED', {'price': current_price, 'stop_loss': stop_loss_price})
                 logger.info(f"{position_type}-Position bei {current_price} eröffnet.")
-                send_telegram_message(f"✅ *{position_type}-Position eröffnet:* bei {current_price:.2f} USDT\nStop-Loss bei {stop_loss_price:.2f if stop_loss_price else 'N/A'}")
+                
+                # ##################################################
+                # ############# KORRIGIERTE ZEILE HIER #############
+                # ##################################################
+                sl_text = f"{stop_loss_price:.2f}" if stop_loss_price is not None else "N/A"
+                telegram_msg = f"✅ *{position_type}-Position eröffnet:* bei {current_price:.2f} USDT\nStop-Loss bei {sl_text}"
+                send_telegram_message(telegram_msg)
             
             except Exception as e:
                 log_trade_decision(side.upper(), 'POSITION_OPEN_ERROR', {'error': str(e)})
