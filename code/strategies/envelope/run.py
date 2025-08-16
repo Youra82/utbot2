@@ -215,18 +215,14 @@ data = calculate_ut_signals(data, params)
 logger.info("\nLetzte 10 Kerzen Signale und Indikatoren:")
 logger.info(data[['open', 'high', 'low', 'close', 'atr', 'x_atr_trailing_stop', 'buy_signal', 'sell_signal']].tail(10).to_string())
 
-
 # #############################################################################
 # #################### START: VERBESSERTE SIGNALLOGIK #########################
 # #############################################################################
 
 # Wir prüfen nur die letzte, vollständig geschlossene Kerze (Index -2) auf ein Signal.
-# Das verhindert verspätete Einstiege durch alte Signale.
 last_closed_candle = data.iloc[-2]
-
 buy_signal = last_closed_candle['buy_signal']
 sell_signal = last_closed_candle['sell_signal']
-
 logger.info(f"Signalprüfung auf letzter Kerze ({last_closed_candle.name}): Buy={buy_signal}, Sell={sell_signal}")
 
 # --- OFFENE POSITIONEN PRÜFEN ---
@@ -241,7 +237,6 @@ def fetch_positions():
 positions = fetch_positions()
 open_position = len(positions) > 0
 
-
 # #############################################################################
 # #################### START: FINALER HANDELS-LOGIKBLOCK ######################
 # #############################################################################
@@ -252,7 +247,6 @@ if tracker_info['status'] == "in_trade" and not open_position:
     send_telegram_message("ℹ️ *Status-Abgleich:* Keine offene Position gefunden. Bot ist wieder bereit zu handeln.")
     tracker_info = {"status": "ok_to_trade", "last_side": None, "stop_loss_ids": []}
     update_tracker_file(tracker_file, tracker_info)
-
 
 # Fall 1: Eine Position ist offen -> Verwalten oder bei Gegensignal schließen
 if open_position:
@@ -294,11 +288,8 @@ if open_position:
         log_trade_decision('NONE', 'HOLDING_POSITION', {'side': position_side, 'entryPrice': position_info.get('entryPrice')})
 
 # Fall 2: Keine Position offen -> Prüfen, ob eine neue eröffnet werden soll
-# HINWEIS: Dies ist ein `elif`. Wenn eine Position in diesem Durchlauf geschlossen wurde, wird hier nicht weitergemacht.
-# Ändere `elif not open_position:` zu `else:` wenn du das "Stop-and-Reverse"-Verhalten möchtest.
 elif not open_position:
     
-    # Eine neue Position eröffnen, wenn ein gültiges Signal vorliegt
     if (buy_signal and params['use_longs']) or (sell_signal and params['use_shorts']):
         balance_info = fetch_balance()
         balance = balance_info.get('USDT', {}).get('total', 0.0)
@@ -307,7 +298,6 @@ elif not open_position:
 
         if trade_size_usdt < min_trade_cost:
             logger.error(f"Handelsgröße ({trade_size_usdt:.2f} USDT) liegt unter dem Minimum ({min_trade_cost:.2f} USDT).")
-            log_trade_decision('NONE', 'INSUFFICIENT_FUNDS', {'trade_size': trade_size_usdt, 'min_cost': min_trade_cost})
             send_telegram_message(f"❌ *Handel fehlgeschlagen:* Handelsgröße ({trade_size_usdt:.2f} USDT) zu gering.")
         else:
             side = 'buy' if buy_signal else 'sell'
@@ -316,15 +306,31 @@ elif not open_position:
                 current_price = data.iloc[-1]['close']
                 amount_to_trade = trade_size_usdt / current_price
                 
-                # --- Position eröffnen ---
                 bitget.place_market_order(params['symbol'], side, amount_to_trade)
                 
-                # --- Neuen Stop-Loss platzieren ---
                 stop_loss_price = None
                 if params['enable_stop_loss']:
                     stop_loss_price = current_price * (1 - params['stop_loss_pct']) if side == 'buy' else current_price * (1 + params['stop_loss_pct'])
                     sl_order = bitget.place_trigger_market_order(params['symbol'], 'sell' if side == 'buy' else 'buy', amount_to_trade, stop_loss_price, reduce=True)
-                    update_tracker_file(tracker_file, {"status": "in_trade", "last_side": side, "stop_loss_ids": [sl_order['id']] if sl_order else []})
+                    
+                    # --- START: VERBESSERTE LOGIK ZUM SPEICHERN DER ID ---
+                    logger.info(f"API Response from SL order: {sl_order}")
+                    
+                    stop_loss_id = None
+                    if sl_order:
+                        if 'id' in sl_order and sl_order['id']:
+                            stop_loss_id = sl_order['id']
+                        elif 'info' in sl_order and 'orderId' in sl_order['info'] and sl_order['info']['orderId']:
+                            stop_loss_id = sl_order['info']['orderId']
+                    
+                    if stop_loss_id:
+                        logger.info(f"Successfully extracted Stop-Loss ID: {stop_loss_id}")
+                        update_tracker_file(tracker_file, {"status": "in_trade", "last_side": side, "stop_loss_ids": [stop_loss_id]})
+                    else:
+                        logger.error("KONNTE STOP-LOSS ID NICHT AUS DER API ANTWORT EXTRAHIEREN!")
+                        update_tracker_file(tracker_file, {"status": "in_trade", "last_side": side, "stop_loss_ids": []})
+                    # --- ENDE: VERBESSERTE LOGIK ---
+                        
                     logger.info(f"Stop-Loss für {position_type}-Position gesetzt bei {stop_loss_price:.2f}")
                 else:
                     update_tracker_file(tracker_file, {"status": "in_trade", "last_side": side, "stop_loss_ids": []})
@@ -341,10 +347,9 @@ elif not open_position:
                 logger.error(f"Fehler beim Eröffnen der {position_type}-Position: {str(e)}")
                 send_telegram_message(f"❌ *Fehler {position_type}-Position:* {str(e)}")
 
-    # Nichts tun, wenn kein Signal vorliegt
     else:
         logger.info("Keine offene Position und kein neues Handelssignal gefunden.")
         log_trade_decision('NONE', 'NO_VALID_SIGNAL', {})
 
-
 logger.info(f"<<< Ausführung abgeschlossen um {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')} UTC\n")
+
