@@ -5,13 +5,6 @@ LOG_FILE="/home/ubuntu/utbot2/logs/envelope.log"
 # Pfad zur run.py, um Parameter auszulesen
 RUN_PY_FILE="/home/ubuntu/utbot2/code/strategies/envelope/run.py"
 
-# Stelle sicher, dass jq installiert ist
-if ! command -v jq &> /dev/null
-then
-    echo "jq konnte nicht gefunden werden. Bitte installieren: sudo apt-get install jq"
-    exit
-fi
-
 # --- Farbcodes für die Ausgabe ---
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -22,57 +15,69 @@ NC='\033[0m' # No Color
 echo -e "${CYAN}=======================================================${NC}"
 echo -e "${CYAN}          ENVELOPE TRADING BOT MONITORING            ${NC}"
 echo -e "${CYAN}=======================================================${NC}"
-echo -e "Letzte Aktualisierung: $(date)"
+echo -e "Letzte Aktualisierung: $(date '+%Y-%m-%d %H:%M:%S')"
 echo ""
 
-# --- 1. Übersicht aller eingestellten Parameter (KORRIGIERT) ---
-echo -e "${YELLOW}--- KONFIGURATIONSPARAMETER ---${NC}"
-# Robusteres Auslesen mit awk, das das letzte Feld nimmt und Kommas/Anführungszeichen entfernt
-echo "'symbol': '$(grep "'symbol':" $RUN_PY_FILE | head -n 1 | awk '{print $NF}' | tr -d "',")' - Das zu handelnde Währungspaar."
-echo "'timeframe': '$(grep "'timeframe':" $RUN_PY_FILE | head -n 1 | awk '{print $NF}' | tr -d "',")' - Die Zeiteinheit der Kerzen."
-echo "'margin_mode': '$(grep "'margin_mode':" $RUN_PY_FILE | head -n 1 | awk '{print $NF}' | tr -d "',")' - Margin-Modus (isolated/crossed)."
-echo "'leverage': $(grep "'leverage':" $RUN_PY_FILE | head -n 1 | awk '{print $NF}' | tr -d ',' ) - Eingestellter Hebel."
-echo "'use_longs': $(grep "'use_longs':" $RUN_PY_FILE | head -n 1 | awk '{print $NF}' | tr -d ',' ) - Long-Positionen erlaubt."
-echo "'use_shorts': $(grep "'use_shorts':" $RUN_PY_FILE | head -n 1 | awk '{print $NF}' | tr -d ',' ) - Short-Positionen erlaubt."
+# --- 1. Konfigurations- & Strategieparameter ---
+echo -e "${YELLOW}--- KONFIGURATION & STRATEGIE ---${NC}"
+echo "Symbol: $(grep "'symbol':" $RUN_PY_FILE | head -n 1 | awk '{print $NF}' | tr -d "',")"
+echo "Timeframe: $(grep "'timeframe':" $RUN_PY_FILE | head -n 1 | awk '{print $NF}' | tr -d "',")"
+echo "Hebel: $(grep "'leverage':" $RUN_PY_FILE | head -n 1 | awk '{print $NF}' | tr -d ',' )x"
+echo "ATR Periode/Key: $(grep "'ut_atr_period':" $RUN_PY_FILE | head -n 1 | awk '{print $NF}' | tr -d ',' ) / $(grep "'ut_key_value':" $RUN_PY_FILE | head -n 1 | awk '{print $NF}' | tr -d ',' )"
 echo ""
 
-# --- 2. Übersicht der Strategieparameter (KORRIGIERT) ---
-echo -e "${YELLOW}--- STRATEGIEPARAMETER (UT-BOT) ---${NC}"
-echo "'ut_key_value': $(grep "'ut_key_value':" $RUN_PY_FILE | head -n 1 | awk '{print $NF}' | tr -d ',' ) - Sensitivität des ATR-Stops (höher = weniger empfindlich)."
-echo "'ut_atr_period': $(grep "'ut_atr_period':" $RUN_PY_FILE | head -n 1 | awk '{print $NF}' | tr -d ',' ) - Periodenlänge für die ATR-Berechnung."
-echo "'ut_heiken_ashi': $(grep "'ut_heiken_ashi':" $RUN_PY_FILE | head -n 1 | awk '{print $NF}' | tr -d ',' ) - Nutzung von Heikin-Ashi-Kerzen für Signale."
-echo "'signal_lookback_period': $(grep "'signal_lookback_period':" $RUN_PY_FILE | head -n 1 | awk '{print $NF}' | tr -d ',' ) - Anzahl der Kerzen, die rückwirkend geprüft werden."
-echo ""
-
-
-# --- 3. Bot-Statistiken aus dem Log ---
+# --- 2. Bot-Statistiken aus dem Log ---
 echo -e "${YELLOW}--- BOT-STATISTIKEN (seit Log-Start) ---${NC}"
-SIGNALS_GENERATED=$(grep -c "VALID_SIGNAL_DETECTED" "$LOG_FILE")
-TRADES_OPENED=$(grep -c "POSITION_OPENED" "$LOG_FILE")
-
-echo -e "Erzeugte Signale: ${GREEN}$SIGNALS_GENERATED${NC}"
-echo -e "Ausgeführte Trades: ${GREEN}$TRADES_OPENED${NC}"
+TRADES_OPENED=$(grep -c "eröffnet" "$LOG_FILE")
+TRADES_CLOSED=$(grep -c "geschlossen" "$LOG_FILE")
+echo -e "Eröffnete Trades: ${GREEN}$TRADES_OPENED${NC}"
+echo -e "Geschlossene Trades: ${GREEN}$TRADES_CLOSED${NC}"
 echo ""
 
-# --- 4. Aktueller Status (KORRIGIERT) ---
-echo -e "${YELLOW}--- AKTUELLER STATUS (letzter Durchlauf) ---${NC}"
-# Robusteres Auslesen mit sed, das alles bis zum letzten ": " entfernt
-LAST_BALANCE=$(grep "Verfügbarer Kontostand:" "$LOG_FILE" | tail -n 1 | sed 's/.*: //')
-LAST_DECISION_JSON=$(grep "TRADE_DECISION:" "$LOG_FILE" | tail -n 1 | sed 's/.*TRADE_DECISION: //')
+# --- 3. Details zur aktuellen Position (NEU) ---
+echo -e "${YELLOW}--- AKTUELLE POSITION & RISIKO ---${NC}"
+# Finde die Zeilennummern der letzten relevanten Aktionen
+LAST_OPEN_LINE_NUM=$(grep -n "eröffnet" "$LOG_FILE" | tail -n 1 | cut -d: -f1)
+LAST_CLOSE_LINE_NUM=$(grep -n "geschlossen" "$LOG_FILE" | tail -n 1 | cut -d: -f1)
 
-if [ -z "$LAST_BALANCE" ]; then
-    echo -e "Kontostand: ${RED}Noch nicht im Log gefunden.${NC}"
+if [ -n "$LAST_OPEN_LINE_NUM" ] && [ "$LAST_OPEN_LINE_NUM" -gt "${LAST_CLOSE_LINE_NUM:-0}" ]; then
+    POSITION_INFO=$(grep "eröffnet" "$LOG_FILE" | tail -n 1)
+    ENTRY_SIDE=$(echo "$POSITION_INFO" | awk '{print $4}')
+    ENTRY_PRICE=$(echo "$POSITION_INFO" | awk '{print $6}')
+    STOP_LOSS_PRICE=$(echo "$POSITION_INFO" | grep -o 'Stop-Loss bei [0-9.]*' | awk '{print $3}')
+
+    echo -e "Status: ${GREEN}Position offen${NC}"
+    echo -e "Seite: ${GREEN}${ENTRY_SIDE}${NC}"
+    echo -e "Einstiegspreis: ${GREEN}${ENTRY_PRICE}${NC}"
+    if [ -n "$STOP_LOSS_PRICE" ]; then
+        echo -e "Stop-Loss: ${RED}${STOP_LOSS_PRICE}${NC}"
+    else
+        echo -e "Stop-Loss: ${YELLOW}Nicht im Log gefunden (run.py anpassen?)${NC}"
+    fi
 else
-    echo -e "Letzter Kontostand: ${GREEN}${LAST_BALANCE}${NC}"
+    echo -e "Status: ${CYAN}Keine Position offen${NC}"
+fi
+echo ""
+
+# --- 4. System-Status (NEU) ---
+echo -e "${YELLOW}--- SYSTEM-STATUS ---${NC}"
+# Zeit seit letzter Aktivität (Bot-Herzschlag)
+LAST_LOG_TIMESTAMP_STR=$(tail -n 1 "$LOG_FILE" | cut -d ' ' -f 1,2)
+if [ -n "$LAST_LOG_TIMESTAMP_STR" ]; then
+    LAST_LOG_SECONDS=$(date -d "$LAST_LOG_TIMESTAMP_STR" +%s)
+    CURRENT_SECONDS=$(date +%s)
+    MINUTES_AGO=$(((CURRENT_SECONDS - LAST_LOG_SECONDS) / 60))
+    echo -e "Letzte Aktivität: ${GREEN}vor $MINUTES_AGO Minuten${NC}"
+else
+    echo -e "Letzte Aktivität: ${RED}Keine Log-Datei gefunden${NC}"
 fi
 
-echo ""
-echo -e "${YELLOW}--- LETZTE HANDLUNGSENTSCHEIDUNG ---${NC}"
-if [ -z "$LAST_DECISION_JSON" ]; then
-    echo -e "${RED}Keine Handelsentscheidung im Log gefunden.${NC}"
+# Fehlerzähler
+ERROR_COUNT=$(grep -c -i "Fehler\|error" "$LOG_FILE")
+if [ "$ERROR_COUNT" -gt 0 ]; then
+    echo -e "Fehlerzähler: ${RED}${ERROR_COUNT} Fehler protokolliert${NC}"
 else
-    # Nutze jq, um die JSON-Ausgabe schön zu formatieren
-    echo "$LAST_DECISION_JSON" | jq .
+    echo -e "Fehlerzähler: ${GREEN}Keine Fehler protokolliert${NC}"
 fi
 
 echo -e "${CYAN}=======================================================${NC}"
