@@ -234,4 +234,4 @@ elif not open_position:
     else:
         logger.info("Kein neues Handelssignal gefunden.")
 
-logger.info(f"<<< Ausführung abgeschlossen\n")
+logger.info(f"<<< Ausführung abgeschlossen")
