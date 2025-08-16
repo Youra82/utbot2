@@ -5,10 +5,8 @@ import json
 import pandas as pd
 import numpy as np
 import ta
-import pytz
 import time
 import logging
-from datetime import datetime, timedelta, timezone
 import requests
 
 # Pfad für Modulimporte
@@ -47,7 +45,9 @@ params = {
     'enable_stop_loss': True,
     'ut_key_value': 1,
     'ut_atr_period': 10,
-    'trade_size_pct': 100,
+    # WICHTIG: Von 100 auf 25 reduziert, um das Risiko eines Totalverlusts zu vermeiden.
+    # 100% des Kapitals pro Trade ist extrem riskant.
+    'trade_size_pct': 25,
     'max_retries': 3,
     'retry_delay': 2,
 }
@@ -135,6 +135,8 @@ def calculate_ut_signals(data, params):
 
 # --- DATENLADEN ---
 try:
+    # Hinweis: Für maximale Stabilität sollte die fetch_recent_ohlcv Methode in bitget_futures.py
+    # die paginierte Version aus der Demo-Datei verwenden.
     data = bitget.fetch_recent_ohlcv(params['symbol'], params['timeframe'], 100)
     data = calculate_ut_signals(data, params)
 except Exception as e:
@@ -187,6 +189,8 @@ elif not open_position:
             balance_info = bitget.fetch_balance()
             balance = balance_info.get('USDT', {}).get('total', 0.0)
             trade_size_usdt = (balance * (params['trade_size_pct'] / 100)) * params['leverage']
+            
+            # Die Mindesthandelsgröße (Notional Value) ist bei Bitget oft 5 USDT.
             min_trade_cost = 5.0
 
             if trade_size_usdt >= min_trade_cost:
@@ -216,12 +220,15 @@ elif not open_position:
                 else:
                     update_tracker_file(tracker_file, {"status": "in_trade", "last_side": side, "stop_loss_ids": []})
 
-                logger.info(f"{position_type}-Position bei {current_price} eröffnet.")
-                sl_text = f"{stop_loss_price:.2f}" if stop_loss_price is not None else "N/A"
-                send_telegram_message(f"✅ *{position_type}-Position eröffnet:* bei {current_price:.2f} USDT\nStop-Loss bei {sl_text}")
-            else:
+                # KORREKTUR: Stop-Loss zum Log hinzugefügt, damit das Monitor-Skript ihn anzeigen kann.
+                sl_text_log = f"{stop_loss_price:.2f}" if stop_loss_price is not None else "N/A"
+                logger.info(f"{position_type}-Position bei {current_price:.2f} eröffnet. Stop-Loss bei {sl_text_log}")
 
-                logger.error(f"Handelsgröße ({trade_size_usdt:.2f} USDT) zu gering.")
+                # Telegram Nachricht bleibt unverändert detailliert
+                sl_text_telegram = f"{stop_loss_price:.2f}" if stop_loss_price is not None else "N/A"
+                send_telegram_message(f"✅ *{position_type}-Position eröffnet:* bei {current_price:.2f} USDT\nStop-Loss bei {sl_text_telegram}")
+            else:
+                logger.error(f"Handelsgröße ({trade_size_usdt:.2f} USDT) zu gering. Minimum ist ca. {min_trade_cost} USDT.")
         except Exception as e:
             logger.error(f"Fehler beim Eröffnen der Position: {e}")
     else:
