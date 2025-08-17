@@ -1,4 +1,4 @@
-# run.py (Final - mit allen Korrekturen)
+# run.py (Final - mit allen Korrekturen und Flip-Logik)
 import os
 import sys
 import json
@@ -45,8 +45,6 @@ params = {
     'enable_stop_loss': True,
     'ut_key_value': 1,
     'ut_atr_period': 10,
-    # WICHTIG: Von 100 auf 25 reduziert, um das Risiko eines Totalverlusts zu vermeiden.
-    # 100% des Kapitals pro Trade ist extrem riskant.
     'trade_size_pct': 25,
     'max_retries': 3,
     'retry_delay': 2,
@@ -133,10 +131,58 @@ def calculate_ut_signals(data, params):
     data['sell_signal'] = (src < data['x_atr_trailing_stop']) & (src.shift(1) >= data['x_atr_trailing_stop'].shift(1))
     return data
 
+# --- NEUE FUNKTION ---
+# Refaktoriert: Die Logik zum Eröffnen einer Position wurde in eine eigene Funktion ausgelagert,
+# um Code-Wiederholung zu vermeiden.
+def open_new_position(side):
+    """ Eröffnet eine neue Position basierend auf der übergebenen 'side' ('buy' oder 'sell'). """
+    try:
+        balance_info = bitget.fetch_balance()
+        balance = balance_info.get('USDT', {}).get('total', 0.0)
+        trade_size_usdt = (balance * (params['trade_size_pct'] / 100)) * params['leverage']
+        
+        min_trade_cost = 5.0
+
+        if trade_size_usdt >= min_trade_cost:
+            position_type = 'Long' if side == 'buy' else 'Short'
+            current_price = data.iloc[-1]['close']
+            amount_to_trade = trade_size_usdt / current_price
+
+            bitget.place_market_order(params['symbol'], side, amount_to_trade)
+
+            stop_loss_price = None
+            if params['enable_stop_loss']:
+                sl_side = 'sell' if side == 'buy' else 'buy'
+                stop_loss_price = current_price * (1 - params['stop_loss_pct']) if side == 'buy' else current_price * (1 + params['stop_loss_pct'])
+                sl_order = bitget.place_trigger_market_order(params['symbol'], sl_side, amount_to_trade, stop_loss_price, reduce=True)
+
+                stop_loss_id = None
+                if sl_order:
+                    if 'id' in sl_order and sl_order['id']: stop_loss_id = sl_order['id']
+                    elif 'info' in sl_order and 'orderId' in sl_order['info']: stop_loss_id = sl_order['info']['orderId']
+
+                if stop_loss_id:
+                    logger.info(f"Successfully extracted Stop-Loss ID: {stop_loss_id}")
+                    update_tracker_file(tracker_file, {"status": "in_trade", "last_side": side, "stop_loss_ids": [stop_loss_id]})
+                else:
+                    logger.error("KONNTE STOP-LOSS ID NICHT AUS DER API ANTWORT EXTRAHIEREN!")
+                    update_tracker_file(tracker_file, {"status": "in_trade", "last_side": side, "stop_loss_ids": []})
+            else:
+                update_tracker_file(tracker_file, {"status": "in_trade", "last_side": side, "stop_loss_ids": []})
+
+            sl_text_log = f"{stop_loss_price:.2f}" if stop_loss_price is not None else "N/A"
+            logger.info(f"{position_type}-Position bei {current_price:.2f} eröffnet. Stop-Loss bei {sl_text_log}")
+
+            sl_text_telegram = f"{stop_loss_price:.2f}" if stop_loss_price is not None else "N/A"
+            send_telegram_message(f"✅ *{position_type}-Position eröffnet:* bei {current_price:.2f} USDT\nStop-Loss bei {sl_text_telegram}")
+        else:
+            logger.error(f"Handelsgröße ({trade_size_usdt:.2f} USDT) zu gering. Minimum ist ca. {min_trade_cost} USDT.")
+    except Exception as e:
+        logger.error(f"Fehler beim Eröffnen der {side}-Position: {e}")
+
+
 # --- DATENLADEN ---
 try:
-    # Hinweis: Für maximale Stabilität sollte die fetch_recent_ohlcv Methode in bitget_futures.py
-    # die paginierte Version aus der Demo-Datei verwenden.
     data = bitget.fetch_recent_ohlcv(params['symbol'], params['timeframe'], 100)
     data = calculate_ut_signals(data, params)
 except Exception as e:
@@ -160,78 +206,54 @@ if tracker_info['status'] == "in_trade" and not open_position:
     tracker_info = {"status": "ok_to_trade", "last_side": None, "stop_loss_ids": []}
     update_tracker_file(tracker_file, tracker_info)
 
+# --- ANGEPASSTE LOGIK ---
+# Die Logik wurde überarbeitet, um einen sofortigen "Flip" der Position bei einem Gegensignal zu ermöglichen.
 if open_position:
     position_info = positions[0]
     position_side = position_info['side']
-    if (position_side == 'long' and sell_signal) or (position_side == 'short' and buy_signal):
+
+    should_close_long = position_side == 'long' and sell_signal
+    should_close_short = position_side == 'short' and buy_signal
+
+    if should_close_long or should_close_short:
         try:
+            # 1. Alte Stop-Loss-Order stornieren
             sl_ids = tracker_info.get("stop_loss_ids", [])
             if sl_ids:
                 logger.info(f"Storniere {len(sl_ids)} alte Stop-Loss-Order(s): {sl_ids}")
                 for sl_id in sl_ids:
-                    try:
-                        bitget.cancel_trigger_order(sl_id, params['symbol'])
-                    except Exception as sl_cancel_error:
-                        logger.error(f"Konnte Stop-Loss-Order {sl_id} nicht stornieren: {sl_cancel_error}")
-
+                    try: bitget.cancel_trigger_order(sl_id, params['symbol'])
+                    except Exception as sl_cancel_error: logger.error(f"Konnte SL-Order {sl_id} nicht stornieren: {sl_cancel_error}")
+            
+            # 2. Aktuelle Position schließen
             bitget.flash_close_position(params['symbol'])
-            logger.info(f"{position_side.upper()} Position wegen Gegensignal geschlossen.")
-            send_telegram_message(f"🚪 *Position geschlossen:* {position_side.upper()} aufgrund eines Gegensignals.")
-            update_tracker_file(tracker_file, {"status": "ok_to_trade", "last_side": None, "stop_loss_ids": []})
+            closed_side_msg = "LONG" if should_close_long else "SHORT"
+            logger.info(f"{closed_side_msg} Position wegen Gegensignal geschlossen.")
+            send_telegram_message(f"🚪 *Position geschlossen:* {closed_side_msg} aufgrund eines Gegensignals.")
+            
+            # 3. Sofort neue Position in die entgegengesetzte Richtung eröffnen ("Flip")
+            if should_close_long and params['use_shorts']:
+                logger.info("Gegensignal (SELL) erkannt. Eröffne sofort Short-Position.")
+                open_new_position('sell')
+            elif should_close_short and params['use_longs']:
+                logger.info("Gegensignal (BUY) erkannt. Eröffne sofort Long-Position.")
+                open_new_position('buy')
+            else:
+                # Falls die entgegengesetzte Richtung nicht erlaubt ist, Tracker zurücksetzen.
+                update_tracker_file(tracker_file, {"status": "ok_to_trade", "last_side": None, "stop_loss_ids": []})
+
         except Exception as e:
-            logger.error(f"Fehler beim Schließen der Position: {e}")
+            logger.error(f"Fehler beim Schließen/Flippen der Position: {e}")
     else:
         logger.info(f"Offene {position_side}-Position wird gehalten.")
 
 elif not open_position:
-    if (buy_signal and params['use_longs']) or (sell_signal and params['use_shorts']):
-        try:
-            balance_info = bitget.fetch_balance()
-            balance = balance_info.get('USDT', {}).get('total', 0.0)
-            trade_size_usdt = (balance * (params['trade_size_pct'] / 100)) * params['leverage']
-            
-            # Die Mindesthandelsgröße (Notional Value) ist bei Bitget oft 5 USDT.
-            min_trade_cost = 5.0
-
-            if trade_size_usdt >= min_trade_cost:
-                side = 'buy' if buy_signal else 'sell'
-                position_type = 'Long' if side == 'buy' else 'Short'
-                current_price = data.iloc[-1]['close']
-                amount_to_trade = trade_size_usdt / current_price
-
-                bitget.place_market_order(params['symbol'], side, amount_to_trade)
-
-                stop_loss_price = None
-                if params['enable_stop_loss']:
-                    stop_loss_price = current_price * (1 - params['stop_loss_pct']) if side == 'buy' else current_price * (1 + params['stop_loss_pct'])
-                    sl_order = bitget.place_trigger_market_order(params['symbol'], 'sell' if side == 'buy' else 'buy', amount_to_trade, stop_loss_price, reduce=True)
-
-                    stop_loss_id = None
-                    if sl_order:
-                        if 'id' in sl_order and sl_order['id']: stop_loss_id = sl_order['id']
-                        elif 'info' in sl_order and 'orderId' in sl_order['info']: stop_loss_id = sl_order['info']['orderId']
-
-                    if stop_loss_id:
-                        logger.info(f"Successfully extracted Stop-Loss ID: {stop_loss_id}")
-                        update_tracker_file(tracker_file, {"status": "in_trade", "last_side": side, "stop_loss_ids": [stop_loss_id]})
-                    else:
-                        logger.error("KONNTE STOP-LOSS ID NICHT AUS DER API ANTWORT EXTRAHIEREN!")
-                        update_tracker_file(tracker_file, {"status": "in_trade", "last_side": side, "stop_loss_ids": []})
-                else:
-                    update_tracker_file(tracker_file, {"status": "in_trade", "last_side": side, "stop_loss_ids": []})
-
-                # KORREKTUR: Stop-Loss zum Log hinzugefügt, damit das Monitor-Skript ihn anzeigen kann.
-                sl_text_log = f"{stop_loss_price:.2f}" if stop_loss_price is not None else "N/A"
-                logger.info(f"{position_type}-Position bei {current_price:.2f} eröffnet. Stop-Loss bei {sl_text_log}")
-
-                # Telegram Nachricht bleibt unverändert detailliert
-                sl_text_telegram = f"{stop_loss_price:.2f}" if stop_loss_price is not None else "N/A"
-                send_telegram_message(f"✅ *{position_type}-Position eröffnet:* bei {current_price:.2f} USDT\nStop-Loss bei {sl_text_telegram}")
-            else:
-                logger.error(f"Handelsgröße ({trade_size_usdt:.2f} USDT) zu gering. Minimum ist ca. {min_trade_cost} USDT.")
-        except Exception as e:
-            logger.error(f"Fehler beim Eröffnen der Position: {e}")
+    if buy_signal and params['use_longs']:
+        open_new_position('buy')
+    elif sell_signal and params['use_shorts']:
+        open_new_position('sell')
     else:
         logger.info("Kein neues Handelssignal gefunden.")
 
 logger.info(f"<<< Ausführung abgeschlossen")
+
