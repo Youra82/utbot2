@@ -46,7 +46,7 @@ params = {
     'enable_stop_loss': True,
     'ut_key_value': 1,
     'ut_atr_period': 10,
-    'trade_size_pct': 25,
+    'trade_size_pct': 100,
     'max_retries': 3,
     'retry_delay': 2,
 }
