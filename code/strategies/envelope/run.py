@@ -34,7 +34,7 @@ def send_telegram_message(message):
     except requests.exceptions.RequestException as e:
         logging.error(f"Fehler beim Senden der Telegram-Nachricht: {e}")
 
-# --- KONFIGURATION LADEN --- (NEU)
+# --- KONFIGURATION LADEN ---
 def load_config():
     config_path = os.path.join(os.path.dirname(__file__), 'config.json')
     try:
@@ -140,13 +140,11 @@ def open_new_position(side):
         min_trade_cost = 5.0
 
         if trade_size_usdt < min_trade_cost:
-            # NEU: Fehler loggen UND per Telegram senden
             error_msg = f"Handelsgröße ({trade_size_usdt:.2f} USDT) zu gering. Minimum ist ca. {min_trade_cost} USDT."
             logger.error(error_msg)
             send_telegram_message(f"⚠️ *Trade nicht eröffnet:* {error_msg}")
-            # Wichtig: Tracker zurücksetzen, damit der Bot wieder handeln kann
             update_tracker_file(tracker_file, {"status": "ok_to_trade", "last_side": None, "stop_loss_ids": []})
-            return # Funktion hier beenden
+            return
 
         position_type = 'Long' if side == 'buy' else 'Short'
         current_price = data.iloc[-1]['close']
@@ -158,7 +156,13 @@ def open_new_position(side):
 
         if params['enable_stop_loss']:
             sl_side = 'sell' if side == 'buy' else 'buy'
-            stop_loss_price = current_price * (1 - params['stop_loss_pct']) if side == 'buy' else current_price * (1 + params['stop_loss_pct'])
+            
+            # === VERBESSERTE STOP-LOSS-LOGIK ===
+            current_atr = data.iloc[-1]['atr']
+            stop_loss_distance = current_atr * params['stop_loss_atr_multiplier']
+            stop_loss_price = current_price - stop_loss_distance if side == 'buy' else current_price + stop_loss_distance
+            # ====================================
+
             sl_order = bitget.place_trigger_market_order(params['symbol'], sl_side, amount_to_trade, stop_loss_price, reduce=True)
             if sl_order:
                 stop_loss_id = sl_order.get('id') or sl_order.get('info', {}).get('orderId')
@@ -176,7 +180,6 @@ def open_new_position(side):
         send_telegram_message(f"✅ *{position_type}-Position eröffnet:* bei {current_price:.2f} USDT\nStop-Loss bei {sl_text_telegram}")
 
     except Exception as e:
-        # NEU: Jeden anderen Fehler beim Eröffnen auch per Telegram melden
         error_msg = f"Fehler beim Eröffnen der {side}-Position: {e}"
         logger.error(error_msg)
         send_telegram_message(f"❌ *Fehler bei Positionseröffnung:* {error_msg}")
@@ -237,7 +240,6 @@ if open_position:
                 update_tracker_file(tracker_file, {"status": "ok_to_trade", "last_side": None, "stop_loss_ids": []})
 
         except Exception as e:
-            # NEU: Fehler beim Schließen/Flippen per Telegram melden
             error_msg = f"Fehler beim Schließen/Flippen der Position: {e}"
             logger.error(error_msg)
             send_telegram_message(f"❌ *Kritischer Fehler beim Flip:* {error_msg}")
@@ -254,4 +256,3 @@ elif not open_position:
         logger.info("Kein neues Handelssignal gefunden.")
 
 logger.info(f"<<< Ausführung abgeschlossen")
-
