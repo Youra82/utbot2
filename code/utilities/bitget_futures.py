@@ -1,3 +1,4 @@
+# code/utilities/bitget_futures.py
 import ccxt
 import time
 import pandas as pd
@@ -75,8 +76,9 @@ class BitgetFutures():
 
     def fetch_historical_ohlcv(self, symbol: str, timeframe: str, start_date: str, end_date: str) -> pd.DataFrame:
         try:
-            since = self.session.parse8601(f"{start_date}Z")
-            end_ts = self.session.parse8601(f"{end_date}Z")
+            # KORREKTUR: Explizites Datumsformat, um 'NoneType'-Fehler zu verhindern
+            **since = self.session.parse8601(f"{start_date}T00:00:00Z")**
+            **end_ts = self.session.parse8601(f"{end_date}T23:59:59Z")**
             
             all_ohlcv = []
             while since < end_ts:
