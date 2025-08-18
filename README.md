@@ -29,6 +29,10 @@ Monitorinstallation:
 Monitorabfrage:
 >./monitor_bot.sh
 
+Optimizer benutzen
+>./monitor_bot.sh optimize
+
+
 
 \
 ⭐ Bots and strategies
