@@ -35,7 +35,6 @@ def run_optimization(start_date, end_date, timeframe):
         'adx_threshold': [20, 25, 30]
     }
     
-    # Erzeuge alle möglichen Kombinationen der Parameter
     keys, values = zip(*param_grid.items())
     param_combinations = [dict(zip(keys, v)) for v in product(*values)]
     
@@ -48,39 +47,58 @@ def run_optimization(start_date, end_date, timeframe):
         current_params = base_params.copy()
         current_params.update(params_to_test)
         
-        print(f"[{i+1}/{total_runs}] Teste: {params_to_test}")
+        print(f"\rTeste Kombination {i+1}/{total_runs}...", end="")
 
         data_with_signals = calculate_signals(data.copy(), current_params)
-        result = run_backtest(data_with_signals, current_params, verbose=False) # verbose=False, um die Ausgabe sauber zu halten
+        result = run_backtest(data_with_signals, current_params, verbose=False)
         all_results.append(result)
 
     # 4. Ergebnisse auswerten und anzeigen
     if not all_results:
-        print("Keine Ergebnisse erzielt.")
+        print("\n\nKeine Ergebnisse erzielt.")
         return
         
-    print("\n--- Optimierung abgeschlossen ---")
+    print("\n\n--- Optimierung abgeschlossen ---")
     results_df = pd.DataFrame(all_results)
     
-    # Füge Parameter als Spalten hinzu für bessere Lesbarkeit
     params_df = pd.json_normalize(results_df['params'])
     results_df = pd.concat([results_df.drop('params', axis=1), params_df], axis=1)
     
-    # Sortiere nach der besten Metrik, z.B. PnL
-    sorted_results = results_df.sort_values(by="total_pnl_pct", ascending=False)
+    sorted_results = results_df.sort_values(
+        by=['total_pnl_pct', 'win_rate', 'trades_count'], 
+        ascending=[False, False, False]
+    )
 
+    top_10_results = sorted_results.head(10)
+
+    # NEUE, ÜBERSICHTLICHE BLOCK-AUSGABE
     print("\nBeste Ergebnisse (Top 10):")
-    # Spalten für die Anzeige auswählen
-    display_cols = [
-        'total_pnl_pct', 'win_rate', 'trades_count', 
-        'ut_atr_period', 'ut_key_value', 'stop_loss_atr_multiplier', 'adx_threshold'
-    ]
-    print(sorted_results[display_cols].head(10).to_string())
+    
+    # .reset_index() sorgt für eine saubere Platzierungs-Nummer von 1 bis 10
+    for i, row in top_10_results.reset_index(drop=True).iterrows():
+        platz = i + 1
+        print("\n" + "="*25)
+        print(f"    --- PLATZ {platz} ---")
+        print("="*25)
+        
+        print("\n  LEISTUNG:")
+        print(f"    Gewinn (PnL):     {row['total_pnl_pct']:.2f} %")
+        print(f"    Trefferquote:     {row['win_rate']:.2f} %")
+        print(f"    Anzahl Trades:    {int(row['trades_count'])}")
+        
+        print("\n  EINGESTELLTE PARAMETER:")
+        print(f"    UT ATR Periode:   {int(row['ut_atr_period'])}")
+        print(f"    UT Key Value:     {row['ut_key_value']:.1f}")
+        print(f"    SL Multiplikator: {row['stop_loss_atr_multiplier']:.1f}")
+        print(f"    ADX Schwellenwert:{int(row['adx_threshold'])}")
+        
+    print("\n" + "="*25)
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Strategie-Optimierer für den Envelope Bot.")
-    parser.add_argument('--start', required=True, help="Startdatum im Format YYYY-MM-DD")
-    parser.add_argument('--end', required=True, help="Enddatum im Format YYYY-MM-DD")
+    parser.add_argument('--start', required=True, help="Startdatum im Format YYY-MM-DD")
+    parser.add_argument('--end', required=True, help="Enddatum im Format Y-MM-DD")
     parser.add_argument('--timeframe', required=True, help="Timeframe (z.B. 15m, 1h, 4h, 1d)")
     args = parser.parse_args()
 
