@@ -34,22 +34,21 @@ def send_telegram_message(message):
     except requests.exceptions.RequestException as e:
         logging.error(f"Fehler beim Senden der Telegram-Nachricht: {e}")
 
-# --- KONFIGURATION ---
-params = {
-    'symbol': 'BTC/USDT:USDT',
-    'timeframe': '15m',
-    'margin_mode': 'isolated',
-    'leverage': 10,
-    'use_longs': True,
-    'use_shorts': True,
-    'stop_loss_pct': 0.004,
-    'enable_stop_loss': True,
-    'ut_key_value': 1,
-    'ut_atr_period': 10,
-    'trade_size_pct': 50,
-    'max_retries': 3,
-    'retry_delay': 2,
-}
+# --- KONFIGURATION LADEN --- (NEU)
+def load_config():
+    config_path = os.path.join(os.path.dirname(__file__), 'config.json')
+    try:
+        with open(config_path, 'r') as f:
+            return json.load(f)
+    except Exception as e:
+        # Wenn die Konfiguration nicht geladen werden kann, ist das ein kritischer Fehler.
+        # Loggen und beenden.
+        logging.critical(f"Kritischer Fehler: Konfigurationsdatei config.json konnte nicht geladen werden: {e}")
+        send_telegram_message(f"❌ *Kritischer Fehler:* Konnte config.json nicht laden. Bot wird beendet.")
+        sys.exit(1)
+
+params = load_config()
+
 
 # --- PFADEINSTELLUNGEN ---
 key_path = '/home/ubuntu/utbot2/secret.json'
