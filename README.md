@@ -19,7 +19,8 @@ Backtestdaten abholen:
 >./monitor_bot.sh backtest 2024-01-01 2024-07-31 4h
 
 Cachebacktest löschen:
->code/analysis/backtest.py
+>./monitor_bot.sh clear-cache
+
 
 Monitorinstallation:
 >chmod +x monitor_bot.sh
