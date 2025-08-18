@@ -15,6 +15,14 @@ Entscheidungsabfrage:
 Fehlerabfrage:
 >tail -n 50 /home/ubuntu/utbot2/logs/envelope.log
 
+Backtestdaten abholen:
+>./monitor_bot.sh backtest 2024-01-01 2024-07-31 4h
+
+Monitorinstallation:
+>chmod +x monitor_bot.sh
+
+Monitorabfrage:
+>./monitor_bot.sh
 
 
 \
