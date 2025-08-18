@@ -16,7 +16,8 @@ Fehlerabfrage:
 >tail -n 50 /home/ubuntu/utbot2/logs/envelope.log
 
 Backtestdaten abholen:
->./monitor_bot.sh backtest 2024-01-01 2024-07-31 4h
+>./monitor_bot.sh backtest
+
 
 Cachebacktest löschen:
 >./monitor_bot.sh clear-cache
