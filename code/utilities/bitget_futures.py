@@ -76,9 +76,8 @@ class BitgetFutures():
 
     def fetch_historical_ohlcv(self, symbol: str, timeframe: str, start_date: str, end_date: str) -> pd.DataFrame:
         try:
-            # KORREKTUR: Explizites Datumsformat, um 'NoneType'-Fehler zu verhindern
-            **since = self.session.parse8601(f"{start_date}T00:00:00Z")**
-            **end_ts = self.session.parse8601(f"{end_date}T23:59:59Z")**
+            since = self.session.parse8601(f"{start_date}T00:00:00Z")
+            end_ts = self.session.parse8601(f"{end_date}T23:59:59Z")
             
             all_ohlcv = []
             while since < end_ts:
@@ -110,3 +109,4 @@ class BitgetFutures():
             return self.session.create_order(symbol, 'market', side, amount, params={'stopPrice': trigger_price_str, 'reduceOnly': reduce})
         except Exception as e:
             self._handle_exception(f"place_trigger_market_order bei {trigger_price} für {symbol}", e)
+
