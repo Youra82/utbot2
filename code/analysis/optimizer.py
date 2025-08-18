@@ -11,7 +11,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 from utilities.strategy_logic import calculate_signals
 from analysis.backtest import run_backtest, load_data_for_backtest
 
-def run_optimization(start_date, end_date, timeframes_str): # NEU: Nimmt Timeframes als String
+def run_optimization(start_date, end_date, timeframes_str):
     """
     Führt eine Parameter-Optimierung über mehrere Timeframes durch.
     """
@@ -20,15 +20,17 @@ def run_optimization(start_date, end_date, timeframes_str): # NEU: Nimmt Timefra
     with open(config_path, 'r') as f:
         base_params = json.load(f)
 
-    # NEU: Erstelle eine Liste aus dem Timeframe-String
+    # Erstelle eine Liste aus dem Timeframe-String
     timeframes_to_test = timeframes_str.split()
     
     # Definiere die zu testenden Parameter-Bereiche
+    # HIER SIND JETZT BEIDE ADX-WERTE ENTHALTEN
     param_grid = {
         'ut_atr_period': [7, 10, 14],
         'ut_key_value': [1.0, 1.5, 2.0],
         'stop_loss_atr_multiplier': [1.5, 2.0, 2.5],
-        'adx_threshold': [20, 25, 30]
+        'adx_threshold': [20, 25, 30],
+        'adx_window': [14, 20, 25] 
     }
     
     keys, values = zip(*param_grid.items())
@@ -97,6 +99,7 @@ def run_optimization(start_date, end_date, timeframes_str): # NEU: Nimmt Timefra
         print(f"    UT Key Value:     {row['ut_key_value']:.1f}")
         print(f"    SL Multiplikator: {row['stop_loss_atr_multiplier']:.1f}")
         print(f"    ADX Schwellenwert:{int(row['adx_threshold'])}")
+        print(f"    ADX Window:       {int(row['adx_window'])}") # Wird jetzt angezeigt
         
     print("\n" + "="*30)
 
@@ -104,7 +107,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Strategie-Optimierer für den Envelope Bot.")
     parser.add_argument('--start', required=True, help="Startdatum im Format YYYY-MM-DD")
     parser.add_argument('--end', required=True, help="Enddatum im Format YYYY-MM-DD")
-    # NEU: Argument für die Timeframes
     parser.add_argument('--timeframes', required=True, help="Eine Liste von Timeframes, getrennt durch Leerzeichen")
     args = parser.parse_args()
 
