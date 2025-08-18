@@ -161,6 +161,45 @@ class BitgetFutures():
         except Exception as e:
             raise Exception(f"Failed to fetch OHLCV data for {symbol} in timeframe {timeframe}: {e}")
 
+    def fetch_historical_ohlcv(self, symbol: str, timeframe: str, start_date: str, end_date: str) -> pd.DataFrame:
+        """
+        Fetches historical OHLCV data for a given symbol and date range.
+        """
+        try:
+            since = self.session.parse8601(f"{start_date}T00:00:00Z")
+            end_timestamp = self.session.parse8601(f"{end_date}T23:59:59Z")
+            
+            all_ohlcv = []
+            
+            while since < end_timestamp:
+                ohlcv = self.session.fetch_ohlcv(symbol, timeframe, since, limit=1000)
+                if not ohlcv:
+                    break
+                
+                first_ts = ohlcv[0][0]
+                last_ts = ohlcv[-1][0]
+                
+                print(f"  - Geladen: {len(ohlcv)} Kerzen von {pd.to_datetime(first_ts, unit='ms')} bis {pd.to_datetime(last_ts, unit='ms')}")
+
+                all_ohlcv.extend(ohlcv)
+                since = last_ts + self.session.parse_timeframe(timeframe) * 1000 # Setze den Start auf die nächste Kerze
+                
+                time.sleep(self.session.rateLimit / 1000) # Respektiere das Rate Limit der API
+
+            df = pd.DataFrame(all_ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+            df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+            
+            # Filtere Duplikate und setze den Index
+            df.drop_duplicates(subset='timestamp', inplace=True)
+            df.set_index('timestamp', inplace=True)
+            df.sort_index(inplace=True)
+            
+            # Schneide den DataFrame auf den exakten Datumsbereich zu
+            return df[start_date:end_date]
+
+        except Exception as e:
+            raise Exception(f"Failed to fetch historical OHLCV data for {symbol}: {e}")
+
     def place_market_order(self, symbol: str, side: str, amount: float, reduce: bool = False) -> Dict[str, Any]:
         try:
             params = {'reduceOnly': reduce}
