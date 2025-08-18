@@ -44,14 +44,12 @@ function run_analysis() {
     fi
 
     echo -e "${YELLOW}Starte $mode_name für $START_DATE bis $END_DATE...${NC}"
-    # eval stellt sicher, dass die Anführungszeichen um die Timeframes korrekt interpretiert werden
     eval "$PYTHON_VENV $script_path $script_args"
     exit 0
 }
 
 
 # --- MODUS-AUSWAHL ---
-# Prüft, ob ein Argument (z.B. "backtest") übergeben wurde
 case "$1" in
     backtest)
         run_analysis $BACKTEST_SCRIPT "BACKTEST"
@@ -72,8 +70,6 @@ case "$1" in
 esac
 
 # --- STANDARD-MONITORING-ANZEIGE ---
-# Dieser Teil wird nur ausgeführt, wenn KEIN Argument wie "backtest" übergeben wurde.
-
 echo -e "${CYAN}=======================================================${NC}"
 echo -e "${CYAN}          ENVELOPE TRADING BOT MONITORING            ${NC}"
 echo -e "${CYAN}=======================================================${NC}"
@@ -122,7 +118,6 @@ if [ -f "$LOG_FILE" ]; then
     LAST_OPEN_LINE=$(grep "Position bei" "$LOG_FILE" | tail -n 1)
     LAST_CLOSE_LINE=$(grep "Position geschlossen" "$LOG_FILE" | tail -n 1)
 
-    # Prüft, ob die letzte "öffnen"-Nachricht neuer ist als die letzte "schließen"-Nachricht
     if [ -n "$LAST_OPEN_LINE" ] && [ "$(echo -e "$LAST_OPEN_LINE\n$LAST_CLOSE_LINE" | sort | tail -n 1)" == "$LAST_OPEN_LINE" ]; then
         POSITION_INFO=$(echo "$LAST_OPEN_LINE" | sed 's/.*UTC: //')
         ENTRY_SIDE=$(echo "$POSITION_INFO" | awk '{print $1}')
@@ -142,7 +137,6 @@ echo ""
 # --- System-Status ---
 echo -e "${YELLOW}--- SYSTEM-STATUS ---${NC}"
 if [ -f "$LOG_FILE" ]; then
-    # Prüft, ob die Log-Datei leer ist
     if [ -s "$LOG_FILE" ]; then
         LAST_LOG_SECONDS=$(date -d "$(tail -n 1 "$LOG_FILE" | cut -d ' ' -f 1,2)" +%s)
         MINUTES_AGO=$((( $(date +%s) - LAST_LOG_SECONDS) / 60))
@@ -153,6 +147,18 @@ if [ -f "$LOG_FILE" ]; then
     
     ERROR_COUNT=$(grep -c -iE "Fehler|error" "$LOG_FILE")
     [ "$ERROR_COUNT" -gt 0 ] && echo -e "Fehlerzähler: ${RED}${ERROR_COUNT} Fehler protokolliert${NC}" || echo -e "Fehlerzähler: ${GREEN}Keine Fehler${NC}"
+    
+    # --- NEUER BLOCK: LETZTE FEHLER ANZEIGEN ---
+    if [ "$ERROR_COUNT" -gt 0 ]; then
+        echo "" # Leere Zeile für bessere Lesbarkeit
+        echo -e "${YELLOW}--- LETZTE FEHLERMELDUNGEN ---${NC}"
+        # Sucht alle Zeilen mit "Fehler" oder "error", nimmt die letzten 5 davon und gibt sie rot aus
+        grep -iE "Fehler|error" "$LOG_FILE" | tail -n 5 | while IFS= read -r line; do
+            echo -e "${RED}- $line${NC}"
+        done
+    fi
+    # --- ENDE NEUER BLOCK ---
+
 else
     echo -e "${RED}Keine Log-Datei gefunden unter $LOG_FILE${NC}"
 fi
