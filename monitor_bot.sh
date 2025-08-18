@@ -1,9 +1,9 @@
 #!/bin/bash
 
+# Pfad zur Konfigurationsdatei
+CONFIG_FILE="/home/ubuntu/utbot2/code/strategies/envelope/config.json"
 # Pfad zur Log-Datei
 LOG_FILE="/home/ubuntu/utbot2/logs/envelope.log"
-# Pfad zur run.py, um Parameter auszulesen
-RUN_PY_FILE="/home/ubuntu/utbot2/code/strategies/envelope/run.py"
 
 # --- Farbcodes für die Ausgabe ---
 GREEN='\033[0;32m'
@@ -18,13 +18,22 @@ echo -e "${CYAN}=======================================================${NC}"
 echo -e "Letzte Aktualisierung: $(date '+%Y-%m-%d %H:%M:%S')"
 echo ""
 
-# --- 1. Konfigurations- & Strategieparameter ---
+# --- 1. Konfigurations- & Strategieparameter (GEFIXED) ---
 echo -e "${YELLOW}--- KONFIGURATION & STRATEGIE ---${NC}"
-echo "Symbol: $(grep "'symbol':" $RUN_PY_FILE | head -n 1 | awk '{print $NF}' | tr -d "',")"
-echo "Timeframe: $(grep "'timeframe':" $RUN_PY_FILE | head -n 1 | awk '{print $NF}' | tr -d "',")"
-echo "Hebel: $(grep "'leverage':" $RUN_PY_FILE | head -n 1 | awk '{print $NF}' | tr -d ',' )x"
-echo "ATR Periode/Key: $(grep "'ut_atr_period':" $RUN_PY_FILE | head -n 1 | awk '{print $NF}' | tr -d ',' ) / $(grep "'ut_key_value':" $RUN_PY_FILE | head -n 1 | awk '{print $NF}' | tr -d ',' )"
+# Benötigt jq: sudo apt-get install jq
+if command -v jq &> /dev/null
+then
+    echo "Symbol: $(jq -r '.symbol' $CONFIG_FILE)"
+    echo "Timeframe: $(jq -r '.timeframe' $CONFIG_FILE)"
+    echo "Hebel: $(jq -r '.leverage' $CONFIG_FILE)x"
+    echo "ATR Periode/Key: $(jq -r '.ut_atr_period' $CONFIG_FILE) / $(jq -r '.ut_key_value' $CONFIG_FILE)"
+    echo "Stop-Loss ATR Multiplikator: $(jq -r '.stop_loss_atr_multiplier' $CONFIG_FILE)x"
+    echo "Trade Size: $(jq -r '.trade_size_pct' $CONFIG_FILE)% des Kapitals"
+else
+    echo -e "${RED}Fehler: 'jq' ist nicht installiert. Bitte mit 'sudo apt-get install jq' installieren.${NC}"
+fi
 echo ""
+
 
 # --- 2. Bot-Statistiken aus dem Log ---
 echo -e "${YELLOW}--- BOT-STATISTIKEN (seit Log-Start) ---${NC}"
@@ -34,7 +43,7 @@ echo -e "Eröffnete Trades: ${GREEN}$TRADES_OPENED${NC}"
 echo -e "Geschlossene Trades: ${GREEN}$TRADES_CLOSED${NC}"
 echo ""
 
-# --- 3. Details zur aktuellen Position (NEU) ---
+# --- 3. Details zur aktuellen Position ---
 echo -e "${YELLOW}--- AKTUELLE POSITION & RISIKO ---${NC}"
 # Finde die Zeilennummern der letzten relevanten Aktionen
 LAST_OPEN_LINE_NUM=$(grep -n "eröffnet" "$LOG_FILE" | tail -n 1 | cut -d: -f1)
@@ -59,7 +68,7 @@ else
 fi
 echo ""
 
-# --- 4. System-Status (NEU) ---
+# --- 4. System-Status ---
 echo -e "${YELLOW}--- SYSTEM-STATUS ---${NC}"
 # Zeit seit letzter Aktivität (Bot-Herzschlag)
 LAST_LOG_TIMESTAMP_STR=$(tail -n 1 "$LOG_FILE" | cut -d ' ' -f 1,2)
