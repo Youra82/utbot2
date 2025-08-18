@@ -5,11 +5,11 @@
     "leverage": 10,
     "use_longs": true,
     "use_shorts": true,
-    "stop_loss_pct": 0.004,
     "enable_stop_loss": true,
+    "stop_loss_atr_multiplier": 1.5,
     "ut_key_value": 1,
     "ut_atr_period": 10,
-    "trade_size_pct": 50,
+    "trade_size_pct": 5,
     "max_retries": 3,
     "retry_delay": 2
 }
