@@ -4,6 +4,10 @@
 CONFIG_FILE="/home/ubuntu/utbot2/code/strategies/envelope/config.json"
 # Pfad zur Log-Datei
 LOG_FILE="/home/ubuntu/utbot2/logs/envelope.log"
+# Pfad zum Python-Interpreter im venv
+PYTHON_VENV="/home/ubuntu/utbot2/code/.venv/bin/python3"
+# Pfad zum Backtest-Skript
+BACKTEST_SCRIPT="/home/ubuntu/utbot2/code/analysis/backtest.py"
 
 # --- Farbcodes für die Ausgabe ---
 GREEN='\033[0;32m'
@@ -12,15 +16,42 @@ CYAN='\033[0;36m'
 RED='\033[0;31m'
 NC='\033[0m' # No Color
 
+# ==============================================================================
+# BACKTEST-MODUS
+# ==============================================================================
+if [ "$1" == "backtest" ]; then
+    if [ -z "$2" ] || [ -z "$3" ] || [ -z "$4" ]; then
+        echo -e "${RED}Fehler: Für den Backtest werden Startdatum, Enddatum und Timeframe benötigt.${NC}"
+        echo "Beispiel: ./monitor_bot.sh backtest 2024-01-01 2024-06-30 4h"
+        exit 1
+    fi
+    
+    START_DATE=$2
+    END_DATE=$3
+    TIMEFRAME=$4
+
+    echo -e "${CYAN}=======================================================${NC}"
+    echo -e "${CYAN}             ENVELOPE BOT - BACKTEST MODUS             ${NC}"
+    echo -e "${CYAN}=======================================================${NC}"
+    
+    # Führe das Python-Backtest-Skript aus
+    $PYTHON_VENV $BACKTEST_SCRIPT --start $START_DATE --end $END_DATE --timeframe $TIMEFRAME
+
+    exit 0
+fi
+
+# ==============================================================================
+# MONITORING-MODUS (wird ausgeführt, wenn kein Argument übergeben wird)
+# ==============================================================================
 echo -e "${CYAN}=======================================================${NC}"
 echo -e "${CYAN}          ENVELOPE TRADING BOT MONITORING            ${NC}"
 echo -e "${CYAN}=======================================================${NC}"
+echo "Verwende './monitor_bot.sh backtest YYYY-MM-DD YYYY-MM-DD 1h' für einen Backtest."
 echo -e "Letzte Aktualisierung: $(date '+%Y-%m-%d %H:%M:%S')"
 echo ""
 
-# --- 1. Konfigurations- & Strategieparameter (GEFIXED) ---
+# --- 1. Konfigurations- & Strategieparameter ---
 echo -e "${YELLOW}--- KONFIGURATION & STRATEGIE ---${NC}"
-# Benötigt jq: sudo apt-get install jq
 if command -v jq &> /dev/null
 then
     echo "Symbol: $(jq -r '.symbol' $CONFIG_FILE)"
@@ -45,7 +76,6 @@ echo ""
 
 # --- 3. Details zur aktuellen Position ---
 echo -e "${YELLOW}--- AKTUELLE POSITION & RISIKO ---${NC}"
-# Finde die Zeilennummern der letzten relevanten Aktionen
 LAST_OPEN_LINE_NUM=$(grep -n "eröffnet" "$LOG_FILE" | tail -n 1 | cut -d: -f1)
 LAST_CLOSE_LINE_NUM=$(grep -n "geschlossen" "$LOG_FILE" | tail -n 1 | cut -d: -f1)
 
@@ -61,7 +91,7 @@ if [ -n "$LAST_OPEN_LINE_NUM" ] && [ "$LAST_OPEN_LINE_NUM" -gt "${LAST_CLOSE_LIN
     if [ -n "$STOP_LOSS_PRICE" ]; then
         echo -e "Stop-Loss: ${RED}${STOP_LOSS_PRICE}${NC}"
     else
-        echo -e "Stop-Loss: ${YELLOW}Nicht im Log gefunden (run.py anpassen?)${NC}"
+        echo -e "Stop-Loss: ${YELLOW}Nicht im Log gefunden${NC}"
     fi
 else
     echo -e "Status: ${CYAN}Keine Position offen${NC}"
@@ -70,7 +100,6 @@ echo ""
 
 # --- 4. System-Status ---
 echo -e "${YELLOW}--- SYSTEM-STATUS ---${NC}"
-# Zeit seit letzter Aktivität (Bot-Herzschlag)
 LAST_LOG_TIMESTAMP_STR=$(tail -n 1 "$LOG_FILE" | cut -d ' ' -f 1,2)
 if [ -n "$LAST_LOG_TIMESTAMP_STR" ]; then
     LAST_LOG_SECONDS=$(date -d "$LAST_LOG_TIMESTAMP_STR" +%s)
@@ -81,7 +110,6 @@ else
     echo -e "Letzte Aktivität: ${RED}Keine Log-Datei gefunden${NC}"
 fi
 
-# Fehlerzähler
 ERROR_COUNT=$(grep -c -i "Fehler\|error" "$LOG_FILE")
 if [ "$ERROR_COUNT" -gt 0 ]; then
     echo -e "Fehlerzähler: ${RED}${ERROR_COUNT} Fehler protokolliert${NC}"
