@@ -26,6 +26,10 @@ def run_optimization(start_date, end_date, timeframes_str, symbols_list):
     else:
         symbols_to_optimize = symbols_list
 
+    # ############# NEU: Liste für die besten Ergebnisse pro Coin #############
+    overall_best_results = []
+    # ######################################################################
+
     # ÄUSSERE SCHLEIFE FÜR JEDES HANDELSPAAR
     for symbol_arg in symbols_to_optimize:
         
@@ -88,7 +92,7 @@ def run_optimization(start_date, end_date, timeframes_str, symbols_list):
 
         if not all_results:
             print(f"\n\nKeine Ergebnisse für {base_params['symbol']} erzielt.")
-            continue # Zum nächsten Symbol springen
+            continue
             
         print("\n\n--- Optimierung abgeschlossen ---")
         results_df = pd.DataFrame(all_results)
@@ -100,6 +104,12 @@ def run_optimization(start_date, end_date, timeframes_str, symbols_list):
             by=['total_pnl_pct', 'win_rate', 'trades_count'], 
             ascending=[False, False, False]
         )
+
+        # ############# NEU: Bestes Ergebnis für diesen Coin speichern #############
+        if not sorted_results.empty:
+            best_run_for_this_symbol = sorted_results.iloc[0].to_dict()
+            overall_best_results.append(best_run_for_this_symbol)
+        # #######################################################################
 
         top_10_results = sorted_results.head(10)
 
@@ -127,12 +137,46 @@ def run_optimization(start_date, end_date, timeframes_str, symbols_list):
         print("\n" + "="*30)
         print(f"#################### ENDE OPTIMIERUNG FÜR: {base_params['symbol']} ####################\n")
 
+    # ############# NEU: Finale Gesamtauswertung am Ende #############
+    if len(overall_best_results) > 1:
+        print("\n\n#################### FINALE GESAMTAUSWERTUNG (BESTER LAUF PRO COIN) ####################")
+        summary_df = pd.DataFrame(overall_best_results)
+        final_ranking = summary_df.sort_values(
+            by=['total_pnl_pct', 'win_rate', 'trades_count'],
+            ascending=[False, False, False]
+        ).reset_index(drop=True)
+
+        print("\nRanking der Handelspaare nach bester Performance:")
+
+        for i, row in final_ranking.iterrows():
+            platz = i + 1
+            print("\n" + "="*50)
+            print(f"     --- GESAMT-PLATZ {platz} ---")
+            print("="*50)
+            
+            print(f"\n  HANDELSPAAR: {row['symbol']}")
+            
+            print("\n  LEISTUNG:")
+            print(f"    Gewinn (PnL):       {row['total_pnl_pct']:.2f} %")
+            print(f"    Trefferquote:       {row['win_rate']:.2f} %")
+            print(f"    Anzahl Trades:    {int(row['trades_count'])}")
+            
+            print("\n  BESTE PARAMETER FÜR DIESEN COIN:")
+            print(f"    Timeframe:          {row['timeframe']}")
+            print(f"    UT ATR Periode:     {int(row['ut_atr_period'])}")
+            print(f"    UT Key Value:       {row['ut_key_value']:.1f}")
+            print(f"    SL Multiplikator:   {row['stop_loss_atr_multiplier']:.1f}")
+            print(f"    ADX Schwellenwert:  {int(row['adx_threshold'])}")
+            print(f"    ADX Window:         {int(row['adx_window'])}")
+        
+        print("\n" + "="*50)
+    # ###############################################################
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Strategie-Optimierer für den Envelope Bot.")
     parser.add_argument('--start', required=True, help="Startdatum im Format YYYY-MM-DD")
     parser.add_argument('--end', required=True, help="Enddatum im Format YYYY-MM-DD")
     parser.add_argument('--timeframes', required=True, help="Eine Liste von Timeframes, getrennt durch Leerzeichen")
-    # AKZEPTIERT JETZT MEHRERE WERTE
     parser.add_argument('--symbols', nargs='+', help="Ein oder mehrere Handelspaare (z.B. BTC ETH SOL), überschreibt die config.json")
     args = parser.parse_args()
 
