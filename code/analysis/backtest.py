@@ -61,6 +61,8 @@ def run_backtest(data, params, verbose=True):
     if verbose:
         print("\n--- Backtest-Ergebnisse ---")
         print(f"Zeitraum: {data.index[0].strftime('%Y-%m-%d')} -> {data.index[-1].strftime('%Y-%m-%d')}")
+        if 'symbol_display' in params:
+             print(f"Symbol: {params['symbol_display']}")
         print(f"Timeframe: {params['timeframe']}")
         print(f"Parameter: ut_atr_period={params['ut_atr_period']}, ut_key_value={params['ut_key_value']}, adx_threshold={params.get('adx_threshold', 'N/A')}")
         print("-" * 27)
@@ -131,6 +133,7 @@ if __name__ == "__main__":
     parser.add_argument('--start', required=True, help="Startdatum im Format YYYY-MM-DD")
     parser.add_argument('--end', required=True, help="Enddatum im Format YYYY-MM-DD")
     parser.add_argument('--timeframe', required=True, help="Timeframe (z.B. 15m, 1h, 4h, 1d)")
+    parser.add_argument('--symbol', help="Optionales Handelspaar (z.B. BTC/USDT:USDT), überschreibt die config.json")
     args = parser.parse_args()
 
     print("Lade Konfiguration...")
@@ -139,10 +142,19 @@ if __name__ == "__main__":
         params = json.load(f)
         params['timeframe'] = args.timeframe
 
+    if args.symbol:
+        print(f"Info: Symbol '{params['symbol']}' aus der Konfiguration wird durch '{args.symbol}' überschrieben.")
+        params['symbol'] = args.symbol
+
     data_for_backtest = load_data_for_backtest(params['symbol'], args.timeframe, args.start, args.end)
     
     if data_for_backtest is not None and not data_for_backtest.empty:
+        params_for_run = params.copy()
+        params_for_run['symbol_display'] = params['symbol'] 
+
         data_with_signals = calculate_signals(data_for_backtest, params)
-        run_backtest(data_with_signals, params)
+        
+        run_backtest(data_with_signals, params_for_run)
+
     else:
-        print("Keine Daten für den Backtest verfügbar.")
+        print(f"Keine Daten für das Symbol {params['symbol']} im angegebenen Zeitraum verfügbar.")
