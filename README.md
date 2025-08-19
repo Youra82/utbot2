@@ -11,10 +11,6 @@ _A homemade humble library to run automated python crypto trading bots_
 Botstart:
 > bash utbot2/code/run_envelope.sh
 
-Abfrage der letzten Trading-etnscheidungen:
-
-> grep "TRADE_DECISION:" /home/ubuntu/utbot2/logs/envelope.log | tail -n 20
-
 Monitorinstallation:
 > chmod +x monitor_bot.sh
 
@@ -27,7 +23,9 @@ Backtest & Optimizer benutzen
 Cache vom Optimizer löschen:
 > ./monitor_bot.sh clear-cache
 
+Abfrage der letzten Trading-etnscheidungen:
 
+> grep "TRADE_DECISION:" /home/ubuntu/utbot2/logs/envelope.log | tail -n 20
 
 \
 ⭐ Bots and strategies
