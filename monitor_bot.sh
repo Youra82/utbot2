@@ -22,7 +22,7 @@ function run_analysis() {
     local script_args=""
 
     echo -e "${CYAN}=======================================================${NC}"
-    echo -e "${CYAN}             ENVELOPE BOT - $mode_name MODUS             ${NC}"
+    echo -e "${CYAN}               ENVELOPE BOT - $mode_name MODUS               ${NC}"
     echo -e "${CYAN}=======================================================${NC}"
 
     read -p "Bitte geben Sie den Zeitraum ein (z.B. 2024-01-01 to 2024-06-30): " date_range_input
@@ -38,6 +38,12 @@ function run_analysis() {
     if [ "$mode_name" == "BACKTEST" ]; then
         read -p "Bitte geben Sie den Timeframe ein (z.B. 1h): " TIMEFRAME
         script_args="$script_args --timeframe $TIMEFRAME"
+        
+        read -p "Handelspaar eingeben (optional, Enter für Standard): " SYMBOL
+        if [ -n "$SYMBOL" ]; then
+            script_args="$script_args --symbol $SYMBOL"
+        fi
+
     elif [ "$mode_name" == "OPTIMIZER" ]; then
         read -p "Geben Sie die Timeframes getrennt durch Leerzeichen ein (z.B. 15m 1h 4h): " TIMEFRAMES
         script_args="$script_args --timeframes \"$TIMEFRAMES\""
@@ -71,7 +77,7 @@ esac
 
 # --- STANDARD-MONITORING-ANZEIGE ---
 echo -e "${CYAN}=======================================================${NC}"
-echo -e "${CYAN}          ENVELOPE TRADING BOT MONITORING            ${NC}"
+echo -e "${CYAN}               ENVELOPE TRADING BOT MONITORING               ${NC}"
 echo -e "${CYAN}=======================================================${NC}"
 echo "Verwende './monitor_bot.sh <mode>', Modi: ${GREEN}backtest, optimize, clear-cache${NC}"
 echo -e "Letzte Aktualisierung: $(date '+%Y-%m-%d %H:%M:%S')"
@@ -164,4 +170,3 @@ else
 fi
 
 echo -e "${CYAN}=======================================================${NC}"
-
