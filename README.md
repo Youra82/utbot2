@@ -27,6 +27,9 @@ Abfrage der letzten Trading-etnscheidungen:
 
 > grep "TRADE_DECISION:" /home/ubuntu/utbot2/logs/envelope.log | tail -n 20
 
+Crontab -e jobs ansehen:
+> grep CRON /var/log/syslog | tail -n 20
+
 \
 ⭐ Bots and strategies
 -------------
