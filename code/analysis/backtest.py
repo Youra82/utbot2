@@ -131,39 +131,47 @@ def load_data_for_backtest(symbol, timeframe, start_date_str, end_date_str):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Strategie-Backtest für den Envelope Bot.")
     parser.add_argument('--start', required=True, help="Startdatum im Format YYYY-MM-DD")
-    parser.add_argument('--end', required=True, help="Enddatum im Format YYYY-MM-DD")
+    parser.add_argument('--end', required=True, help="Enddatum im Format YYYY-ÄMM-DD")
     parser.add_argument('--timeframe', required=True, help="Timeframe (z.B. 15m, 1h, 4h, 1d)")
-    parser.add_argument('--symbol', help="Optionales Handelspaar (z.B. BTC oder ETH), überschreibt die config.json")
+    # AKZEPTIERT JETZT MEHRERE WERTE
+    parser.add_argument('--symbols', nargs='+', help="Ein oder mehrere Handelspaare (z.B. BTC ETH SOL), überschreibt die config.json")
     args = parser.parse_args()
 
     print("Lade Konfiguration...")
     config_path = os.path.join(os.path.dirname(__file__), '..', 'strategies', 'envelope', 'config.json')
     with open(config_path, 'r') as f:
-        params = json.load(f)
+        base_params = json.load(f)
+    
+    symbols_to_test = args.symbols if args.symbols else [base_params['symbol']]
+
+    # ÄUSSERE SCHLEIFE FÜR JEDES HANDELSPAAR
+    for symbol_arg in symbols_to_test:
+        
+        params = base_params.copy()
         params['timeframe'] = args.timeframe
 
-    # ############# NEUE LOGIK ZUR AUTOMATISCHEN FORMATIERUNG #############
-    if args.symbol:
-        raw_symbol = args.symbol
-        # Wenn nur ein Kurzname (ohne '/') eingegeben wurde, formatiere ihn um
+        # Automatische Formatierung des Symbols
+        raw_symbol = symbol_arg
         if '/' not in raw_symbol:
             formatted_symbol = f"{raw_symbol.upper()}/USDT:USDT"
-            print(f"Info: Kurzname '{raw_symbol}' wird zu '{formatted_symbol}' formatiert.")
+            print(f"\n\n==================== START TEST FÜR: {formatted_symbol} ====================")
             params['symbol'] = formatted_symbol
         else:
-            # Erlaube auch die Eingabe des vollen Formats
-            params['symbol'] = raw_symbol.upper()
-    # ####################################################################
+            formatted_symbol = raw_symbol.upper()
+            print(f"\n\n==================== START TEST FÜR: {formatted_symbol} ====================")
+            params['symbol'] = formatted_symbol
 
-    data_for_backtest = load_data_for_backtest(params['symbol'], args.timeframe, args.start, args.end)
-    
-    if data_for_backtest is not None and not data_for_backtest.empty:
-        params_for_run = params.copy()
-        params_for_run['symbol_display'] = params['symbol'] 
-
-        data_with_signals = calculate_signals(data_for_backtest, params)
+        data_for_backtest = load_data_for_backtest(params['symbol'], args.timeframe, args.start, args.end)
         
-        run_backtest(data_with_signals, params_for_run)
+        if data_for_backtest is not None and not data_for_backtest.empty:
+            params_for_run = params.copy()
+            params_for_run['symbol_display'] = params['symbol'] 
 
-    else:
-        print(f"Keine Daten für das Symbol {params['symbol']} im angegebenen Zeitraum verfügbar.")
+            data_with_signals = calculate_signals(data_for_backtest, params)
+            
+            run_backtest(data_with_signals, params_for_run)
+
+        else:
+            print(f"Keine Daten für das Symbol {params['symbol']} im angegebenen Zeitraum verfügbar.")
+        
+        print(f"==================== ENDE TEST FÜR: {formatted_symbol} =====================\n")
