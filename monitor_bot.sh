@@ -47,6 +47,11 @@ function run_analysis() {
     elif [ "$mode_name" == "OPTIMIZER" ]; then
         read -p "Geben Sie die Timeframes getrennt durch Leerzeichen ein (z.B. 15m 1h 4h): " TIMEFRAMES
         script_args="$script_args --timeframes \"$TIMEFRAMES\""
+
+        read -p "Handelspaar eingeben (optional, Enter für Standard): " SYMBOL
+        if [ -n "$SYMBOL" ]; then
+            script_args="$script_args --symbol $SYMBOL"
+        fi
     fi
 
     echo -e "${YELLOW}Starte $mode_name für $START_DATE bis $END_DATE...${NC}"
@@ -154,16 +159,13 @@ if [ -f "$LOG_FILE" ]; then
     ERROR_COUNT=$(grep -c -iE "Fehler|error" "$LOG_FILE")
     [ "$ERROR_COUNT" -gt 0 ] && echo -e "Fehlerzähler: ${RED}${ERROR_COUNT} Fehler protokolliert${NC}" || echo -e "Fehlerzähler: ${GREEN}Keine Fehler${NC}"
     
-    # --- NEUER BLOCK: LETZTE FEHLER ANZEIGEN ---
     if [ "$ERROR_COUNT" -gt 0 ]; then
-        echo "" # Leere Zeile für bessere Lesbarkeit
+        echo "" 
         echo -e "${YELLOW}--- LETZTE FEHLERMELDUNGEN ---${NC}"
-        # Sucht alle Zeilen mit "Fehler" oder "error", nimmt die letzten 5 davon und gibt sie rot aus
         grep -iE "Fehler|error" "$LOG_FILE" | tail -n 5 | while IFS= read -r line; do
             echo -e "${RED}- $line${NC}"
         done
     fi
-    # --- ENDE NEUER BLOCK ---
 
 else
     echo -e "${RED}Keine Log-Datei gefunden unter $LOG_FILE${NC}"
