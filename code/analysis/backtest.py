@@ -103,7 +103,7 @@ def load_data_for_backtest(symbol, timeframe, start_date_str, end_date_str):
             download_start_date = None
 
     if download_start_date:
-        print(f"Lade neue Daten von {download_start_date} bis {end_date_str}...")
+        print(f"Lade neue Daten von {download_start_date} bis {end_date_str} für {symbol}...")
         try:
             key_path = '/home/ubuntu/utbot2/secret.json' # Dieser Pfad bleibt serverspezifisch
             with open(key_path, "r") as f:
@@ -133,7 +133,7 @@ if __name__ == "__main__":
     parser.add_argument('--start', required=True, help="Startdatum im Format YYYY-MM-DD")
     parser.add_argument('--end', required=True, help="Enddatum im Format YYYY-MM-DD")
     parser.add_argument('--timeframe', required=True, help="Timeframe (z.B. 15m, 1h, 4h, 1d)")
-    parser.add_argument('--symbol', help="Optionales Handelspaar (z.B. BTC/USDT:USDT), überschreibt die config.json")
+    parser.add_argument('--symbol', help="Optionales Handelspaar (z.B. BTC oder ETH), überschreibt die config.json")
     args = parser.parse_args()
 
     print("Lade Konfiguration...")
@@ -142,9 +142,18 @@ if __name__ == "__main__":
         params = json.load(f)
         params['timeframe'] = args.timeframe
 
+    # ############# NEUE LOGIK ZUR AUTOMATISCHEN FORMATIERUNG #############
     if args.symbol:
-        print(f"Info: Symbol '{params['symbol']}' aus der Konfiguration wird durch '{args.symbol}' überschrieben.")
-        params['symbol'] = args.symbol
+        raw_symbol = args.symbol
+        # Wenn nur ein Kurzname (ohne '/') eingegeben wurde, formatiere ihn um
+        if '/' not in raw_symbol:
+            formatted_symbol = f"{raw_symbol.upper()}/USDT:USDT"
+            print(f"Info: Kurzname '{raw_symbol}' wird zu '{formatted_symbol}' formatiert.")
+            params['symbol'] = formatted_symbol
+        else:
+            # Erlaube auch die Eingabe des vollen Formats
+            params['symbol'] = raw_symbol.upper()
+    # ####################################################################
 
     data_for_backtest = load_data_for_backtest(params['symbol'], args.timeframe, args.start, args.end)
     
