@@ -39,7 +39,6 @@ function run_analysis() {
         read -p "Bitte geben Sie den Timeframe ein (z.B. 1h): " TIMEFRAME
         script_args="$script_args --timeframe $TIMEFRAME"
         
-        # FRÄGT JETZT NACH MEHREREN SYMBOLEN
         read -p "Handelspaar(e) eingeben (optional, z.B. BTC ETH): " SYMBOLS
         if [ -n "$SYMBOLS" ]; then
             script_args="$script_args --symbols $SYMBOLS"
@@ -49,11 +48,20 @@ function run_analysis() {
         read -p "Geben Sie die Timeframes getrennt durch Leerzeichen ein (z.B. 15m 1h 4h): " TIMEFRAMES
         script_args="$script_args --timeframes \"$TIMEFRAMES\""
 
-        # FRÄGT JETZT NACH MEHREREN SYMBOLEN
         read -p "Handelspaar(e) eingeben (optional, z.B. BTC ETH): " SYMBOLS
         if [ -n "$SYMBOLS" ]; then
             script_args="$script_args --symbols $SYMBOLS"
         fi
+    fi
+
+    # NEUE ABFRAGEN FÜR HEBEL UND SL
+    read -p "Hebel eingeben (optional, Enter für Standard): " LEVERAGE
+    if [ -n "$LEVERAGE" ]; then
+        script_args="$script_args --leverage $LEVERAGE"
+    fi
+    read -p "SL-Multiplikator eingeben (optional, Enter für Standard): " SL_MULTIPLIER
+    if [ -n "$SL_MULTIPLIER" ]; then
+        script_args="$script_args --sl_multiplier $SL_MULTIPLIER"
     fi
 
     echo -e "${YELLOW}Starte $mode_name für $START_DATE bis $END_DATE...${NC}"
