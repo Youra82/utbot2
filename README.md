@@ -15,9 +15,6 @@ Abfrage der letzten Trading-etnscheidungen:
 
 > grep "TRADE_DECISION:" /home/ubuntu/utbot2/logs/envelope.log | tail -n 20
 
-Abfrage der letzten Fehler:
-> tail -n 50 /home/ubuntu/utbot2/logs/envelope.log
-
 Monitorinstallation:
 > chmod +x monitor_bot.sh
 
