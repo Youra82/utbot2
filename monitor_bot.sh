@@ -39,18 +39,20 @@ function run_analysis() {
         read -p "Bitte geben Sie den Timeframe ein (z.B. 1h): " TIMEFRAME
         script_args="$script_args --timeframe $TIMEFRAME"
         
-        read -p "Handelspaar eingeben (optional, Enter für Standard): " SYMBOL
-        if [ -n "$SYMBOL" ]; then
-            script_args="$script_args --symbol $SYMBOL"
+        # FRÄGT JETZT NACH MEHREREN SYMBOLEN
+        read -p "Handelspaar(e) eingeben (optional, z.B. BTC ETH): " SYMBOLS
+        if [ -n "$SYMBOLS" ]; then
+            script_args="$script_args --symbols $SYMBOLS"
         fi
 
     elif [ "$mode_name" == "OPTIMIZER" ]; then
         read -p "Geben Sie die Timeframes getrennt durch Leerzeichen ein (z.B. 15m 1h 4h): " TIMEFRAMES
         script_args="$script_args --timeframes \"$TIMEFRAMES\""
 
-        read -p "Handelspaar eingeben (optional, Enter für Standard): " SYMBOL
-        if [ -n "$SYMBOL" ]; then
-            script_args="$script_args --symbol $SYMBOL"
+        # FRÄGT JETZT NACH MEHREREN SYMBOLEN
+        read -p "Handelspaar(e) eingeben (optional, z.B. BTC ETH): " SYMBOLS
+        if [ -n "$SYMBOLS" ]; then
+            script_args="$script_args --symbols $SYMBOLS"
         fi
     fi
 
