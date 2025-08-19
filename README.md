@@ -11,11 +11,11 @@ _A homemade humble library to run automated python crypto trading bots_
 Botstart:
 > bash utbot2/code/run_envelope.sh
 
-Entscheidungsabfrage:
+Abfrage der letzten Etnscheidungen:
 
 > grep "TRADE_DECISION:" /home/ubuntu/utbot2/logs/envelope.log | tail -n 20
 
-Fehlerabfrage:
+Abfrage der letzten Fehler:
 > tail -n 50 /home/ubuntu/utbot2/logs/envelope.log
 
 Monitorinstallation:
