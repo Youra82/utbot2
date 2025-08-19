@@ -11,7 +11,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 from utilities.strategy_logic import calculate_signals
 from analysis.backtest import run_backtest, load_data_for_backtest
 
-def run_optimization(start_date, end_date, timeframes_str):
+def run_optimization(start_date, end_date, timeframes_str, symbol=None):
     """
     Führt eine Parameter-Optimierung über mehrere Timeframes durch.
     """
@@ -20,11 +20,15 @@ def run_optimization(start_date, end_date, timeframes_str):
     with open(config_path, 'r') as f:
         base_params = json.load(f)
 
+    # Überschreibe das Symbol, wenn eines übergeben wurde
+    if symbol:
+        print(f"Info: Symbol '{base_params['symbol']}' aus der Konfiguration wird durch '{symbol}' überschrieben.")
+        base_params['symbol'] = symbol
+
     # Erstelle eine Liste aus dem Timeframe-String
     timeframes_to_test = timeframes_str.split()
     
     # Definiere die zu testenden Parameter-Bereiche
-    # HIER SIND JETZT BEIDE ADX-WERTE ENTHALTEN
     param_grid = {
         'ut_atr_period': [7, 10, 14],
         'ut_key_value': [1.0, 1.5, 2.0],
@@ -55,12 +59,9 @@ def run_optimization(start_date, end_date, timeframes_str):
             current_run += 1
             print(f"\rTeste Kombination {current_run}/{total_runs}...", end="")
 
-            # NEUER SICHERHEITS-CHECK
-            # Wir benötigen für die Berechnung mehr Daten als die ADX-Periode.
-            # Ein Puffer von 2x ist eine sichere Annahme.
+            # Sicherheits-Check für ausreichend Daten
             required_data_points = params_to_test.get('adx_window', 14) * 2
             if len(data) < required_data_points:
-                # Diese Kombination wird übersprungen, anstatt abzustürzen
                 continue
 
             current_params = base_params.copy()
@@ -107,7 +108,7 @@ def run_optimization(start_date, end_date, timeframes_str):
         print(f"    UT Key Value:       {row['ut_key_value']:.1f}")
         print(f"    SL Multiplikator:   {row['stop_loss_atr_multiplier']:.1f}")
         print(f"    ADX Schwellenwert:  {int(row['adx_threshold'])}")
-        print(f"    ADX Window:         {int(row['adx_window'])}") # Wird jetzt angezeigt
+        print(f"    ADX Window:         {int(row['adx_window'])}")
         
     print("\n" + "="*30)
 
@@ -116,6 +117,7 @@ if __name__ == "__main__":
     parser.add_argument('--start', required=True, help="Startdatum im Format YYYY-MM-DD")
     parser.add_argument('--end', required=True, help="Enddatum im Format YYYY-MM-DD")
     parser.add_argument('--timeframes', required=True, help="Eine Liste von Timeframes, getrennt durch Leerzeichen")
+    parser.add_argument('--symbol', help="Optionales Handelspaar (z.B. BTC/USDT:USDT), überschreibt die config.json")
     args = parser.parse_args()
 
-    run_optimization(args.start, args.end, args.timeframes)
+    run_optimization(args.start, args.end, args.timeframes, args.symbol)
