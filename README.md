@@ -32,6 +32,9 @@ Monitorabfrage:
 Optimizer benutzen
 >./monitor_bot.sh optimize
 
+Optimizercache löschen:
+>./monitor_bot.sh clear-cache
+
 
 
 \
