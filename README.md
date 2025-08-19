@@ -18,24 +18,16 @@ Entscheidungsabfrage:
 Fehlerabfrage:
 > tail -n 50 /home/ubuntu/utbot2/logs/envelope.log
 
-Backtestdaten abholen:
-> ./monitor_bot.sh backtest
-
-
-Cachebacktest löschen:
-> ./monitor_bot.sh clear-cache
-
-
 Monitorinstallation:
 > chmod +x monitor_bot.sh
 
 Monitorabfrage:
 > ./monitor_bot.sh
 
-Optimizer benutzen
+Backtest & Optimizer benutzen
 > ./monitor_bot.sh optimize
 
-Optimizercache löschen:
+Cache vom Optimizer löschen:
 > ./monitor_bot.sh clear-cache
 
 
