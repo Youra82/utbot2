@@ -13,48 +13,89 @@ from utilities.strategy_logic import calculate_signals
 def run_backtest(data, params, verbose=True):
     if verbose:
         print("\nFühre Backtest aus...")
+
+    # NEUE PARAMETER FÜR REALISTISCHERES BACKTESTING
+    leverage = params.get('leverage', 1.0)
+    sl_multiplier = params.get('stop_loss_atr_multiplier', 1.5)
     
     in_position = False
     position_side = None
     entry_price = 0.0
+    stop_loss_price = 0.0
     total_pnl = 0.0
     trades_count = 0
     wins_count = 0
     
-    fee_pct = 0.05 / 100 
+    fee_pct = 0.05 / 100
 
     for i in range(1, len(data)):
         prev_candle = data.iloc[i-1]
-        current_price = data.iloc[i]['open']
+        current_candle = data.iloc[i]
 
+        # --- 1. PRÜFUNG: WURDE EIN STOP-LOSS AUSGELÖST? ---
         if in_position:
-            if position_side == 'long' and prev_candle['sell_signal_ut']: # Schließen immer auf UT-Signal, nicht auf ADX-Signal
-                pnl = ((current_price - entry_price) / entry_price) - (2 * fee_pct)
+            pnl = 0.0
+            exit_price = 0.0
+
+            # Stop-Loss für Long-Position
+            if position_side == 'long' and current_candle['low'] <= stop_loss_price:
+                exit_price = stop_loss_price
+                pnl = (((exit_price - entry_price) / entry_price) * leverage) - (2 * fee_pct * leverage)
+                if verbose: print(f"{current_candle.name.strftime('%Y-%m-%d %H:%M')} | STOP-LOSS   | PnL: {pnl*100:.2f}%")
+            
+            # Stop-Loss für Short-Position
+            elif position_side == 'short' and current_candle['high'] >= stop_loss_price:
+                exit_price = stop_loss_price
+                pnl = (((entry_price - exit_price) / entry_price) * leverage) - (2 * fee_pct * leverage)
+                if verbose: print(f"{current_candle.name.strftime('%Y-%m-%d %H:%M')} | STOP-LOSS   | PnL: {pnl*100:.2f}%")
+
+            if exit_price > 0: # Wenn Stop-Loss ausgelöst wurde
                 total_pnl += pnl
                 trades_count += 1
                 if pnl > 0: wins_count += 1
-                if verbose: print(f"{data.index[i].strftime('%Y-%m-%d %H:%M')} | CLOSE LONG  | PnL: {pnl*100:.2f}%")
                 in_position = False
-            elif position_side == 'short' and prev_candle['buy_signal_ut']: # Schließen immer auf UT-Signal
-                pnl = ((entry_price - current_price) / entry_price) - (2 * fee_pct)
+                stop_loss_price = 0.0
+                continue # Gehe zur nächsten Kerze
+
+        # --- 2. PRÜFUNG: GIBT ES EIN REGULÄRES AUSSTIEGSSIGNAL? (FALLS KEIN SL) ---
+        if in_position:
+            exit_price = current_candle['open'] # Ausstieg am Anfang der neuen Kerze
+            pnl = 0.0
+
+            # Ausstiegssignal für Long-Position
+            if position_side == 'long' and prev_candle['sell_signal_ut']:
+                pnl = (((exit_price - entry_price) / entry_price) * leverage) - (2 * fee_pct * leverage)
+                if verbose: print(f"{current_candle.name.strftime('%Y-%m-%d %H:%M')} | CLOSE LONG  | PnL: {pnl*100:.2f}%")
+
+            # Ausstiegssignal für Short-Position
+            elif position_side == 'short' and prev_candle['buy_signal_ut']:
+                pnl = (((entry_price - exit_price) / entry_price) * leverage) - (2 * fee_pct * leverage)
+                if verbose: print(f"{current_candle.name.strftime('%Y-%m-%d %H:%M')} | CLOSE SHORT | PnL: {pnl*100:.2f}%")
+
+            if pnl != 0.0: # Wenn ein Gegensignal kam
                 total_pnl += pnl
                 trades_count += 1
                 if pnl > 0: wins_count += 1
-                if verbose: print(f"{data.index[i].strftime('%Y-%m-%d %H:%M')} | CLOSE SHORT | PnL: {pnl*100:.2f}%")
                 in_position = False
 
+        # --- 3. PRÜFUNG: GIBT ES EIN EINSTIEGSSIGNAL? ---
         if not in_position:
-            # Eröffnen nur bei gefiltertem Signal
-            if prev_candle['buy_signal'] and params['use_longs']:
+            entry_price = current_candle['open']
+            atr_for_sl = prev_candle['atr']
+
+            # Einstiegssignal für Long-Position
+            if prev_candle['buy_signal'] and params.get('use_longs', True):
                 in_position = True
                 position_side = 'long'
-                entry_price = current_price
-                if verbose: print(f"{data.index[i].strftime('%Y-%m-%d %H:%M')} | OPEN LONG   | @ {entry_price:.2f}")
-            elif prev_candle['sell_signal'] and params['use_shorts']:
+                stop_loss_price = entry_price - (atr_for_sl * sl_multiplier)
+                if verbose: print(f"{current_candle.name.strftime('%Y-%m-%d %H:%M')} | OPEN LONG   | @ {entry_price:.2f} | SL: {stop_loss_price:.2f}")
+
+            # Einstiegssignal für Short-Position
+            elif prev_candle['sell_signal'] and params.get('use_shorts', True):
                 in_position = True
                 position_side = 'short'
-                entry_price = current_price
-                if verbose: print(f"{data.index[i].strftime('%Y-%m-%d %H:%M')} | OPEN SHORT  | @ {entry_price:.2f}")
+                stop_loss_price = entry_price + (atr_for_sl * sl_multiplier)
+                if verbose: print(f"{current_candle.name.strftime('%Y-%m-%d %H:%M')} | OPEN SHORT  | @ {entry_price:.2f} | SL: {stop_loss_price:.2f}")
 
     win_rate = (wins_count / trades_count * 100) if trades_count > 0 else 0
     
@@ -64,9 +105,10 @@ def run_backtest(data, params, verbose=True):
         if 'symbol_display' in params:
              print(f"Symbol: {params['symbol_display']}")
         print(f"Timeframe: {params['timeframe']}")
+        print(f"Hebel: {leverage}x | SL-Multiplikator: {sl_multiplier}")
         print(f"Parameter: ut_atr_period={params['ut_atr_period']}, ut_key_value={params['ut_key_value']}, adx_threshold={params.get('adx_threshold', 'N/A')}")
         print("-" * 27)
-        print(f"Gesamt-PnL (ungehebelt): {total_pnl * 100:.2f}%")
+        print(f"Gesamt-PnL (gehebelt): {total_pnl * 100:.2f}%")
         print(f"Anzahl Trades: {trades_count}")
         print(f"Gewonnene Trades: {wins_count}")
         print(f"Trefferquote: {win_rate:.2f}%")
@@ -105,7 +147,7 @@ def load_data_for_backtest(symbol, timeframe, start_date_str, end_date_str):
     if download_start_date:
         print(f"Lade neue Daten von {download_start_date} bis {end_date_str} für {symbol}...")
         try:
-            key_path = '/home/ubuntu/utbot2/secret.json' # Dieser Pfad bleibt serverspezifisch
+            key_path = '/home/ubuntu/utbot2/secret.json'
             with open(key_path, "r") as f:
                 api_setup = json.load(f)['envelope']
             bitget = BitgetFutures(api_setup)
@@ -113,7 +155,7 @@ def load_data_for_backtest(symbol, timeframe, start_date_str, end_date_str):
             
             if new_data is not None and not new_data.empty:
                 data = pd.concat([data, new_data]) if data is not None else new_data
-                data = data[~data.index.duplicated(keep='first')] # Duplikate entfernen
+                data = data[~data.index.duplicated(keep='first')]
                 data.sort_index(inplace=True)
                 data.to_csv(cache_file)
                 print("Cache-Datei wurde aktualisiert.")
@@ -131,10 +173,12 @@ def load_data_for_backtest(symbol, timeframe, start_date_str, end_date_str):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Strategie-Backtest für den Envelope Bot.")
     parser.add_argument('--start', required=True, help="Startdatum im Format YYYY-MM-DD")
-    parser.add_argument('--end', required=True, help="Enddatum im Format YYYY-ÄMM-DD")
+    parser.add_argument('--end', required=True, help="Enddatum im Format YYYY-MM-DD")
     parser.add_argument('--timeframe', required=True, help="Timeframe (z.B. 15m, 1h, 4h, 1d)")
-    # AKZEPTIERT JETZT MEHRERE WERTE
     parser.add_argument('--symbols', nargs='+', help="Ein oder mehrere Handelspaare (z.B. BTC ETH SOL), überschreibt die config.json")
+    # NEUE ARGUMENTE
+    parser.add_argument('--leverage', type=float, help="Optionaler Hebel (z.B. 10)")
+    parser.add_argument('--sl_multiplier', type=float, help="Optionaler Stop-Loss ATR Multiplikator (z.B. 1.5)")
     args = parser.parse_args()
 
     print("Lade Konfiguration...")
@@ -144,13 +188,16 @@ if __name__ == "__main__":
     
     symbols_to_test = args.symbols if args.symbols else [base_params['symbol']]
 
-    # ÄUSSERE SCHLEIFE FÜR JEDES HANDELSPAAR
     for symbol_arg in symbols_to_test:
         
         params = base_params.copy()
         params['timeframe'] = args.timeframe
 
-        # Automatische Formatierung des Symbols
+        if args.leverage:
+            params['leverage'] = args.leverage
+        if args.sl_multiplier:
+            params['stop_loss_atr_multiplier'] = args.sl_multiplier
+
         raw_symbol = symbol_arg
         if '/' not in raw_symbol:
             formatted_symbol = f"{raw_symbol.upper()}/USDT:USDT"
