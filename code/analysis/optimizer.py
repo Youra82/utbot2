@@ -55,6 +55,14 @@ def run_optimization(start_date, end_date, timeframes_str):
             current_run += 1
             print(f"\rTeste Kombination {current_run}/{total_runs}...", end="")
 
+            # NEUER SICHERHEITS-CHECK
+            # Wir benötigen für die Berechnung mehr Daten als die ADX-Periode.
+            # Ein Puffer von 2x ist eine sichere Annahme.
+            required_data_points = params_to_test.get('adx_window', 14) * 2
+            if len(data) < required_data_points:
+                # Diese Kombination wird übersprungen, anstatt abzustürzen
+                continue
+
             current_params = base_params.copy()
             current_params.update(params_to_test)
             current_params['timeframe'] = timeframe
@@ -85,21 +93,21 @@ def run_optimization(start_date, end_date, timeframes_str):
     for i, row in top_10_results.reset_index(drop=True).iterrows():
         platz = i + 1
         print("\n" + "="*30)
-        print(f"    --- PLATZ {platz} ---")
+        print(f"     --- PLATZ {platz} ---")
         print("="*30)
         
         print("\n  LEISTUNG:")
-        print(f"    Gewinn (PnL):     {row['total_pnl_pct']:.2f} %")
-        print(f"    Trefferquote:     {row['win_rate']:.2f} %")
+        print(f"    Gewinn (PnL):       {row['total_pnl_pct']:.2f} %")
+        print(f"    Trefferquote:       {row['win_rate']:.2f} %")
         print(f"    Anzahl Trades:    {int(row['trades_count'])}")
         
         print("\n  EINGESTELLTE PARAMETER:")
-        print(f"    Timeframe:        {row['timeframe']}")
-        print(f"    UT ATR Periode:   {int(row['ut_atr_period'])}")
-        print(f"    UT Key Value:     {row['ut_key_value']:.1f}")
-        print(f"    SL Multiplikator: {row['stop_loss_atr_multiplier']:.1f}")
-        print(f"    ADX Schwellenwert:{int(row['adx_threshold'])}")
-        print(f"    ADX Window:       {int(row['adx_window'])}") # Wird jetzt angezeigt
+        print(f"    Timeframe:          {row['timeframe']}")
+        print(f"    UT ATR Periode:     {int(row['ut_atr_period'])}")
+        print(f"    UT Key Value:       {row['ut_key_value']:.1f}")
+        print(f"    SL Multiplikator:   {row['stop_loss_atr_multiplier']:.1f}")
+        print(f"    ADX Schwellenwert:  {int(row['adx_threshold'])}")
+        print(f"    ADX Window:         {int(row['adx_window'])}") # Wird jetzt angezeigt
         
     print("\n" + "="*30)
 
