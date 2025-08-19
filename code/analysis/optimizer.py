@@ -20,10 +20,18 @@ def run_optimization(start_date, end_date, timeframes_str, symbol=None):
     with open(config_path, 'r') as f:
         base_params = json.load(f)
 
-    # Überschreibe das Symbol, wenn eines übergeben wurde
+    # ############# NEUE LOGIK ZUR AUTOMATISCHEN FORMATIERUNG #############
     if symbol:
-        print(f"Info: Symbol '{base_params['symbol']}' aus der Konfiguration wird durch '{symbol}' überschrieben.")
-        base_params['symbol'] = symbol
+        raw_symbol = symbol
+        # Wenn nur ein Kurzname (ohne '/') eingegeben wurde, formatiere ihn um
+        if '/' not in raw_symbol:
+            formatted_symbol = f"{raw_symbol.upper()}/USDT:USDT"
+            print(f"Info: Kurzname '{raw_symbol}' wird zu '{formatted_symbol}' formatiert.")
+            base_params['symbol'] = formatted_symbol
+        else:
+            # Erlaube auch die Eingabe des vollen Formats
+            base_params['symbol'] = raw_symbol.upper()
+    # ####################################################################
 
     # Erstelle eine Liste aus dem Timeframe-String
     timeframes_to_test = timeframes_str.split()
@@ -44,7 +52,7 @@ def run_optimization(start_date, end_date, timeframes_str, symbol=None):
     total_runs = len(param_combinations) * len(timeframes_to_test)
     current_run = 0
     
-    print(f"\nStarte Optimierungslauf für {len(timeframes_to_test)} Timeframes mit insgesamt {total_runs} Kombinationen...")
+    print(f"\nStarte Optimierungslauf für '{base_params['symbol']}' auf {len(timeframes_to_test)} Timeframes mit insgesamt {total_runs} Kombinationen...")
 
     for timeframe in timeframes_to_test:
         print(f"\n--- Bearbeite Timeframe: {timeframe} ---")
@@ -89,7 +97,7 @@ def run_optimization(start_date, end_date, timeframes_str, symbol=None):
 
     top_10_results = sorted_results.head(10)
 
-    print("\nBeste Ergebnisse (Top 10 über alle Timeframes):")
+    print(f"\nBeste Ergebnisse für {base_params['symbol']} (Top 10 über alle Timeframes):")
     
     for i, row in top_10_results.reset_index(drop=True).iterrows():
         platz = i + 1
@@ -117,7 +125,7 @@ if __name__ == "__main__":
     parser.add_argument('--start', required=True, help="Startdatum im Format YYYY-MM-DD")
     parser.add_argument('--end', required=True, help="Enddatum im Format YYYY-MM-DD")
     parser.add_argument('--timeframes', required=True, help="Eine Liste von Timeframes, getrennt durch Leerzeichen")
-    parser.add_argument('--symbol', help="Optionales Handelspaar (z.B. BTC/USDT:USDT), überschreibt die config.json")
+    parser.add_argument('--symbol', help="Optionales Handelspaar (z.B. BTC oder ETH), überschreibt die config.json")
     args = parser.parse_args()
 
     run_optimization(args.start, args.end, args.timeframes, args.symbol)
