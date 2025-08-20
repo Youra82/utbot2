@@ -27,10 +27,11 @@ def run_optimization(start_date, end_date, timeframes_str, symbols_list, leverag
         
         base_params = default_params.copy()
 
-        # NEU: Überschreibe Hebel und SL, falls vom Nutzer angegeben
+        # Prüfen, ob der SL-Multiplikator fest vorgegeben ist oder optimiert werden soll
+        use_fixed_sl = sl_multiplier is not None
         if leverage:
             base_params['leverage'] = leverage
-        if sl_multiplier:
+        if use_fixed_sl:
             base_params['stop_loss_atr_multiplier'] = sl_multiplier
 
         raw_symbol = symbol_arg
@@ -41,17 +42,24 @@ def run_optimization(start_date, end_date, timeframes_str, symbols_list, leverag
             base_params['symbol'] = raw_symbol.upper()
         
         print(f"\n\n#################### START OPTIMIERUNG FÜR: {base_params['symbol']} ####################")
-        print(f"INFO: Fester Hebel für diesen Lauf: {base_params.get('leverage', 'N/A')}x, Fester SL-Multiplikator: {base_params.get('stop_loss_atr_multiplier', 'N/A')}")
+        if use_fixed_sl:
+            print(f"INFO: Fester Hebel für diesen Lauf: {base_params.get('leverage', 'N/A')}x, Fester SL-Multiplikator: {base_params.get('stop_loss_atr_multiplier', 'N/A')}")
+        else:
+            print(f"INFO: Fester Hebel für diesen Lauf: {base_params.get('leverage', 'N/A')}x, SL-Multiplikator wird optimiert.")
+
 
         timeframes_to_test = timeframes_str.split()
         
-        # HINWEIS: SL Multiplikator wird hier nicht mehr optimiert, sondern als fester Wert verwendet.
         param_grid = {
             'ut_atr_period': [7, 10, 14],
             'ut_key_value': [1.0, 1.5, 2.0],
             'adx_threshold': [20, 25, 30],
-            'adx_window': [14, 20, 25] 
+            'adx_window': [14, 20, 25]
         }
+        
+        # Füge den SL-Multiplikator nur dann zum Grid hinzu, wenn er nicht fest vom Nutzer vorgegeben wurde
+        if not use_fixed_sl:
+            param_grid['stop_loss_atr_multiplier'] = [1.0, 1.5, 2.0, 2.5]
         
         keys, values = zip(*param_grid.items())
         param_combinations = [dict(zip(keys, v)) for v in product(*values)]
@@ -98,7 +106,7 @@ def run_optimization(start_date, end_date, timeframes_str, symbols_list, leverag
         results_df = pd.concat([results_df.drop('params', axis=1), params_df], axis=1)
         
         sorted_results = results_df.sort_values(
-            by=['total_pnl_pct', 'win_rate', 'trades_count'], 
+            by=['total_pnl_pct', 'critical_leverage', 'win_rate'], 
             ascending=[False, False, False]
         )
 
@@ -119,6 +127,13 @@ def run_optimization(start_date, end_date, timeframes_str, symbols_list, leverag
             print(f"    Gewinn (PnL):       {row['total_pnl_pct']:.2f} %")
             print(f"    Trefferquote:       {row['win_rate']:.2f} %")
             print(f"    Anzahl Trades:    {int(row['trades_count'])}")
+            
+            critical_leverage = row.get('critical_leverage', 0)
+            if critical_leverage > 0:
+                print(f"    Kritischer Hebel:   {critical_leverage:.1f}x (NIEDRIGER = MEHR RISIKO)")
+                if row['leverage'] >= critical_leverage:
+                    print("    !!! ACHTUNG: LIQUIDATION WÄRE ERFOLGT !!!")
+            
             print("\n  EINGESTELLTE PARAMETER:")
             print(f"    Hebel:              {row['leverage']}x")
             print(f"    SL Multiplikator:   {row['stop_loss_atr_multiplier']}")
@@ -135,7 +150,7 @@ def run_optimization(start_date, end_date, timeframes_str, symbols_list, leverag
         print("\n\n#################### FINALE GESAMTAUSWERTUNG (BESTER LAUF PRO COIN) ####################")
         summary_df = pd.DataFrame(overall_best_results)
         final_ranking = summary_df.sort_values(
-            by=['total_pnl_pct', 'win_rate', 'trades_count'],
+            by=['total_pnl_pct', 'critical_leverage', 'win_rate'],
             ascending=[False, False, False]
         ).reset_index(drop=True)
 
@@ -151,6 +166,13 @@ def run_optimization(start_date, end_date, timeframes_str, symbols_list, leverag
             print(f"    Gewinn (PnL):       {row['total_pnl_pct']:.2f} %")
             print(f"    Trefferquote:       {row['win_rate']:.2f} %")
             print(f"    Anzahl Trades:    {int(row['trades_count'])}")
+            
+            critical_leverage = row.get('critical_leverage', 0)
+            if critical_leverage > 0:
+                print(f"    Kritischer Hebel:   {critical_leverage:.1f}x (NIEDRIGER = MEHR RISIKO)")
+                if row['leverage'] >= critical_leverage:
+                    print("    !!! ACHTUNG: LIQUIDATION WÄRE ERFOLGT !!!")
+            
             print("\n  BESTE PARAMETER FÜR DIESEN COIN:")
             print(f"    Hebel:              {row['leverage']}x")
             print(f"    SL Multiplikator:   {row['stop_loss_atr_multiplier']}")
@@ -168,9 +190,8 @@ if __name__ == "__main__":
     parser.add_argument('--end', required=True, help="Enddatum im Format YYYY-MM-DD")
     parser.add_argument('--timeframes', required=True, help="Eine Liste von Timeframes, getrennt durch Leerzeichen")
     parser.add_argument('--symbols', nargs='+', help="Ein oder mehrere Handelspaare (z.B. BTC ETH SOL)")
-    # NEUE ARGUMENTE
     parser.add_argument('--leverage', type=float, help="Optionaler Hebel (z.B. 10)")
-    parser.add_argument('--sl_multiplier', type=float, help="Optionaler Stop-Loss ATR Multiplikator (z.B. 1.5)")
+    parser.add_argument('--sl_multiplier', type=float, help="Optionaler Stop-Loss ATR Multiplikator (z.B. 1.5). Wenn nicht angegeben, wird er optimiert.")
     args = parser.parse_args()
 
     run_optimization(args.start, args.end, args.timeframes, args.symbols, args.leverage, args.sl_multiplier)
