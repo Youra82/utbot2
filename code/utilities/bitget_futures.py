@@ -63,6 +63,12 @@ class BitgetFutures():
             return self.place_market_order(symbol, side_to_close, amount, reduce=True)
         except Exception as e:
             self._handle_exception(f"flash_close_position für {symbol}", e)
+
+    def set_leverage(self, symbol: str, leverage: int) -> Dict[str, Any]:
+        try:
+            return self.session.set_leverage(leverage, symbol)
+        except Exception as e:
+            self._handle_exception(f"set_leverage auf {leverage}x für {symbol}", e)
     
     def fetch_recent_ohlcv(self, symbol: str, timeframe: str, limit: int = 1000) -> pd.DataFrame:
         try:
@@ -109,4 +115,3 @@ class BitgetFutures():
             return self.session.create_order(symbol, 'market', side, amount, params={'stopPrice': trigger_price_str, 'reduceOnly': reduce})
         except Exception as e:
             self._handle_exception(f"place_trigger_market_order bei {trigger_price} für {symbol}", e)
-
