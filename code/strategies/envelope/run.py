@@ -81,6 +81,17 @@ def create_bitget_connection():
 
 bitget = create_bitget_connection()
 
+# --- HEBEL BEIM START SETZEN ---
+try:
+    logger.info(f"Versuche, den Hebel für {params['symbol']} auf {params['leverage']}x zu setzen...")
+    bitget.set_leverage(params['symbol'], params['leverage'])
+    logger.info("Hebel erfolgreich gesetzt.")
+except Exception as e:
+    logger.critical(f"Kritischer Fehler: Hebel konnte nicht gesetzt werden: {e}")
+    send_telegram_message(f"❌ *Kritischer Fehler:* Hebel für {params['symbol']} konnte nicht auf {params['leverage']}x gesetzt werden.")
+    sys.exit(1)
+
+
 # --- HAUPTFUNKTIONEN ---
 
 def open_new_position(side, data):
