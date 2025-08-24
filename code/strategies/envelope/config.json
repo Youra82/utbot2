@@ -1,22 +1,23 @@
 {
-    "symbol": "BTC/USDT:USDT",
-    "timeframe": "15m",
-    "margin_mode": "isolated",
-    "leverage": 10,
-    "use_longs": true,
-    "use_shorts": true,
-    "trade_size_pct": 50,
-    "max_retries": 3,
-    "retry_delay": 2,
+  "_comment_symbol": "Das Handelspaar und der Timeframe für den Live-Bot.",
+  "symbol": "BIO/USDT:USDT",
+  "timeframe": "6h",
+  "use_longs": true,
+  "use_shorts": true,
 
-    "ut_key_value": 1.0,
-    "ut_atr_period": 10,
+  "_comment_leverage": "Dies ist der Hauptschalter für den dynamischen Hebel. Wenn 'use_dynamic_leverage' auf 'true' steht, wird die Hebel-Spanne (min/base/max) verwendet. Steht es auf 'false', wird der feste 'leverage'-Wert für jeden Trade genutzt.",
+  "use_dynamic_leverage": true,
+  "min_leverage": 2.5,
+  "base_leverage": 5.0,
+  "max_leverage": 7.5,
+  "leverage": 5.0,
 
-    "enable_stop_loss": true,
-    "stop_loss_atr_multiplier": 1.5,
-    "enable_trailing_stop_loss": true,
-
-    "use_adx_filter": true,
-    "adx_window": 14,
-    "adx_threshold": 25
+  "_comment_risk": "Einstellungen für das Risiko- und Trade-Management.",
+  "risk_per_trade_percent": 5.0,
+  "stop_loss_atr_multiplier": 1.0,
+  "trailing_tp_percent": 1.0,
+  
+  "_comment_strategy": "Parameter für die UT-Bot-Strategie selbst.",
+  "ut_atr_period": 7,
+  "ut_key_value": 1.0
 }
