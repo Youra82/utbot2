@@ -28,101 +28,98 @@ function run_analysis() {
     read -p "Bitte geben Sie den Zeitraum ein (z.B. 2024-01-01 to 2024-06-30): " date_range_input
     START_DATE=$(echo $date_range_input | awk '{print $1}')
     END_DATE=$(echo $date_range_input | awk '{print $3}')
-
-    if [ -z "$START_DATE" ] || [ -z "$END_DATE" ]; then
-        echo -e "${RED}Fehler: Ungültiges Datum.${NC}"
-        exit 1
-    fi
     script_args="--start $START_DATE --end $END_DATE"
 
-    if [ "$mode_name" == "BACKTEST" ]; then
-        read -p "Bitte geben Sie den Timeframe ein (z.B. 1h): " TIMEFRAME
-        script_args="$script_args --timeframe $TIMEFRAME"
-        
-        read -p "Handelspaar(e) eingeben (optional, z.B. BTC ETH): " SYMBOLS
-        if [ -n "$SYMBOLS" ]; then
-            script_args="$script_args --symbols $SYMBOLS"
-        fi
-
-    elif [ "$mode_name" == "OPTIMIZER" ]; then
+    if [ "$mode_name" == "OPTIMIZER" ]; then
         read -p "Geben Sie die Timeframes getrennt durch Leerzeichen ein (z.B. 15m 1h 4h): " TIMEFRAMES
         script_args="$script_args --timeframes \"$TIMEFRAMES\""
-
         read -p "Handelspaar(e) eingeben (optional, z.B. BTC ETH): " SYMBOLS
         if [ -n "$SYMBOLS" ]; then
             script_args="$script_args --symbols $SYMBOLS"
         fi
+        
+        read -p "Risiko pro Trade in %% eingeben (optional, Enter zum Optimieren): " RISK_PERCENT
+        if [ -n "$RISK_PERCENT" ]; then
+            script_args="$script_args --risk $RISK_PERCENT"
+        fi
     fi
 
-    # NEUE ABFRAGEN FÜR HEBEL UND SL
-    read -p "Hebel eingeben (optional, Enter für Standard): " LEVERAGE
-    if [ -n "$LEVERAGE" ]; then
-        script_args="$script_args --leverage $LEVERAGE"
-    fi
-    read -p "SL-Multiplikator eingeben (optional, Enter für Standard): " SL_MULTIPLIER
-    if [ -n "$SL_MULTIPLIER" ]; then
-        script_args="$script_args --sl_multiplier $SL_MULTIPLIER"
+    read -p "Startkapital in USDT eingeben (optional, Enter für 1000): " INITIAL_CAPITAL
+    if [ -n "$INITIAL_CAPITAL" ]; then
+        script_args="$script_args --initial_capital $INITIAL_CAPITAL"
     fi
 
     echo -e "${YELLOW}Starte $mode_name für $START_DATE bis $END_DATE...${NC}"
-    eval "$PYTHON_VENV $script_path $script_args"
+    eval "$PYTHON_VENV $script_path $script_args --top 10"
     exit 0
 }
 
-
 # --- MODUS-AUSWAHL ---
-case "$1" in
-    backtest)
-        run_analysis $BACKTEST_SCRIPT "BACKTEST"
-        ;;
-    optimize)
-        run_analysis $OPTIMIZER_SCRIPT "OPTIMIZER"
-        ;;
-    clear-cache)
-        echo -e "${YELLOW}Möchtest du den gesamten Daten-Cache löschen? (${CYAN}$CACHE_DIR${YELLOW})${NC}"
-        read -p "Bestätige mit [j/N]: " response
-        if [[ "$response" =~ ^([jJ][aA]|[jJ])$ ]]; then
-            rm -rf "$CACHE_DIR" && echo -e "${GREEN}✔ Cache wurde erfolgreich gelöscht.${NC}"
-        else
-            echo -e "${RED}Aktion abgebrochen.${NC}"
-        fi
-        exit 0
-        ;;
-esac
+# Prüfe, ob ein Argument ($1) übergeben wurde
+if [ -n "$1" ]; then
+    case "$1" in
+        backtest) 
+            run_analysis $BACKTEST_SCRIPT "BACKTEST" 
+            ;;
+        optimize) 
+            run_analysis $OPTIMIZER_SCRIPT "OPTIMIZER" 
+            ;;
+        clear-cache)
+            echo -e "${YELLOW}Möchtest du den gesamten Daten-Cache löschen? (${CYAN}$CACHE_DIR${YELLOW})${NC}"
+            read -p "Bestätige mit [j/N]: " response
+            if [[ "$response" =~ ^([jJ][aA]|[jJ])$ ]]; then
+                rm -rf "$CACHE_DIR" && echo -e "${GREEN}✔ Cache wurde erfolgreich gelöscht.${NC}"
+            else
+                echo -e "${RED}Aktion abgebrochen.${NC}"
+            fi
+            exit 0
+            ;;
+        *)
+            echo "Unbekannter Modus: $1"
+            echo "Verwende './monitor_bot.sh <mode>', Modi: ${GREEN}backtest, optimize, clear-cache${NC}"
+            exit 1
+            ;;
+    esac
+fi
 
 # --- STANDARD-MONITORING-ANZEIGE ---
+# Dieser Teil wird nur ausgeführt, wenn KEIN Argument übergeben wurde
 echo -e "${CYAN}=======================================================${NC}"
-echo -e "${CYAN}               ENVELOPE TRADING BOT MONITORING               ${NC}"
+echo -e "${CYAN}               UT BOT MONITORING (mit Trailing TP)               ${NC}"
 echo -e "${CYAN}=======================================================${NC}"
 echo "Verwende './monitor_bot.sh <mode>', Modi: ${GREEN}backtest, optimize, clear-cache${NC}"
 echo -e "Letzte Aktualisierung: $(date '+%Y-%m-%d %H:%M:%S')"
 echo ""
 
-# --- Konfiguration & Strategie ---
 echo -e "${YELLOW}--- KONFIGURATION & STRATEGIE ---${NC}"
 if command -v jq &> /dev/null; then
-    SYMBOL=$(jq -r '.symbol' $CONFIG_FILE)
-    TIMEFRAME=$(jq -r '.timeframe' $CONFIG_FILE)
-    LEVERAGE=$(jq -r '.leverage' $CONFIG_FILE)
-    echo "Symbol: $SYMBOL, Timeframe: $TIMEFRAME, Hebel: ${LEVERAGE}x"
-    
-    ATR_PERIOD=$(jq -r '.ut_atr_period' $CONFIG_FILE)
-    KEY_VALUE=$(jq -r '.ut_key_value' $CONFIG_FILE)
-    echo "UT Bot: ATR Periode $ATR_PERIOD / Key Value $KEY_VALUE"
+    if [ -f "$CONFIG_FILE" ]; then
+        SYMBOL=$(jq -r '.symbol' $CONFIG_FILE)
+        TIMEFRAME=$(jq -r '.timeframe' $CONFIG_FILE)
+        
+        if [[ $(jq -r '.use_dynamic_leverage' $CONFIG_FILE) == "true" ]]; then
+            MIN_LEV=$(jq -r '.min_leverage' $CONFIG_FILE)
+            MAX_LEV=$(jq -r '.max_leverage' $CONFIG_FILE)
+            echo "Symbol: $SYMBOL, Timeframe: $TIMEFRAME, Hebel: ${GREEN}Dynamisch (${MIN_LEV}x-${MAX_LEV}x)${NC}"
+        else
+            LEVERAGE=$(jq -r '.leverage' $CONFIG_FILE)
+            echo "Symbol: $SYMBOL, Timeframe: $TIMEFRAME, Hebel: ${YELLOW}Fest (${LEVERAGE}x)${NC}"
+        fi
+        
+        RISK=$(jq -r '.risk_per_trade_percent' $CONFIG_FILE)
+        echo "Risiko pro Trade: ${RISK}%"
 
-    if [[ $(jq -r '.use_adx_filter' $CONFIG_FILE) == "true" ]]; then
-        ADX_WIN=$(jq -r '.adx_window' $CONFIG_FILE)
-        ADX_THRES=$(jq -r '.adx_threshold' $CONFIG_FILE)
-        echo -e "ADX Filter: ${GREEN}Aktiv${NC} (Window: $ADX_WIN, Threshold: $ADX_THRES)"
+        ATR_PERIOD=$(jq -r '.ut_atr_period' $CONFIG_FILE)
+        KEY_VALUE=$(jq -r '.ut_key_value' $CONFIG_FILE)
+        echo "UT Bot: ATR Periode $ATR_PERIOD / Key Value $KEY_VALUE"
     else
-        echo -e "ADX Filter: ${RED}Inaktiv${NC}"
+        echo -e "${YELLOW}Warnung: config.json nicht gefunden.${NC}"
     fi
 else
     echo -e "${RED}Fehler: 'jq' ist nicht installiert. Bitte mit 'sudo apt-get install jq' installieren.${NC}"
 fi
 echo ""
 
-# --- Bot-Statistiken aus dem Log ---
 echo -e "${YELLOW}--- BOT-STATISTIKEN (seit Log-Start) ---${NC}"
 if [ -f "$LOG_FILE" ]; then
     TRADES_OPENED=$(grep -c "Position eröffnet" "$LOG_FILE")
@@ -133,20 +130,18 @@ else
 fi
 echo ""
 
-# --- Aktuelle Position & Risiko ---
 echo -e "${YELLOW}--- AKTUELLE POSITION & RISIKO ---${NC}"
 if [ -f "$LOG_FILE" ]; then
-    LAST_OPEN_LINE=$(grep "Position bei" "$LOG_FILE" | tail -n 1)
-    LAST_CLOSE_LINE=$(grep "Position geschlossen" "$LOG_FILE" | tail -n 1)
+    LAST_OPEN_LINE=$(grep "OPEN" "$LOG_FILE" | tail -n 1)
+    LAST_CLOSE_LINE=$(grep "LIQUIDATION\|STOP-LOSS\|TRAIL-TP\|GEGENSIGNAL" "$LOG_FILE" | tail -n 1)
+    
+    TS_OPEN=$(echo $LAST_OPEN_LINE | awk '{print $1" "$2}')
+    TS_CLOSE=$(echo $LAST_CLOSE_LINE | awk '{print $1" "$2}')
 
-    if [ -n "$LAST_OPEN_LINE" ] && [ "$(echo -e "$LAST_OPEN_LINE\n$LAST_CLOSE_LINE" | sort | tail -n 1)" == "$LAST_OPEN_LINE" ]; then
-        POSITION_INFO=$(echo "$LAST_OPEN_LINE" | sed 's/.*UTC: //')
-        ENTRY_SIDE=$(echo "$POSITION_INFO" | awk '{print $1}')
-        ENTRY_PRICE=$(echo "$POSITION_INFO" | grep -oP '@ \K[0-9.]+')
-        STOP_LOSS_PRICE=$(echo "$POSITION_INFO" | grep -oP 'Stop-Loss bei \K[0-9.]+')
-        
+    if [ -n "$LAST_OPEN_LINE" ] && [[ "$TS_OPEN" > "$TS_CLOSE" ]]; then
+        POSITION_INFO=$(echo "$LAST_OPEN_LINE" | sed 's/.*| //')
         echo -e "Status: ${GREEN}Position offen${NC}"
-        echo -e "Seite: ${GREEN}${ENTRY_SIDE}${NC}, Einstieg: ${GREEN}${ENTRY_PRICE}${NC}, SL: ${RED}${STOP_LOSS_PRICE:-N/A}${NC}"
+        echo -e "$POSITION_INFO"
     else
         echo -e "Status: ${CYAN}Keine Position offen${NC}"
     fi
@@ -155,7 +150,6 @@ else
 fi
 echo ""
 
-# --- System-Status ---
 echo -e "${YELLOW}--- SYSTEM-STATUS ---${NC}"
 if [ -f "$LOG_FILE" ]; then
     if [ -s "$LOG_FILE" ]; then
@@ -176,7 +170,6 @@ if [ -f "$LOG_FILE" ]; then
             echo -e "${RED}- $line${NC}"
         done
     fi
-
 else
     echo -e "${RED}Keine Log-Datei gefunden unter $LOG_FILE${NC}"
 fi
