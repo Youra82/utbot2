@@ -6,14 +6,12 @@ import time
 import logging
 from pathlib import Path
 
-# Füge das Hauptverzeichnis zum Python-Pfad hinzu, damit wir die Utilities importieren können
 sys.path.append(str(Path(__file__).parent.parent.parent))
 
 from utilities.bitget_futures import BitgetFutures
 from utilities.strategy_logic import calculate_signals
 from utilities.state_manager import StateManager
 
-# --- Logging Konfiguration ---
 def setup_logging(log_path):
     os.makedirs(log_path.parent, exist_ok=True)
     logging.basicConfig(
@@ -24,12 +22,9 @@ def setup_logging(log_path):
             logging.StreamHandler(sys.stdout)
         ]
     )
-    logging.Formatter.converter = time.gmtime # Logs in UTC anzeigen
+    logging.Formatter.converter = time.gmtime
 
 def run_single_check():
-    """Führt eine einzelne Prüfung auf Handelssignale durch und beendet sich dann."""
-    
-    # --- 1. Konfiguration & Initialisierung ---
     try:
         base_path = Path(__file__).parent
         config_path = base_path / 'config.json'
@@ -55,14 +50,12 @@ def run_single_check():
 
     except Exception as e:
         logging.error(f"Fehler bei der Initialisierung: {e}")
-        return # Beende den Bot, wenn die Konfiguration nicht geladen werden kann
+        return
 
-    # --- 2. Die eigentliche Logik (ohne Schleife) ---
     try:
         current_state = state_manager.get_state()
-        in_position = current_state['status'] == 'in_position'
+        in_position = current_state.get('status') == 'in_position'
         
-        # --- 3. Daten abrufen und Signale berechnen ---
         ohlcv_data = bitget.fetch_recent_ohlcv(params['symbol'], params['timeframe'], limit=100)
         data_with_signals = calculate_signals(ohlcv_data, params)
         
@@ -70,22 +63,70 @@ def run_single_check():
         buy_signal = last_candle['buy_signal']
         sell_signal = last_candle['sell_signal']
 
-        logging.info(f"Prüfe Signale... Status: {current_state['status']}. Signal: Buy={buy_signal}, Sell={sell_signal}")
+        logging.info(f"Prüfe Signale... Status: {current_state.get('status')}. Signal: Buy={buy_signal}, Sell={sell_signal}")
 
-        # --- 4. Die Handelslogik (Das Gehirn) ---
+        # --- HANDELSLOGIK ---
         
-        # FALL 1: EINSTIEGSSIGNAL
-        if not in_position:
+        # FALL 1: WIR SIND IN EINER POSITION -> PRÜFE AUF AUSSTIEG
+        if in_position:
+            position_side = current_state.get('last_side')
+            peak_price = current_state.get('peak_price', 0.0)
+            trailing_tp_percent = params.get('trailing_tp_percent', 1.0)
+            
+            # --- NEU: TRAILING TAKE-PROFIT LOGIK ---
+            current_price = float(bitget.fetch_ticker(params['symbol'])['last'])
+            
+            if position_side == 'buy':
+                new_peak_price = max(peak_price, current_price)
+                if new_peak_price > peak_price:
+                    state_manager.set_state('in_position', last_side=position_side, stop_loss_ids=current_state.get('stop_loss_ids'), peak_price=new_peak_price)
+                    logging.info(f"Trailing TP Peak für LONG aktualisiert: {new_peak_price:.4f}")
+                
+                tp_trigger_price = new_peak_price * (1 - trailing_tp_percent / 100)
+                if current_price <= tp_trigger_price:
+                    logging.info(f"--- TRAILING TAKE-PROFIT AUSGELÖST (LONG): Kurs {current_price:.4f} <= Trigger {tp_trigger_price:.4f} ---")
+                    # (Schließungslogik folgt unten)
+                    sell_signal = True # Erzwinge den Ausstieg
+            
+            elif position_side == 'short':
+                new_peak_price = min(peak_price, current_price)
+                if new_peak_price < peak_price:
+                    state_manager.set_state('in_position', last_side=position_side, stop_loss_ids=current_state.get('stop_loss_ids'), peak_price=new_peak_price)
+                    logging.info(f"Trailing TP Peak für SHORT aktualisiert: {new_peak_price:.4f}")
+
+                tp_trigger_price = new_peak_price * (1 + trailing_tp_percent / 100)
+                if current_price >= tp_trigger_price:
+                    logging.info(f"--- TRAILING TAKE-PROFIT AUSGELÖST (SHORT): Kurs {current_price:.4f} >= Trigger {tp_trigger_price:.4f} ---")
+                    # (Schließungslogik folgt unten)
+                    buy_signal = True # Erzwinge den Ausstieg
+
+            # Gemeinsame Ausstiegslogik für Gegensignal UND Trailing TP
+            if (position_side == 'buy' and sell_signal) or (position_side == 'short' and buy_signal):
+                logging.info(f"--- AUSSTIEGSSIGNAL ERKANNT: Schließe Position ---")
+                
+                for sl_id in current_state.get('stop_loss_ids', []):
+                    try:
+                        bitget.cancel_trigger_order(sl_id, params['symbol'])
+                        logging.info(f"Stop-Loss Order {sl_id} erfolgreich gelöscht.")
+                    except Exception as e:
+                        logging.warning(f"Konnte SL-Order {sl_id} nicht löschen (evtl. bereits ausgelöst): {e}")
+                
+                close_order = bitget.flash_close_position(params['symbol'])
+                logging.info(f"Position geschlossen bei ca. {close_order.get('price', 'N/A'):.4f}")
+                state_manager.set_state('ok_to_trade', last_side=None, stop_loss_ids=[], peak_price=0.0)
+
+        # FALL 2: WIR SIND NICHT IN EINER POSITION -> PRÜFE AUF EINSTIEG
+        elif not in_position:
             side = None
             if buy_signal: side = 'buy'
             elif sell_signal: side = 'sell'
             
             if side:
-                logging.info(f"--- NEUES HANDELSSIGNAL: {side.upper()} ---")
+                logging.info(f"--- NEUES EINSTIEGSSIGNAL: {side.upper()} ---")
                 
                 leverage_for_this_trade = int(last_candle['leverage'])
                 bitget.set_leverage(params['symbol'], leverage_for_this_trade)
-                logging.info(f"Dynamischer Hebel für diesen Trade auf {leverage_for_this_trade}x gesetzt.")
+                logging.info(f"Hebel für diesen Trade auf {leverage_for_this_trade}x gesetzt.")
                 
                 risk_percent = params.get('risk_per_trade_percent', 5.0)
                 balance_info = bitget.fetch_balance()
@@ -114,26 +155,7 @@ def run_single_check():
                 sl_order = bitget.place_trigger_market_order(params['symbol'], 'sell' if side == 'buy' else 'buy', amount, sl_price, reduce=True)
                 logging.info(f"Stop-Loss Order platziert bei {sl_price:.4f} (ID: {sl_order['id']})")
                 
-                state_manager.set_state('in_position', last_side=side, stop_loss_ids=[sl_order['id']])
-        
-        # FALL 2: AUSSTIEGSSIGNAL
-        elif in_position:
-            position_side = current_state['last_side']
-            
-            if (position_side == 'buy' and sell_signal) or (position_side == 'short' and buy_signal):
-                logging.info(f"--- GEGENSIGNAL ERKANNT: Schließe Position ---")
-                
-                for sl_id in current_state['stop_loss_ids']:
-                    try:
-                        bitget.cancel_trigger_order(sl_id, params['symbol'])
-                        logging.info(f"Stop-Loss Order {sl_id} erfolgreich gelöscht.")
-                    except Exception as e:
-                        logging.warning(f"Konnte SL-Order {sl_id} nicht löschen (evtl. bereits ausgelöst): {e}")
-                
-                close_order = bitget.flash_close_position(params['symbol'])
-                logging.info(f"Position geschlossen bei ca. {close_order.get('price', 'N/A'):.4f}")
-                
-                state_manager.set_state('ok_to_trade', last_side=None, stop_loss_ids=[])
+                state_manager.set_state('in_position', last_side=side, stop_loss_ids=[sl_order['id']], peak_price=entry_price)
 
     except Exception as e:
         logging.error(f"Ein Fehler ist aufgetreten: {e}")
