@@ -32,26 +32,23 @@ def run_single_optimization_pass(param_combinations, base_params, initial_capita
 def get_best_safe_results(results_df):
     if results_df.empty: return None
     
-    # Konvertiere die 'params' Spalte in separate Spalten
-    params_df = pd.json_normalize(results_df['params'])
-    
-    # Kombiniere die Originaldaten (ohne 'params') mit den neuen Spalten
-    results_with_flat_params = pd.concat([
-        results_df.drop(columns=['params']).reset_index(drop=True),
-        params_df.reset_index(drop=True)
-    ], axis=1)
+    if 'params' in results_df.columns:
+        params_df = pd.json_normalize(results_df['params'])
+        results_with_flat_params = pd.concat([
+            results_df.drop(columns=['params']).reset_index(drop=True),
+            params_df.reset_index(drop=True)
+        ], axis=1)
+    else:
+        results_with_flat_params = results_df
 
-    # Filtere nach profitablen Ergebnissen
     safe_results = results_with_flat_params[results_with_flat_params['total_pnl_pct'] > 0].copy()
-
     if safe_results.empty: return None
 
-    # Berechne eine Sicherheitsmarge für die Sortierung (nur bei dynamischem Hebel relevant)
-    if 'base_leverage' in safe_results.columns:
-        # Diese Logik für 'critical_leverage' ist für das Positionsgrößen-Modell nicht mehr primär
-        safe_results['leverage_safety_margin'] = 1 
-    
-    return safe_results.sort_values(by=['total_pnl_pct', 'win_rate'], ascending=[False, False])
+    if 'critical_leverage' in safe_results.columns and 'leverage' in safe_results.columns:
+        safe_results['leverage_safety_margin'] = safe_results['critical_leverage'] - safe_results.get('leverage', 0)
+        return safe_results.sort_values(by=['total_pnl_pct', 'leverage_safety_margin', 'win_rate'], ascending=[False, False, False])
+    else:
+        return safe_results.sort_values(by=['total_pnl_pct', 'win_rate'], ascending=[False, False])
 
 def run_optimization(start_date, end_date, timeframes_str, symbols_list, risk_percent=None, initial_capital=1000, top_n=10):
     print("Lade Basis-Konfiguration...")
@@ -99,7 +96,36 @@ def run_optimization(start_date, end_date, timeframes_str, symbols_list, risk_pe
         total_runs = len(param_combinations) * len(timeframes_to_test)
         print(f"\nStarte Optimierungslauf mit insgesamt {total_runs} Kombinationen...")
         
-        data_cache = {tf: load_data_for_backtest(base_params['symbol'], tf, start_date, end_date) for tf in timeframes_to_test}
+        try:
+            print("\nSchätze benötigte Zeit durch einen kurzen Benchmark...")
+            first_timeframe = timeframes_to_test[0]
+            print(" -> Lade initial Daten für die Zeitmessung (falls nötig)...")
+            cal_data = load_data_for_backtest(base_params['symbol'], first_timeframe, start_date, end_date)
+            if cal_data is None or cal_data.empty: raise ValueError("Kalibrierungsdaten konnten nicht geladen werden.")
+            benchmark_runs = min(5, len(param_combinations))
+            if benchmark_runs == 0: raise ValueError("Keine Kombinationen zum Testen.")
+            
+            print(f" -> Führe {benchmark_runs} Testläufe als Benchmark durch...")
+            t0 = time.time()
+            for i in range(benchmark_runs):
+                params_to_test = param_combinations[i]
+                current_params = base_params.copy()
+                current_params.update(params_to_test)
+                current_params['timeframe'] = first_timeframe
+                data_with_signals = calculate_signals(cal_data.copy(), current_params)
+                run_backtest(data_with_signals, current_params, initial_capital=initial_capital, verbose=False)
+            t1 = time.time()
+            
+            duration_per_run = (t1 - t0) / benchmark_runs
+            estimated_total_seconds = duration_per_run * total_runs
+            minutes = int(estimated_total_seconds // 60)
+            seconds = int(estimated_total_seconds % 60)
+            print(f" -> Ein Testlauf aus dem Cache dauert ca. {duration_per_run:.3f} Sekunden.")
+            print(f" -> Geschätzte Gesamtdauer: ca. {minutes} Minuten und {seconds} Sekunden.")
+        except Exception as e:
+            print(f" -> Zeitschätzung fehlgeschlagen: {e}. Starte trotzdem.")
+
+        data_cache = {tf: load_data_for_backtest(base_params['symbol'], tf, start_date, end_date, hide_messages=True) for tf in timeframes_to_test}
         results_df = run_single_optimization_pass(param_combinations, base_params, initial_capital, data_cache)
         
         print("\n\n--- Optimierung abgeschlossen ---")
