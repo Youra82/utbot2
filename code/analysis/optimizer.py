@@ -33,13 +33,12 @@ def run_single_optimization_pass(param_combinations, base_params, initial_capita
 
 def get_best_safe_results(results_df):
     if results_df.empty: return None
-    if 'params' in results_df.columns:
-        params_df = pd.json_normalize(results_df['params'])
-        results_with_flat_params = pd.concat([results_df.drop(columns=['params']).reset_index(drop=True), params_df.reset_index(drop=True)], axis=1)
-    else:
-        results_with_flat_params = results_df
-    safe_results = results_with_flat_params[results_with_flat_params['total_pnl_pct'] > 0].copy()
+    
+    # Diese Funktion erwartet jetzt immer ein DataFrame, das bereits "flach" ist
+    # (also keine 'params'-Spalte mit Dictionaries mehr enthält)
+    safe_results = results_df[results_df['total_pnl_pct'] > 0].copy()
     if safe_results.empty: return None
+
     return safe_results.sort_values(by=['total_pnl_pct', 'win_rate'], ascending=[False, False])
 
 def run_optimization(start_date, end_date, timeframes_str, symbols_list, risk_percent=None, initial_capital=1000, top_n=10):
@@ -59,6 +58,7 @@ def run_optimization(start_date, end_date, timeframes_str, symbols_list, risk_pe
         if '/' not in raw_symbol: formatted_symbol = f"{raw_symbol.upper()}/USDT:USDT"
         else: formatted_symbol = raw_symbol.upper()
         base_params['symbol'] = formatted_symbol
+        
         print(f"\n\n#################### START OPTIMIERUNG FÜR: {base_params['symbol']} ####################")
         timeframes_to_test = timeframes_str.split()
         
@@ -102,7 +102,10 @@ def run_optimization(start_date, end_date, timeframes_str, symbols_list, risk_pe
         results_df = run_single_optimization_pass(param_combinations, base_params, initial_capital, main_data_cache, ltf_data_cache, start_date, end_date)
         
         print("\n\n--- Optimierung abgeschlossen ---")
-        sorted_results = get_best_safe_results(results_df)
+        
+        params_df = pd.json_normalize(results_df['params'])
+        results_df_flat = pd.concat([results_df.drop(columns=['params']).reset_index(drop=True), params_df.reset_index(drop=True)], axis=1)
+        sorted_results = get_best_safe_results(results_df_flat)
 
         if sorted_results is None:
             print(f"\n\033[0;31mWARNUNG: Für {base_params['symbol']} wurden keine profitablen Kombinationen gefunden.\033[0m")
@@ -132,34 +135,15 @@ def run_optimization(start_date, end_date, timeframes_str, symbols_list, risk_pe
             print(f"    Timeframe:          {row['timeframe']}")
             print(f"    UT ATR Periode:     {int(row['ut_atr_period'])}")
             print(f"    UT Key Value:       {row['ut_key_value']:.1f}")
-            
-            print("\n  TRADE-HISTORIE (erste & letzte 20 Trades):")
-            trade_history = row.get('trade_history', [])
-            if isinstance(trade_history, list) and trade_history:
-                print("    ---------------------------------------------------------------------------------")
-                print("    | Zeitpunkt           | Typ   | Gewinn (USDT) | Grund         | Neuer Kontostand     |")
-                print("    ---------------------------------------------------------------------------------")
-                display_trades = trade_history[:20] + (trade_history[-20:] if len(trade_history) > 40 else [])
-                for trade in display_trades:
-                    side = "LONG" if trade['side'] == 'long' else "SHORT"
-                    pnl_usdt_str = f"{trade['pnl_usdt']:+9.2f}"
-                    exit_reason_str = trade.get('exit_reason', 'N/A').ljust(11)
-                    balance_str = f"{trade['account_balance']:.2f} USDT"
-                    print(f"    | {trade['exit_time']} | {side:<5} | {pnl_usdt_str} | {exit_reason_str} | {balance_str:>20} |")
-                if len(trade_history) > 40:
-                    print("    | ... (weitere Trades vorhanden) ...                                                |")
-                print("    ---------------------------------------------------------------------------------")
-            else:
-                print("    Keine Trades für diesen Lauf aufgezeichnet.")
         print(f"\n#################### ENDE BERICHT FÜR: {base_params['symbol']} ####################\n")
 
-    # --- KORRIGIERTE FINALE GESAMTAUSWERTUNG ---
+    # --- FINALE GESAMTAUSWERTUNG ---
     if len(all_symbols_results_list) > 0:
         print("\n" + "="*80)
         print("#################### FINALE GESAMTAUSWERTUNG (TOP 10 ÜBER ALLE SYMBOLE) ####################")
         print("="*80)
 
-        master_df = pd.concat(all_symbols_results_list)
+        master_df = pd.concat(all_symbols_results_list, ignore_index=True)
         final_sorted = get_best_safe_results(master_df)
         
         if final_sorted is not None:
@@ -167,25 +151,27 @@ def run_optimization(start_date, end_date, timeframes_str, symbols_list, risk_pe
             print("\nDie absolut besten 10 Konfigurationen über alle getesteten Handelspaare:")
             for i, row in final_top_10.reset_index(drop=True).iterrows():
                 platz = i + 1
+                final_balance = initial_capital + row['total_pnl_usdt']
                 print("\n" + "="*60)
                 print(f"                  --- GESAMT-PLATZ {platz} ---")
                 print("="*60)
                 print("\n  LEISTUNG:")
-                print(f"    Gewinn (PnL %):     {row['total_pnl_pct']:.2f} %")
-                print(f"    Gewinn (PnL USDT):  {row['total_pnl_usdt']:.2f} USDT (Start: {initial_capital:.2f})")
-                print(f"    Trefferquote:       {row['win_rate']:.2f} %")
-                print(f"    Anzahl Trades:      {int(row['trades_count'])}")
+                print(f"    Gewinn (PnL %):      {row['total_pnl_pct']:.2f} %")
+                print(f"    Gewinn (USDT):       {row['total_pnl_usdt']:+.2f} USDT")
+                print(f"    Finaler Kontostand:  {final_balance:.2f} USDT (Start: {initial_capital:.2f})")
+                print(f"    Trefferquote:        {row['win_rate']:.2f} %")
+                print(f"    Anzahl Trades:       {int(row['trades_count'])}")
                 
                 print("\n  GEFUNDENE OPTIMALE PARAMETER:")
-                print(f"    Handelspaar:        {row['symbol']}")
-                print(f"    Risiko pro Trade:   {row['risk_per_trade_percent']}%")
-                print(f"    Hebel-Spanne:       {row['min_leverage']:.1f}x (Min) / {row['base_leverage']:.1f}x (Base) / {row['max_leverage']:.1f}x (Max)")
-                print(f"    Vola-Sensitivität:  {row['ltf_vol_sensitivity']:.1f}")
-                print(f"    SL Multiplikator:   {row['stop_loss_atr_multiplier']}")
-                print(f"    Trailing Stop:      {row['trailing_tp_percent']:.2f}%")
-                print(f"    Timeframe:          {row['timeframe']}")
-                print(f"    UT ATR Periode:     {int(row['ut_atr_period'])}")
-                print(f"    UT Key Value:       {row['ut_key_value']:.1f}")
+                print(f"    Handelspaar:         {row['symbol']}")
+                print(f"    Risiko pro Trade:    {row['risk_per_trade_percent']}%")
+                print(f"    Hebel-Spanne:        {row['min_leverage']:.1f}x (Min) / {row['base_leverage']:.1f}x (Base) / {row['max_leverage']:.1f}x (Max)")
+                print(f"    Vola-Sensitivität:   {row['ltf_vol_sensitivity']:.1f}")
+                print(f"    SL Multiplikator:    {row['stop_loss_atr_multiplier']}")
+                print(f"    Trailing Stop:       {row['trailing_tp_percent']:.2f}%")
+                print(f"    Timeframe:           {row['timeframe']}")
+                print(f"    UT ATR Periode:      {int(row['ut_atr_period'])}")
+                print(f"    UT Key Value:        {row['ut_key_value']:.1f}")
         else:
             print("\nKeine profitablen Ergebnisse für eine finale Auswertung gefunden.")
 
