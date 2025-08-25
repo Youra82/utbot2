@@ -26,22 +26,11 @@ class BitgetFutures():
         except Exception as e:
             self._handle_exception("fetch_balance", e)
 
-    def fetch_open_trigger_orders(self, symbol: str) -> List[Dict[str, Any]]:
-        try:
-            # CCXT v4: fetchOpenOrders wurde zu fetchTriggerOrders
-            if hasattr(self.session, 'fetch_trigger_orders'):
-                return self.session.fetch_trigger_orders(symbol)
-            else: # Fallback für ältere CCXT-Versionen
-                return self.session.fetch_open_orders(symbol, params={'stop': True})
-        except Exception as e:
-            self._handle_exception(f"fetch_open_trigger_orders für {symbol}", e)
-
     def cancel_trigger_order(self, order_id: str, symbol: str) -> Dict[str, Any]:
         try:
-            # CCXT v4: cancelOrder wurde zu cancelTriggerOrder
             if hasattr(self.session, 'cancel_trigger_order'):
                 return self.session.cancel_trigger_order(order_id, symbol)
-            else: # Fallback
+            else:
                 return self.session.cancel_order(order_id, symbol, params={'stop': True})
         except Exception as e:
             self._handle_exception(f"cancel_trigger_order {order_id} für {symbol}", e)
@@ -58,7 +47,6 @@ class BitgetFutures():
             positions = self.fetch_open_positions(symbol)
             if not positions:
                 raise Exception("Keine offene Position zum Schließen gefunden.")
-            
             position_info = positions[0]
             amount = float(position_info['contracts'])
             side_to_close = 'buy' if position_info['side'] == 'short' else 'sell'
@@ -72,7 +60,7 @@ class BitgetFutures():
         except Exception as e:
             self._handle_exception(f"set_leverage auf {leverage}x für {symbol}", e)
     
-    def fetch_recent_ohlcv(self, symbol: str, timeframe: str, limit: int = 1000) -> pd.DataFrame:
+    def fetch_recent_ohlcv(self, symbol: str, timeframe: str, limit: int = 100) -> pd.DataFrame:
         try:
             ohlcv = self.session.fetch_ohlcv(symbol, timeframe, limit=limit)
             df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
@@ -84,24 +72,19 @@ class BitgetFutures():
 
     def fetch_historical_ohlcv(self, symbol: str, timeframe: str, start_date: str, end_date: str) -> pd.DataFrame:
         try:
-            since = self.session.parse8601(f"{start_date}T00:00:00Z")
-            end_ts = self.session.parse8601(f"{end_date}T23:59:59Z")
+            since = self.session.parse8601(f"{start_date}T00:00:00Z") if start_date else None
+            end_ts = self.session.parse8601(f"{end_date}T23:59:59Z") if end_date else None
             
-            all_ohlcv = []
-            while since < end_ts:
-                ohlcv = self.session.fetch_ohlcv(symbol, timeframe, since, limit=1000)
-                if not ohlcv: break
-                all_ohlcv.extend(ohlcv)
-                since = ohlcv[-1][0] + self.session.parse_timeframe(timeframe) * 1000
-                time.sleep(self.session.rateLimit / 1000)
-
+            all_ohlcv = self.session.fetch_ohlcv(symbol, timeframe, since, limit=1000)
             if not all_ohlcv: return pd.DataFrame()
 
             df = pd.DataFrame(all_ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
             df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms', utc=True)
             df.drop_duplicates(subset='timestamp', inplace=True)
             df.set_index('timestamp', inplace=True)
-            return df.loc[start_date:end_date].sort_index()
+            if start_date and end_date:
+                return df.loc[start_date:end_date].sort_index()
+            return df.sort_index()
         except Exception as e:
             self._handle_exception(f"fetch_historical_ohlcv für {symbol}", e)
 
@@ -111,17 +94,13 @@ class BitgetFutures():
         except Exception as e:
             self._handle_exception(f"place_market_order ({side}, {amount}) für {symbol}", e)
 
-    # --- NEUE FUNKTION ---
     def place_trailing_stop_order(self, symbol: str, side: str, amount: float, trail_percent: float, activation_price: float) -> Dict[str, Any]:
-        """Platziert eine Trailing Stop-Loss Order an der Börse."""
         try:
-            # Bitget erwartet die Callback-Rate als Prozentsatz, z.B. 1.5 für 1.5%
             params = {
                 'triggerPrice': self.session.price_to_precision(symbol, activation_price),
                 'callbackRate': trail_percent,
                 'reduceOnly': True
             }
-            # Bei CCXT wird eine Trailing Stop Order oft als 'market' Order mit speziellen Params erstellt
             return self.session.create_order(symbol, 'market', side, amount, params=params)
         except Exception as e:
             self._handle_exception(f"place_trailing_stop_order für {symbol}", e)
