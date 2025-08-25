@@ -1,13 +1,18 @@
-echo Updating the server
+#!/bin/bash
+
+echo ">>> Updating the server..."
 sudo apt-get update
+sudo apt-get upgrade -y
 
-echo Installing pip
-sudo apt install python3-pip -y
+echo ">>> Installing pip and other essentials..."
+sudo apt-get install python3-pip -y
+sudo apt-get install jq -y
 
-echo Installing virtual environment and packages
-cd utbot2/code
-sudo apt-get install python3-venv
+echo ">>> Installing virtual environment and packages..."
+cd "$(dirname "$0")/code" # Wechsle in das 'code'-Verzeichnis relativ zum Skript
+sudo apt-get install python3-venv -y
 python3 -m venv .venv
 source .venv/bin/activate
+echo ">>> Installing requirements..."
 pip install -r ../requirements.txt
-cd ..
+echo ">>> Installation complete!"
