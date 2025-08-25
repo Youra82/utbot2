@@ -9,7 +9,8 @@ from itertools import product
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 from utilities.strategy_logic import calculate_signals, get_lower_timeframe
-from analysis.backtest import run_backtest, load_data_for_backtest
+from utilities.data_loader import load_data_for_backtest
+from analysis.backtest import run_backtest
 
 def run_single_optimization_pass(param_combinations, base_params, initial_capital, data_cache, ltf_data_cache, start_date, end_date):
     all_results = []
@@ -26,19 +27,20 @@ def run_single_optimization_pass(param_combinations, base_params, initial_capita
             current_params = base_params.copy()
             current_params.update(params_to_test)
             current_params['timeframe'] = timeframe
-            data_with_signals = calculate_signals(data.copy(), current_params, start_date, end_date, ltf_data=ltf_data.copy() if ltf_data is not None else None)
+            data_with_signals = calculate_signals(data.copy(), current_params, ltf_data=ltf_data.copy() if ltf_data is not None else None)
             result = run_backtest(data_with_signals, current_params, initial_capital=initial_capital)
             all_results.append(result)
     return pd.DataFrame(all_results)
 
 def get_best_safe_results(results_df):
     if results_df.empty: return None
-    
-    # Diese Funktion erwartet jetzt immer ein DataFrame, das bereits "flach" ist
-    # (also keine 'params'-Spalte mit Dictionaries mehr enthält)
-    safe_results = results_df[results_df['total_pnl_pct'] > 0].copy()
+    if 'params' in results_df.columns:
+        params_df = pd.json_normalize(results_df['params'])
+        results_with_flat_params = pd.concat([results_df.drop(columns=['params']).reset_index(drop=True), params_df.reset_index(drop=True)], axis=1)
+    else:
+        results_with_flat_params = results_df
+    safe_results = results_with_flat_params[results_with_flat_params['total_pnl_pct'] > 0].copy()
     if safe_results.empty: return None
-
     return safe_results.sort_values(by=['total_pnl_pct', 'win_rate'], ascending=[False, False])
 
 def run_optimization(start_date, end_date, timeframes_str, symbols_list, risk_percent=None, initial_capital=1000, top_n=10):
@@ -58,7 +60,6 @@ def run_optimization(start_date, end_date, timeframes_str, symbols_list, risk_pe
         if '/' not in raw_symbol: formatted_symbol = f"{raw_symbol.upper()}/USDT:USDT"
         else: formatted_symbol = raw_symbol.upper()
         base_params['symbol'] = formatted_symbol
-        
         print(f"\n\n#################### START OPTIMIERUNG FÜR: {base_params['symbol']} ####################")
         timeframes_to_test = timeframes_str.split()
         
@@ -88,13 +89,42 @@ def run_optimization(start_date, end_date, timeframes_str, symbols_list, risk_pe
         total_runs = len(param_combinations) * len(timeframes_to_test)
         print(f"\nStarte Optimierungslauf mit insgesamt {total_runs} Kombinationen...")
         
+        try:
+            print("\nSchätze benötigte Zeit durch einen kurzen Benchmark...")
+            first_timeframe = timeframes_to_test[0]
+            print(" -> Lade initial Daten für die Zeitmessung (falls nötig)...")
+            cal_data = load_data_for_backtest(base_params['symbol'], first_timeframe, start_date, end_date)
+            if cal_data is None or cal_data.empty: raise ValueError("Kalibrierungsdaten konnten nicht geladen werden.")
+            benchmark_runs = min(5, len(param_combinations))
+            if benchmark_runs == 0: raise ValueError("Keine Kombinationen zum Testen.")
+            
+            print(f" -> Führe {benchmark_runs} Testläufe als Benchmark durch...")
+            t0 = time.time()
+            for i in range(benchmark_runs):
+                params_to_test = param_combinations[i]
+                current_params = base_params.copy()
+                current_params.update(params_to_test)
+                current_params['timeframe'] = first_timeframe
+                data_with_signals = calculate_signals(cal_data.copy(), current_params)
+                run_backtest(data_with_signals, current_params, initial_capital=initial_capital, verbose=False)
+            t1 = time.time()
+            
+            duration_per_run = (t1 - t0) / benchmark_runs
+            estimated_total_seconds = duration_per_run * total_runs
+            minutes = int(estimated_total_seconds // 60)
+            seconds = int(estimated_total_seconds % 60)
+            print(f" -> Ein Testlauf aus dem Cache dauert ca. {duration_per_run:.3f} Sekunden.")
+            print(f" -> Geschätzte Gesamtdauer: ca. {minutes} Minuten und {seconds} Sekunden.")
+        except Exception as e:
+            print(f" -> Zeitschätzung fehlgeschlagen: {e}. Starte trotzdem.")
+
         all_needed_timeframes = set(timeframes_to_test)
         for tf in timeframes_to_test:
             ltf = get_lower_timeframe(tf)
             if ltf: all_needed_timeframes.add(ltf)
         
         print(f"Lade Daten für Timeframes: {', '.join(all_needed_timeframes)}")
-        full_data_cache = {tf: load_data_for_backtest(base_params['symbol'], tf, start_date, end_date) for tf in all_needed_timeframes}
+        full_data_cache = {tf: load_data_for_backtest(base_params['symbol'], tf, start_date, end_date, hide_messages=True) for tf in all_needed_timeframes}
         
         main_data_cache = {tf: full_data_cache[tf] for tf in timeframes_to_test}
         ltf_data_cache = {tf: full_data_cache.get(tf) for tf in all_needed_timeframes if tf not in timeframes_to_test}
@@ -102,10 +132,7 @@ def run_optimization(start_date, end_date, timeframes_str, symbols_list, risk_pe
         results_df = run_single_optimization_pass(param_combinations, base_params, initial_capital, main_data_cache, ltf_data_cache, start_date, end_date)
         
         print("\n\n--- Optimierung abgeschlossen ---")
-        
-        params_df = pd.json_normalize(results_df['params'])
-        results_df_flat = pd.concat([results_df.drop(columns=['params']).reset_index(drop=True), params_df.reset_index(drop=True)], axis=1)
-        sorted_results = get_best_safe_results(results_df_flat)
+        sorted_results = get_best_safe_results(results_df)
 
         if sorted_results is None:
             print(f"\n\033[0;31mWARNUNG: Für {base_params['symbol']} wurden keine profitablen Kombinationen gefunden.\033[0m")
@@ -125,7 +152,6 @@ def run_optimization(start_date, end_date, timeframes_str, symbols_list, risk_pe
             print(f"    Gewinn (PnL USDT):  {row['total_pnl_usdt']:.2f} USDT (Start: {initial_capital:.2f})")
             print(f"    Trefferquote:       {row['win_rate']:.2f} %")
             print(f"    Anzahl Trades:      {int(row['trades_count'])}")
-            
             print("\n  GEFUNDENE OPTIMALE PARAMETER:")
             print(f"    Risiko pro Trade:   {row['risk_per_trade_percent']}%")
             print(f"    Hebel-Spanne:       {row['min_leverage']:.1f}x (Min) / {row['base_leverage']:.1f}x (Base) / {row['max_leverage']:.1f}x (Max)")
@@ -135,17 +161,33 @@ def run_optimization(start_date, end_date, timeframes_str, symbols_list, risk_pe
             print(f"    Timeframe:          {row['timeframe']}")
             print(f"    UT ATR Periode:     {int(row['ut_atr_period'])}")
             print(f"    UT Key Value:       {row['ut_key_value']:.1f}")
+            print("\n  TRADE-HISTORIE (erste & letzte 20 Trades):")
+            trade_history = row.get('trade_history', [])
+            if isinstance(trade_history, list) and trade_history:
+                print("    ---------------------------------------------------------------------------------")
+                print("    | Zeitpunkt           | Typ   | Gewinn (USDT) | Grund         | Neuer Kontostand     |")
+                print("    ---------------------------------------------------------------------------------")
+                display_trades = []
+                if len(trade_history) <= 40: display_trades = trade_history
+                else: display_trades = trade_history[:20] + trade_history[-20:]
+                for trade in display_trades:
+                    side = "LONG" if trade['side'] == 'long' else "SHORT"
+                    pnl_usdt_str = f"{trade['pnl_usdt']:+9.2f}"
+                    exit_reason_str = trade.get('exit_reason', 'N/A').ljust(11)
+                    balance_str = f"{trade['account_balance']:.2f} USDT"
+                    print(f"    | {trade['exit_time']} | {side:<5} | {pnl_usdt_str} | {exit_reason_str} | {balance_str:>20} |")
+                if len(trade_history) > 40: print("    | ... (weitere Trades vorhanden) ...                                                |")
+                print("    ---------------------------------------------------------------------------------")
+            else:
+                print("    Keine Trades für diesen Lauf aufgezeichnet.")
         print(f"\n#################### ENDE BERICHT FÜR: {base_params['symbol']} ####################\n")
 
-    # --- FINALE GESAMTAUSWERTUNG ---
     if len(all_symbols_results_list) > 0:
         print("\n" + "="*80)
         print("#################### FINALE GESAMTAUSWERTUNG (TOP 10 ÜBER ALLE SYMBOLE) ####################")
         print("="*80)
-
         master_df = pd.concat(all_symbols_results_list, ignore_index=True)
         final_sorted = get_best_safe_results(master_df)
-        
         if final_sorted is not None:
             final_top_10 = final_sorted.head(10)
             print("\nDie absolut besten 10 Konfigurationen über alle getesteten Handelspaare:")
@@ -161,17 +203,16 @@ def run_optimization(start_date, end_date, timeframes_str, symbols_list, risk_pe
                 print(f"    Finaler Kontostand:  {final_balance:.2f} USDT (Start: {initial_capital:.2f})")
                 print(f"    Trefferquote:        {row['win_rate']:.2f} %")
                 print(f"    Anzahl Trades:       {int(row['trades_count'])}")
-                
                 print("\n  GEFUNDENE OPTIMALE PARAMETER:")
-                print(f"    Handelspaar:         {row['symbol']}")
-                print(f"    Risiko pro Trade:    {row['risk_per_trade_percent']}%")
-                print(f"    Hebel-Spanne:        {row['min_leverage']:.1f}x (Min) / {row['base_leverage']:.1f}x (Base) / {row['max_leverage']:.1f}x (Max)")
-                print(f"    Vola-Sensitivität:   {row['ltf_vol_sensitivity']:.1f}")
-                print(f"    SL Multiplikator:    {row['stop_loss_atr_multiplier']}")
-                print(f"    Trailing Stop:       {row['trailing_tp_percent']:.2f}%")
-                print(f"    Timeframe:           {row['timeframe']}")
-                print(f"    UT ATR Periode:      {int(row['ut_atr_period'])}")
-                print(f"    UT Key Value:        {row['ut_key_value']:.1f}")
+                print(f"    Handelspaar:        {row['symbol']}")
+                print(f"    Risiko pro Trade:   {row['risk_per_trade_percent']}%")
+                print(f"    Hebel-Spanne:       {row['min_leverage']:.1f}x (Min) / {row['base_leverage']:.1f}x (Base) / {row['max_leverage']:.1f}x (Max)")
+                print(f"    Vola-Sensitivität:  {row['ltf_vol_sensitivity']:.1f}")
+                print(f"    SL Multiplikator:   {row['stop_loss_atr_multiplier']}")
+                print(f"    Trailing Stop:      {row['trailing_tp_percent']:.2f}%")
+                print(f"    Timeframe:          {row['timeframe']}")
+                print(f"    UT ATR Periode:     {int(row['ut_atr_period'])}")
+                print(f"    UT Key Value:       {row['ut_key_value']:.1f}")
         else:
             print("\nKeine profitablen Ergebnisse für eine finale Auswertung gefunden.")
 
