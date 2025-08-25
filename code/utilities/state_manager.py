@@ -24,7 +24,8 @@ class StateManager:
                        ('trade_status', json.dumps({
                            "status": "ok_to_trade", 
                            "last_side": None, 
-                           "stop_loss_ids": []
+                           "stop_loss_ids": [],
+                           "peak_price": 0.0
                        })))
         conn.commit()
         conn.close()
@@ -38,9 +39,9 @@ class StateManager:
         conn.close()
         if result:
             return json.loads(result[0])
-        return None
+        return {}
 
-    def set_state(self, status, last_side=None, stop_loss_ids=None):
+    def set_state(self, status, last_side=None, stop_loss_ids=None, peak_price=0.0):
         """
         Aktualisiert den Handelsstatus in der Datenbank.
         stop_loss_ids sollte immer eine Liste sein.
@@ -51,7 +52,8 @@ class StateManager:
         new_state = {
             "status": status,
             "last_side": last_side,
-            "stop_loss_ids": stop_loss_ids
+            "stop_loss_ids": stop_loss_ids,
+            "peak_price": peak_price
         }
         
         conn = sqlite3.connect(self.db_path)
