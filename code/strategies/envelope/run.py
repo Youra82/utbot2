@@ -65,16 +65,15 @@ def run_single_check():
 
         logging.info(f"Prüfe Signale... Status: {current_state.get('status')}. Signal: Buy={buy_signal}, Sell={sell_signal}")
 
-        # --- HANDELSLOGIK ---
-        
-        # FALL 1: WIR SIND IN EINER POSITION -> PRÜFE AUF AUSSTIEG
         if in_position:
             position_side = current_state.get('last_side')
             peak_price = current_state.get('peak_price', 0.0)
             trailing_tp_percent = params.get('trailing_tp_percent', 1.0)
             
-            # --- NEU: TRAILING TAKE-PROFIT LOGIK ---
-            current_price = float(bitget.fetch_ticker(params['symbol'])['last'])
+            ticker = bitget.fetch_ticker(params['symbol'])
+            if ticker is None or ticker.get('last') is None:
+                raise Exception(f"Konnte keinen gültigen Preis für {params['symbol']} abrufen.")
+            current_price = float(ticker['last'])
             
             if position_side == 'buy':
                 new_peak_price = max(peak_price, current_price)
@@ -85,8 +84,7 @@ def run_single_check():
                 tp_trigger_price = new_peak_price * (1 - trailing_tp_percent / 100)
                 if current_price <= tp_trigger_price:
                     logging.info(f"--- TRAILING TAKE-PROFIT AUSGELÖST (LONG): Kurs {current_price:.4f} <= Trigger {tp_trigger_price:.4f} ---")
-                    # (Schließungslogik folgt unten)
-                    sell_signal = True # Erzwinge den Ausstieg
+                    sell_signal = True
             
             elif position_side == 'short':
                 new_peak_price = min(peak_price, current_price)
@@ -97,25 +95,20 @@ def run_single_check():
                 tp_trigger_price = new_peak_price * (1 + trailing_tp_percent / 100)
                 if current_price >= tp_trigger_price:
                     logging.info(f"--- TRAILING TAKE-PROFIT AUSGELÖST (SHORT): Kurs {current_price:.4f} >= Trigger {tp_trigger_price:.4f} ---")
-                    # (Schließungslogik folgt unten)
-                    buy_signal = True # Erzwinge den Ausstieg
+                    buy_signal = True
 
-            # Gemeinsame Ausstiegslogik für Gegensignal UND Trailing TP
             if (position_side == 'buy' and sell_signal) or (position_side == 'short' and buy_signal):
                 logging.info(f"--- AUSSTIEGSSIGNAL ERKANNT: Schließe Position ---")
-                
                 for sl_id in current_state.get('stop_loss_ids', []):
                     try:
                         bitget.cancel_trigger_order(sl_id, params['symbol'])
                         logging.info(f"Stop-Loss Order {sl_id} erfolgreich gelöscht.")
                     except Exception as e:
                         logging.warning(f"Konnte SL-Order {sl_id} nicht löschen (evtl. bereits ausgelöst): {e}")
-                
                 close_order = bitget.flash_close_position(params['symbol'])
                 logging.info(f"Position geschlossen bei ca. {close_order.get('price', 'N/A'):.4f}")
                 state_manager.set_state('ok_to_trade', last_side=None, stop_loss_ids=[], peak_price=0.0)
 
-        # FALL 2: WIR SIND NICHT IN EINER POSITION -> PRÜFE AUF EINSTIEG
         elif not in_position:
             side = None
             if buy_signal: side = 'buy'
@@ -131,7 +124,12 @@ def run_single_check():
                 risk_percent = params.get('risk_per_trade_percent', 5.0)
                 balance_info = bitget.fetch_balance()
                 available_usdt = float(balance_info['USDT']['free'])
-                current_price = float(bitget.fetch_ticker(params['symbol'])['last'])
+                
+                # --- VERBESSERTE PREISABFRAGE ---
+                ticker = bitget.fetch_ticker(params['symbol'])
+                if ticker is None or ticker.get('last') is None:
+                    raise Exception(f"Konnte keinen gültigen Preis für {params['symbol']} abrufen. Ist der Ticker korrekt?")
+                current_price = float(ticker['last'])
                 
                 sl_multiplier = params['stop_loss_atr_multiplier']
                 atr_for_sl = last_candle['atr']
