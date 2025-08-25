@@ -1,11 +1,11 @@
 {
   "_comment_symbol": "Das Handelspaar und der Timeframe für den Live-Bot.",
-  "symbol": "BIO/USDT:USDT",
-  "timeframe": "6h",
+  "symbol": "PEPE/USDT:USDT",
+  "timeframe": "4h",
   "use_longs": true,
   "use_shorts": true,
 
-  "_comment_leverage": "Dies ist der Hauptschalter für den dynamischen Hebel. Wenn 'use_dynamic_leverage' auf 'true' steht, wird die Hebel-Spanne (min/base/max) verwendet. Steht es auf 'false', wird der feste 'leverage'-Wert für jeden Trade genutzt.",
+  "_comment_leverage": "Hauptschalter für den dynamischen Hebel. Wenn 'true', wird die Hebel-Spanne verwendet.",
   "use_dynamic_leverage": true,
   "min_leverage": 2.5,
   "base_leverage": 5.0,
@@ -17,7 +17,8 @@
   "stop_loss_atr_multiplier": 1.0,
   "trailing_tp_percent": 1.0,
   
-  "_comment_strategy": "Parameter für die UT-Bot-Strategie selbst.",
+  "_comment_strategy": "Parameter für die UT-Bot-Strategie und die Multi-Timeframe-Analyse.",
   "ut_atr_period": 7,
-  "ut_key_value": 1.0
+  "ut_key_value": 1.0,
+  "ltf_vol_sensitivity": 1.5
 }
