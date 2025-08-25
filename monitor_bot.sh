@@ -59,7 +59,8 @@ function run_analysis() {
 if [ -n "$1" ]; then
     case "$1" in
         backtest) 
-            run_analysis $BACKTEST_SCRIPT "BACKTEST" 
+            echo "Backtest-Modus ist veraltet. Bitte den Optimizer verwenden."
+            exit 1
             ;;
         optimize) 
             run_analysis $OPTIMIZER_SCRIPT "OPTIMIZER" 
@@ -76,18 +77,17 @@ if [ -n "$1" ]; then
             ;;
         *)
             echo "Unbekannter Modus: $1"
-            echo "Verwende './monitor_bot.sh <mode>', Modi: ${GREEN}backtest, optimize, clear-cache${NC}"
+            echo "Verwende './monitor_bot.sh <mode>', Modi: ${GREEN}optimize, clear-cache${NC}"
             exit 1
             ;;
     esac
 fi
 
 # --- STANDARD-MONITORING-ANZEIGE ---
-# Dieser Teil wird nur ausgeführt, wenn KEIN Argument übergeben wurde
 echo -e "${CYAN}=======================================================${NC}"
-echo -e "${CYAN}               UT BOT MONITORING (mit Trailing TP)               ${NC}"
+echo -e "${CYAN}           UT BOT v3.0 MONITORING (Cronjob-Modus)            ${NC}"
 echo -e "${CYAN}=======================================================${NC}"
-echo "Verwende './monitor_bot.sh <mode>', Modi: ${GREEN}backtest, optimize, clear-cache${NC}"
+echo "Verwende './monitor_bot.sh <mode>', Modi: ${GREEN}optimize, clear-cache${NC}"
 echo -e "Letzte Aktualisierung: $(date '+%Y-%m-%d %H:%M:%S')"
 echo ""
 
@@ -132,14 +132,14 @@ echo ""
 
 echo -e "${YELLOW}--- AKTUELLE POSITION & RISIKO ---${NC}"
 if [ -f "$LOG_FILE" ]; then
-    LAST_OPEN_LINE=$(grep "OPEN" "$LOG_FILE" | tail -n 1)
-    LAST_CLOSE_LINE=$(grep "LIQUIDATION\|STOP-LOSS\|TRAIL-TP\|GEGENSIGNAL" "$LOG_FILE" | tail -n 1)
+    LAST_OPEN_LINE=$(grep "Position eröffnet" "$LOG_FILE" | tail -n 1)
+    LAST_CLOSE_LINE=$(grep "Position geschlossen" "$LOG_FILE" | tail -n 1)
     
     TS_OPEN=$(echo $LAST_OPEN_LINE | awk '{print $1" "$2}')
     TS_CLOSE=$(echo $LAST_CLOSE_LINE | awk '{print $1" "$2}')
 
     if [ -n "$LAST_OPEN_LINE" ] && [[ "$TS_OPEN" > "$TS_CLOSE" ]]; then
-        POSITION_INFO=$(echo "$LAST_OPEN_LINE" | sed 's/.*| //')
+        POSITION_INFO=$(echo "$LAST_OPEN_LINE" | sed 's/.*INFO - //')
         echo -e "Status: ${GREEN}Position offen${NC}"
         echo -e "$POSITION_INFO"
     else
