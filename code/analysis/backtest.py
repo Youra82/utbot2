@@ -7,32 +7,23 @@ import argparse
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 from utilities.bitget_futures import BitgetFutures
-from utilities.strategy_logic import calculate_signals, get_lower_timeframe
+# WICHTIG: Importiere die Funktionen jetzt spezifisch, um Klarheit zu schaffen
+import utilities.strategy_logic as sl
 
-# (run_backtest Funktion bleibt gleich)
-def run_backtest(data, params, initial_capital=1000, verbose=True):
-    #... (CODE IST IDENTISCH ZUR LETZTEN FUNKTIONIERENDEN VERSION)
+def run_backtest(data, params, initial_capital=1000, verbose=True, start_date=None, end_date=None):
+    # (Der Inhalt dieser Funktion bleibt identisch)
     risk_per_trade_percent = params.get('risk_per_trade_percent', 5.0)
     sl_multiplier = params.get('stop_loss_atr_multiplier', 1.5)
     trailing_stop_percent = params.get('trailing_tp_percent', 1.0)
-    in_position = False
-    position_side = None
-    entry_price = 0.0
-    trailing_stop_price = 0.0
-    peak_price = 0.0
-    position_size_coins = 0.0
-    trades_count = 0
-    wins_count = 0
+    in_position, position_side, entry_price, trailing_stop_price, peak_price, position_size_coins = False, None, 0.0, 0.0, 0.0, 0.0
+    trades_count, wins_count = 0, 0
     starting_capital = float(initial_capital)
     account_balance = float(initial_capital)
     trade_history = []
     fee_pct = 0.05 / 100
     for i in range(1, len(data)):
-        if account_balance <= 0:
-            if verbose: print("Konto liquidiert, Backtest wird beendet.")
-            break
-        prev_candle = data.iloc[i-1]
-        current_candle = data.iloc[i]
+        if account_balance <= 0: break
+        prev_candle, current_candle = data.iloc[i-1], data.iloc[i]
         leverage = int(current_candle['leverage'])
         if in_position:
             exit_price, exit_reason = 0.0, ""
@@ -81,6 +72,7 @@ def run_backtest(data, params, initial_capital=1000, verbose=True):
     return {"total_pnl_pct": total_pnl_pct, "total_pnl_usdt": final_pnl_usdt, "trades_count": trades_count, "win_rate": win_rate, "params": params, "trade_history": trade_history, "critical_leverage": 0}
 
 def load_data_for_backtest(symbol, timeframe, start_date_str, end_date_str, hide_messages=False):
+    #... (CODE IST IDENTISCH ZUR LETZTEN FUNKTIONIERENDEN VERSION)
     cache_dir = os.path.join(os.path.dirname(__file__), 'historical_data')
     os.makedirs(cache_dir, exist_ok=True)
     symbol_filename = symbol.replace('/', '-').replace(':', '-')
