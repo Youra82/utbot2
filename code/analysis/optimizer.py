@@ -13,35 +13,22 @@ from analysis.backtest import run_backtest, load_data_for_backtest
 
 def run_single_optimization_pass(param_combinations, base_params, initial_capital, data_cache, ltf_data_cache, start_date, end_date):
     all_results = []
-    total_runs = sum(len(param_combinations) for tf in data_cache if data_cache[tf] is not None and not data_cache[tf].empty)
+    total_runs_in_pass = sum(len(param_combinations) for tf in data_cache if data_cache[tf] is not None and not data_cache[tf].empty)
     current_run = 0
-    print(f" -> Führe {total_runs} Kombinationen in diesem Durchlauf durch...")
-    
+    print(f" -> Führe {total_runs_in_pass} Kombinationen in diesem Durchlauf durch...")
     for timeframe, data in data_cache.items():
         if data is None or data.empty: continue
-        
         lower_timeframe = get_lower_timeframe(timeframe)
         ltf_data = ltf_data_cache.get(lower_timeframe)
-        
         for params_to_test in param_combinations:
             current_run += 1
-            print(f"\rTeste Kombination {current_run}/{total_runs}...", end="")
+            print(f"\rTeste Kombination {current_run}/{total_runs_in_pass}...", end="")
             current_params = base_params.copy()
             current_params.update(params_to_test)
             current_params['timeframe'] = timeframe
-            
-            # --- CORRECTED FUNCTION CALL ---
-            # Now correctly passing start_date and end_date
-            data_with_signals = calculate_signals(
-                data.copy(), 
-                current_params, 
-                start_date, 
-                end_date, 
-                ltf_data=ltf_data.copy() if ltf_data is not None else None
-            )
+            data_with_signals = calculate_signals(data.copy(), current_params, start_date, end_date, ltf_data=ltf_data.copy() if ltf_data is not None else None)
             result = run_backtest(data_with_signals, current_params, initial_capital=initial_capital)
             all_results.append(result)
-            
     return pd.DataFrame(all_results)
 
 def get_best_safe_results(results_df):
@@ -55,7 +42,7 @@ def get_best_safe_results(results_df):
     if safe_results.empty: return None
     return safe_results.sort_values(by=['total_pnl_pct', 'win_rate'], ascending=[False, False])
 
-def run_optimization(start_date, end_date, timeframes_str, symbols_list, risk_percent=None, initial_capital=1000, top_n=10, fast_mode=False):
+def run_optimization(start_date, end_date, timeframes_str, symbols_list, risk_percent=None, initial_capital=1000, top_n=10):
     print("Lade Basis-Konfiguration...")
     config_path = os.path.join(os.path.dirname(__file__), '..', 'strategies', 'envelope', 'config.json')
     with open(config_path, 'r') as f:
@@ -73,29 +60,19 @@ def run_optimization(start_date, end_date, timeframes_str, symbols_list, risk_pe
         else: formatted_symbol = raw_symbol.upper()
         base_params['symbol'] = formatted_symbol
         print(f"\n\n#################### START OPTIMIERUNG FÜR: {base_params['symbol']} ####################")
-        
         timeframes_to_test = timeframes_str.split()
         
-        if fast_mode:
-            print("INFO: Schneller Modus (Benchmark) aktiviert.")
-            param_grid = {
-                'ut_atr_period': [7, 14], 'ut_key_value': [1.0, 2.0],
-                'stop_loss_atr_multiplier': [1.0, 2.0], 'trailing_tp_percent': [1.0, 2.0],
-                'base_leverage': [10, 25], 'ltf_vol_sensitivity': [1.0, 2.0]
-            }
-        else:
-            param_grid = {
-                'ut_atr_period': [7, 10, 14], 'ut_key_value': [1.0, 1.5],
-                'stop_loss_atr_multiplier': [1.0, 1.5, 2.0],
-                'trailing_tp_percent': [1.0, 1.5, 2.0],
-                'base_leverage': [5, 10, 15],
-                'ltf_vol_sensitivity': [1.0, 1.5]
-            }
-            
+        param_grid = {
+            'ut_atr_period': [7, 10, 14], 'ut_key_value': [1.0, 1.5],
+            'stop_loss_atr_multiplier': [1.0, 1.5, 2.0],
+            'trailing_tp_percent': [1.0, 1.5, 2.0],
+            'base_leverage': [5, 10, 15],
+            'ltf_vol_sensitivity': [1.0, 1.5]
+        }
         base_params['use_dynamic_leverage'] = True
         
         if risk_percent is None:
-            param_grid['risk_per_trade_percent'] = [3, 5]
+            param_grid['risk_per_trade_percent'] = [2, 3, 5]
             print("INFO: Risiko pro Trade wird optimiert.")
         else:
             base_params['risk_per_trade_percent'] = risk_percent
@@ -143,6 +120,9 @@ def run_optimization(start_date, end_date, timeframes_str, symbols_list, risk_pe
             print("\n  LEISTUNG:")
             print(f"    Gewinn (PnL %):     {row['total_pnl_pct']:.2f} %")
             print(f"    Gewinn (PnL USDT):  {row['total_pnl_usdt']:.2f} USDT (Start: {initial_capital:.2f})")
+            print(f"    Trefferquote:       {row['win_rate']:.2f} %")
+            print(f"    Anzahl Trades:      {int(row['trades_count'])}")
+            
             print("\n  GEFUNDENE OPTIMALE PARAMETER:")
             print(f"    Risiko pro Trade:   {row['risk_per_trade_percent']}%")
             print(f"    Hebel-Spanne:       {row['min_leverage']:.1f}x (Min) / {row['base_leverage']:.1f}x (Base) / {row['max_leverage']:.1f}x (Max)")
@@ -152,13 +132,36 @@ def run_optimization(start_date, end_date, timeframes_str, symbols_list, risk_pe
             print(f"    Timeframe:          {row['timeframe']}")
             print(f"    UT ATR Periode:     {int(row['ut_atr_period'])}")
             print(f"    UT Key Value:       {row['ut_key_value']:.1f}")
-        
+            
+            print("\n  TRADE-HISTORIE (erste & letzte 20 Trades):")
+            trade_history = row.get('trade_history', [])
+            if isinstance(trade_history, list) and trade_history:
+                print("    ---------------------------------------------------------------------------------")
+                print("    | Zeitpunkt           | Typ   | Gewinn (USDT) | Grund         | Neuer Kontostand     |")
+                print("    ---------------------------------------------------------------------------------")
+                display_trades = trade_history[:20] + (trade_history[-20:] if len(trade_history) > 40 else [])
+                for trade in display_trades:
+                    side = "LONG" if trade['side'] == 'long' else "SHORT"
+                    pnl_usdt_str = f"{trade['pnl_usdt']:+9.2f}"
+                    exit_reason_str = trade.get('exit_reason', 'N/A').ljust(11)
+                    balance_str = f"{trade['account_balance']:.2f} USDT"
+                    print(f"    | {trade['exit_time']} | {side:<5} | {pnl_usdt_str} | {exit_reason_str} | {balance_str:>20} |")
+                if len(trade_history) > 40:
+                    print("    | ... (weitere Trades vorhanden) ...                                                |")
+                print("    ---------------------------------------------------------------------------------")
+            else:
+                print("    Keine Trades für diesen Lauf aufgezeichnet.")
+        print(f"\n#################### ENDE BERICHT FÜR: {base_params['symbol']} ####################\n")
+
+    # --- KORRIGIERTE FINALE GESAMTAUSWERTUNG ---
     if len(all_symbols_results_list) > 0:
         print("\n" + "="*80)
         print("#################### FINALE GESAMTAUSWERTUNG (TOP 10 ÜBER ALLE SYMBOLE) ####################")
         print("="*80)
+
         master_df = pd.concat(all_symbols_results_list)
         final_sorted = get_best_safe_results(master_df)
+        
         if final_sorted is not None:
             final_top_10 = final_sorted.head(10)
             print("\nDie absolut besten 10 Konfigurationen über alle getesteten Handelspaare:")
@@ -170,6 +173,9 @@ def run_optimization(start_date, end_date, timeframes_str, symbols_list, risk_pe
                 print("\n  LEISTUNG:")
                 print(f"    Gewinn (PnL %):     {row['total_pnl_pct']:.2f} %")
                 print(f"    Gewinn (PnL USDT):  {row['total_pnl_usdt']:.2f} USDT (Start: {initial_capital:.2f})")
+                print(f"    Trefferquote:       {row['win_rate']:.2f} %")
+                print(f"    Anzahl Trades:      {int(row['trades_count'])}")
+                
                 print("\n  GEFUNDENE OPTIMALE PARAMETER:")
                 print(f"    Handelspaar:        {row['symbol']}")
                 print(f"    Risiko pro Trade:   {row['risk_per_trade_percent']}%")
@@ -192,7 +198,5 @@ if __name__ == "__main__":
     parser.add_argument('--risk', type=float, dest='risk_percent')
     parser.add_argument('--initial_capital', type=float, default=1000)
     parser.add_argument('--top', type=int, default=10)
-    parser.add_argument('--fast', action='store_true', help="Aktiviert den schnellen 2-Stufen-Optimierungsmodus.")
     args = parser.parse_args()
-    
-    run_optimization(args.start, args.end, args.timeframes, args.symbols, args.risk_percent, initial_capital=args.initial_capital, top_n=args.top, fast_mode=args.fast)
+    run_optimization(args.start, args.end, args.timeframes, args.symbols, args.risk_percent, initial_capital=args.initial_capital, top_n=args.top)
