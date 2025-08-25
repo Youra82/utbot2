@@ -32,18 +32,12 @@ def run_single_check():
         
         with open(config_path, 'r') as f:
             params = json.load(f)
-        
         with open(secret_path, 'r') as f:
             api_keys = json.load(f)['envelope']
 
         bitget = BitgetFutures(api_keys)
         logging.info(f"Bot-Instanz gestartet. Handel für {params['symbol']} auf dem {params['timeframe']} Timeframe.")
         
-        if params.get('use_dynamic_leverage', False):
-            logging.info(f"Dynamischer Hebel aktiviert. Spanne: {params.get('min_leverage')}x - {params.get('max_leverage')}x")
-        else:
-            logging.info(f"Fester Hebel wird verwendet: {params.get('leverage')}x")
-
         db_path = base_path / 'bot_state.db'
         state_manager = StateManager(str(db_path))
         logging.info("State Manager initialisiert.")
@@ -67,47 +61,19 @@ def run_single_check():
 
         if in_position:
             position_side = current_state.get('last_side')
-            peak_price = current_state.get('peak_price', 0.0)
-            trailing_tp_percent = params.get('trailing_tp_percent', 1.0)
-            
-            ticker = bitget.fetch_ticker(params['symbol'])
-            if ticker is None or ticker.get('last') is None:
-                raise Exception(f"Konnte keinen gültigen Preis für {params['symbol']} abrufen.")
-            current_price = float(ticker['last'])
-            
-            if position_side == 'buy':
-                new_peak_price = max(peak_price, current_price)
-                if new_peak_price > peak_price:
-                    state_manager.set_state('in_position', last_side=position_side, stop_loss_ids=current_state.get('stop_loss_ids'), peak_price=new_peak_price)
-                    logging.info(f"Trailing TP Peak für LONG aktualisiert: {new_peak_price:.4f}")
-                
-                tp_trigger_price = new_peak_price * (1 - trailing_tp_percent / 100)
-                if current_price <= tp_trigger_price:
-                    logging.info(f"--- TRAILING TAKE-PROFIT AUSGELÖST (LONG): Kurs {current_price:.4f} <= Trigger {tp_trigger_price:.4f} ---")
-                    sell_signal = True
-            
-            elif position_side == 'short':
-                new_peak_price = min(peak_price, current_price)
-                if new_peak_price < peak_price:
-                    state_manager.set_state('in_position', last_side=position_side, stop_loss_ids=current_state.get('stop_loss_ids'), peak_price=new_peak_price)
-                    logging.info(f"Trailing TP Peak für SHORT aktualisiert: {new_peak_price:.4f}")
-
-                tp_trigger_price = new_peak_price * (1 + trailing_tp_percent / 100)
-                if current_price >= tp_trigger_price:
-                    logging.info(f"--- TRAILING TAKE-PROFIT AUSGELÖST (SHORT): Kurs {current_price:.4f} >= Trigger {tp_trigger_price:.4f} ---")
-                    buy_signal = True
-
             if (position_side == 'buy' and sell_signal) or (position_side == 'short' and buy_signal):
-                logging.info(f"--- AUSSTIEGSSIGNAL ERKANNT: Schließe Position ---")
-                for sl_id in current_state.get('stop_loss_ids', []):
+                logging.info(f"--- GEGENSIGNAL ERKANNT: Schließe Position ---")
+                
+                for stop_id in current_state.get('stop_loss_ids', []):
                     try:
-                        bitget.cancel_trigger_order(sl_id, params['symbol'])
-                        logging.info(f"Stop-Loss Order {sl_id} erfolgreich gelöscht.")
+                        bitget.cancel_trigger_order(stop_id, params['symbol'])
+                        logging.info(f"Trailing Stop Order {stop_id} erfolgreich gelöscht.")
                     except Exception as e:
-                        logging.warning(f"Konnte SL-Order {sl_id} nicht löschen (evtl. bereits ausgelöst): {e}")
+                        logging.warning(f"Konnte Trailing Stop Order {stop_id} nicht löschen (evtl. bereits ausgelöst): {e}")
+                
                 close_order = bitget.flash_close_position(params['symbol'])
-                logging.info(f"Position geschlossen bei ca. {close_order.get('price', 'N/A'):.4f}")
-                state_manager.set_state('ok_to_trade', last_side=None, stop_loss_ids=[], peak_price=0.0)
+                logging.info(f"Position durch Gegensignal geschlossen bei ca. {close_order.get('price', 'N/A'):.4f}")
+                state_manager.set_state('ok_to_trade', last_side=None, stop_loss_ids=[])
 
         elif not in_position:
             side = None
@@ -121,28 +87,27 @@ def run_single_check():
                 bitget.set_leverage(params['symbol'], leverage_for_this_trade)
                 logging.info(f"Hebel für diesen Trade auf {leverage_for_this_trade}x gesetzt.")
                 
-                risk_percent = params.get('risk_per_trade_percent', 5.0)
                 balance_info = bitget.fetch_balance()
                 available_usdt = float(balance_info['USDT']['free'])
-                
-                # --- VERBESSERTE PREISABFRAGE ---
                 ticker = bitget.fetch_ticker(params['symbol'])
                 if ticker is None or ticker.get('last') is None:
-                    raise Exception(f"Konnte keinen gültigen Preis für {params['symbol']} abrufen. Ist der Ticker korrekt?")
+                    raise Exception(f"Konnte keinen gültigen Preis für {params['symbol']} abrufen. Ist der Ticker liquide?")
                 current_price = float(ticker['last'])
-                
+
+                # --- NEUE LOGIK: TRAILING STOP STATT FIXEM SL ---
+                # Fester SL dient nur zur Positionsgrößen-Berechnung
                 sl_multiplier = params['stop_loss_atr_multiplier']
                 atr_for_sl = last_candle['atr']
-                
+                sl_price = 0
                 if side == 'buy':
                     sl_price = current_price - (atr_for_sl * sl_multiplier)
                 else:
                     sl_price = current_price + (atr_for_sl * sl_multiplier)
-
+                
                 distance_to_sl = abs(current_price - sl_price)
-                if distance_to_sl == 0:
-                    raise Exception("Distanz zum Stop-Loss ist Null. Trade wird abgebrochen.")
+                if distance_to_sl == 0: raise Exception("Distanz zum SL ist Null.")
 
+                risk_percent = params.get('risk_per_trade_percent', 5.0)
                 risk_amount_usdt = available_usdt * (risk_percent / 100)
                 amount = risk_amount_usdt / distance_to_sl
                 
@@ -150,10 +115,18 @@ def run_single_check():
                 entry_price = float(order.get('price', order.get('avgFillPrice', current_price)))
                 logging.info(f"Position eröffnet: {side.upper()} @ {entry_price:.4f} | Menge: {amount:.4f}")
                 
-                sl_order = bitget.place_trigger_market_order(params['symbol'], 'sell' if side == 'buy' else 'buy', amount, sl_price, reduce=True)
-                logging.info(f"Stop-Loss Order platziert bei {sl_price:.4f} (ID: {sl_order['id']})")
+                # Platziere die Trailing Stop Order
+                trail_percent = params.get('trailing_tp_percent', 1.0)
+                tsl_order = bitget.place_trailing_stop_order(
+                    symbol=params['symbol'], 
+                    side='sell' if side == 'buy' else 'buy', 
+                    amount=amount, 
+                    trail_percent=trail_percent,
+                    activation_price=entry_price # Beginne sofort zu trailen
+                )
+                logging.info(f"Trailing Stop Order platziert mit {trail_percent}% Abstand (ID: {tsl_order['id']})")
                 
-                state_manager.set_state('in_position', last_side=side, stop_loss_ids=[sl_order['id']], peak_price=entry_price)
+                state_manager.set_state('in_position', last_side=side, stop_loss_ids=[tsl_order['id']])
 
     except Exception as e:
         logging.error(f"Ein Fehler ist aufgetreten: {e}")
