@@ -31,9 +31,18 @@ def run_single_optimization_pass(param_combinations, base_params, initial_capita
 
 def get_best_safe_results(results_df):
     if results_df.empty: return None
+    
+    if 'params' in results_df.columns:
+        params_df = pd.json_normalize(results_df['params'])
+        # Wichtig: reset_index() um Index-Konflikte beim Concat zu vermeiden
+        results_df_flat = pd.concat([
+            results_df.drop(columns=['params']).reset_index(drop=True),
+            params_df.reset_index(drop=True)
+        ], axis=1)
+    else:
+        results_df_flat = results_df
 
-    # This function now expects a dataframe with already flattened parameters
-    safe_results = results_df[results_df['total_pnl_pct'] > 0].copy()
+    safe_results = results_df_flat[results_df_flat['total_pnl_pct'] > 0].copy()
     if safe_results.empty: return None
 
     return safe_results.sort_values(by=['total_pnl_pct', 'win_rate'], ascending=[False, False])
@@ -88,12 +97,7 @@ def run_optimization(start_date, end_date, timeframes_str, symbols_list, risk_pe
         results_df = run_single_optimization_pass(param_combinations, base_params, initial_capital, data_cache)
         
         print("\n\n--- Optimierung abgeschlossen ---")
-        
-        # Flatten parameters immediately after the run
-        params_df = pd.json_normalize(results_df['params'])
-        results_df_flat = pd.concat([results_df.drop(columns=['params']).reset_index(drop=True), params_df.reset_index(drop=True)], axis=1)
-
-        sorted_results = get_best_safe_results(results_df_flat)
+        sorted_results = get_best_safe_results(results_df)
 
         if sorted_results is None:
             print(f"\n\033[0;31mWARNUNG: Für {base_params['symbol']} wurden keine profitablen Kombinationen gefunden.\033[0m")
@@ -122,6 +126,32 @@ def run_optimization(start_date, end_date, timeframes_str, symbols_list, risk_pe
             print(f"    Timeframe:          {row['timeframe']}")
             print(f"    UT ATR Periode:     {int(row['ut_atr_period'])}")
             print(f"    UT Key Value:       {row['ut_key_value']:.1f}")
+            
+            print("\n  TRADE-HISTORIE (erste & letzte 20 Trades):")
+            trade_history = row.get('trade_history', [])
+            if isinstance(trade_history, list) and trade_history:
+                print("    ---------------------------------------------------------------------------------")
+                print("    | Zeitpunkt           | Typ   | Gewinn (USDT) | Grund         | Neuer Kontostand     |")
+                print("    ---------------------------------------------------------------------------------")
+                
+                display_trades = []
+                if len(trade_history) <= 50:
+                    display_trades = trade_history
+                else:
+                    display_trades = trade_history[:20] + trade_history[-20:]
+
+                for trade in display_trades:
+                    side = "LONG" if trade['side'] == 'long' else "SHORT"
+                    pnl_usdt_str = f"{trade['pnl_usdt']:+9.2f}"
+                    exit_reason_str = trade.get('exit_reason', 'N/A').ljust(11)
+                    balance_str = f"{trade['account_balance']:.2f} USDT"
+                    print(f"    | {trade['exit_time']} | {side:<5} | {pnl_usdt_str} | {exit_reason_str} | {balance_str:>20} |")
+                
+                if len(trade_history) > 50:
+                    print("    | ... (weitere Trades vorhanden) ...                                                |")
+                print("    ---------------------------------------------------------------------------------")
+            else:
+                print("    Keine Trades für diesen Lauf aufgezeichnet.")
         print(f"\n#################### ENDE BERICHT FÜR: {base_params['symbol']} ####################\n")
 
     if len(all_symbols_results_list) > 0:
