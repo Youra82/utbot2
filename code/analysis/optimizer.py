@@ -158,6 +158,30 @@ def run_optimization(start_date, end_date, timeframes_str, symbols_list, risk_pe
             print(f"    Timeframe:          {row['timeframe']}")
             print(f"    UT ATR Periode:     {int(row['ut_atr_period'])}")
             print(f"    UT Key Value:       {row['ut_key_value']:.1f}")
+            
+            # --- NEUE TRADE-HISTORIE ANZEIGE ---
+            print("\n  TRADE-HISTORIE (bis zu 50 Trades):")
+            trade_history = row.get('trade_history', [])
+            if isinstance(trade_history, list) and trade_history:
+                print("    --------------------------------------------------------------------")
+                print("    | Zeitpunkt           | Typ   | Gewinn (USDT) | Neuer Kontostand     |")
+                print("    --------------------------------------------------------------------")
+                
+                display_trades = trade_history[:50] # Zeige maximal die ersten 50 Trades
+                
+                for trade in display_trades:
+                    side = "LONG" if trade['side'] == 'long' else "SHORT"
+                    pnl_usdt_str = f"{trade['pnl_usdt']:+9.2f}" # Formatierung für Ausrichtung
+                    balance_str = f"{trade['account_balance']:.2f} USDT"
+                    print(f"    | {trade['exit_time']} | {side:<5} | {pnl_usdt_str} | {balance_str:>20} |")
+
+                if len(trade_history) > 50:
+                    print("    | ... (weitere Trades vorhanden) ...                                |")
+                print("    --------------------------------------------------------------------")
+            else:
+                print("    Keine Trades für diesen Lauf aufgezeichnet.")
+            # --- ENDE ---
+
         print(f"\n#################### ENDE BERICHT FÜR: {base_params['symbol']} ####################\n")
 
     if len(all_symbols_results_list) > 1:
