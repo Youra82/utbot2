@@ -1,14 +1,7 @@
 # code/utilities/strategy_logic.py
-import os
-import sys
 import numpy as np
 import ta
 import pandas as pd
-
-# Erlaube den Import der 'load_data_for_backtest'-Funktion
-# Wichtig: Der Pfad muss relativ zur Datei selbst korrekt sein.
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'analysis')))
-from backtest import load_data_for_backtest
 
 def get_lower_timeframe(timeframe):
     """Gibt einen passenden kleineren Timeframe zurück."""
@@ -18,10 +11,9 @@ def get_lower_timeframe(timeframe):
     }
     return timeframe_map.get(timeframe)
 
-def calculate_signals(data, params, start_date, end_date, ltf_data=None):
+def calculate_signals(data, params, ltf_data=None):
     """
-    Berechnet Signale und passt den Hebel dynamisch an,
-    indem es die Volatilität auf einem kleineren Timeframe prüft.
+    Berechnet Signale und den dynamischen Hebel. Bekommt ALLE Daten als Input.
     """
     # Haupt-Indikatoren auf dem Haupt-Timeframe
     data['atr'] = ta.volatility.average_true_range(data['high'], data['low'], data['close'], window=params['ut_atr_period'])
@@ -46,6 +38,10 @@ def calculate_signals(data, params, start_date, end_date, ltf_data=None):
     
     # DYNAMISCHE HEBEL-ANPASSUNG
     if params.get('use_dynamic_leverage', False):
+        base_lev = params.get('base_leverage', 5)
+        min_lev = params.get('min_leverage', 1)
+        max_lev = params.get('max_leverage', 10)
+
         data['atr_sma_main'] = data['atr'].rolling(window=50, min_periods=1).mean()
         main_tf_vol_ratio = data['atr_sma_main'] / data['atr']
         
@@ -61,7 +57,6 @@ def calculate_signals(data, params, start_date, end_date, ltf_data=None):
         sensitivity = params.get('ltf_vol_sensitivity', 1.0)
         final_ltf_factor = ltf_volatility_factor.clip(lower=1.0) ** sensitivity
         
-        base_lev, min_lev, max_lev = params.get('base_leverage', 5), params.get('min_leverage', 1), params.get('max_leverage', 10)
         calculated_leverage = (base_lev * main_tf_vol_ratio) / final_ltf_factor
         data['leverage'] = calculated_leverage.clip(lower=min_lev, upper=max_lev)
         data['leverage'].fillna(base_lev, inplace=True)
