@@ -5,7 +5,7 @@
   "use_longs": true,
   "use_shorts": true,
 
-  "_comment_leverage": "Hauptschalter für den dynamischen Hebel. Wenn 'true', wird die Hebel-Spanne verwendet.",
+  "_comment_leverage": "Hauptschalter für den dynamischen Hebel.",
   "use_dynamic_leverage": true,
   "min_leverage": 2.5,
   "base_leverage": 5.0,
