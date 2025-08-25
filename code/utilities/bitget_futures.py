@@ -26,21 +26,23 @@ class BitgetFutures():
         except Exception as e:
             self._handle_exception("fetch_balance", e)
 
-    def fetch_open_orders(self, symbol: str) -> List[Dict[str, Any]]:
-        try:
-            return self.session.fetch_open_orders(symbol)
-        except Exception as e:
-            self._handle_exception(f"fetch_open_orders für {symbol}", e)
-
     def fetch_open_trigger_orders(self, symbol: str) -> List[Dict[str, Any]]:
         try:
-            return self.session.fetch_open_orders(symbol, params={'stop': True})
+            # CCXT v4: fetchOpenOrders wurde zu fetchTriggerOrders
+            if hasattr(self.session, 'fetch_trigger_orders'):
+                return self.session.fetch_trigger_orders(symbol)
+            else: # Fallback für ältere CCXT-Versionen
+                return self.session.fetch_open_orders(symbol, params={'stop': True})
         except Exception as e:
             self._handle_exception(f"fetch_open_trigger_orders für {symbol}", e)
 
     def cancel_trigger_order(self, order_id: str, symbol: str) -> Dict[str, Any]:
         try:
-            return self.session.cancel_order(order_id, symbol, params={'stop': True})
+            # CCXT v4: cancelOrder wurde zu cancelTriggerOrder
+            if hasattr(self.session, 'cancel_trigger_order'):
+                return self.session.cancel_trigger_order(order_id, symbol)
+            else: # Fallback
+                return self.session.cancel_order(order_id, symbol, params={'stop': True})
         except Exception as e:
             self._handle_exception(f"cancel_trigger_order {order_id} für {symbol}", e)
 
@@ -109,9 +111,17 @@ class BitgetFutures():
         except Exception as e:
             self._handle_exception(f"place_market_order ({side}, {amount}) für {symbol}", e)
 
-    def place_trigger_market_order(self, symbol: str, side: str, amount: float, trigger_price: float, reduce: bool = False) -> Dict[str, Any]:
+    # --- NEUE FUNKTION ---
+    def place_trailing_stop_order(self, symbol: str, side: str, amount: float, trail_percent: float, activation_price: float) -> Dict[str, Any]:
+        """Platziert eine Trailing Stop-Loss Order an der Börse."""
         try:
-            trigger_price_str = self.session.price_to_precision(symbol, trigger_price)
-            return self.session.create_order(symbol, 'market', side, amount, params={'stopPrice': trigger_price_str, 'reduceOnly': reduce})
+            # Bitget erwartet die Callback-Rate als Prozentsatz, z.B. 1.5 für 1.5%
+            params = {
+                'triggerPrice': self.session.price_to_precision(symbol, activation_price),
+                'callbackRate': trail_percent,
+                'reduceOnly': True
+            }
+            # Bei CCXT wird eine Trailing Stop Order oft als 'market' Order mit speziellen Params erstellt
+            return self.session.create_order(symbol, 'market', side, amount, params=params)
         except Exception as e:
-            self._handle_exception(f"place_trigger_market_order bei {trigger_price} für {symbol}", e)
+            self._handle_exception(f"place_trailing_stop_order für {symbol}", e)
