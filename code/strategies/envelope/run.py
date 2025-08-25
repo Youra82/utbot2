@@ -1,8 +1,7 @@
-# /home/ubuntu/utbot2/code/strategies/envelope/run.py
+# code/strategies/envelope/run.py
 import os
 import sys
 import json
-import time
 import logging
 from pathlib import Path
 
@@ -11,6 +10,7 @@ sys.path.append(str(Path(__file__).parent.parent.parent))
 from utilities.bitget_futures import BitgetFutures
 from utilities.strategy_logic import calculate_signals, get_lower_timeframe
 from utilities.state_manager import StateManager
+from utilities.data_loader import load_data_for_backtest
 
 def setup_logging(log_path):
     os.makedirs(log_path.parent, exist_ok=True)
@@ -41,17 +41,16 @@ def run_single_check():
         current_state = state_manager.get_state()
         in_position = current_state.get('status') == 'in_position'
         
-        # --- NEU: Lade Daten für BEIDE Timeframes ---
         main_timeframe = params['timeframe']
         lower_timeframe = get_lower_timeframe(main_timeframe)
         
-        main_ohlcv_data = bitget.fetch_recent_ohlcv(params['symbol'], main_timeframe, limit=100)
+        # Für den Live-Bot brauchen wir kein Start-/Enddatum, None ist hier korrekt
+        main_ohlcv_data = load_data_for_backtest(params['symbol'], main_timeframe, None, None, hide_messages=True)
         
         ltf_ohlcv_data = None
         if lower_timeframe:
-            ltf_ohlcv_data = bitget.fetch_recent_ohlcv(params['symbol'], lower_timeframe, limit=100)
+            ltf_ohlcv_data = load_data_for_backtest(params['symbol'], lower_timeframe, None, None, hide_messages=True)
         
-        # Übergebe beide Datensätze an die Logik
         data_with_signals = calculate_signals(main_ohlcv_data, params, ltf_data=ltf_ohlcv_data)
         
         last_candle = data_with_signals.iloc[-2]
@@ -60,7 +59,6 @@ def run_single_check():
 
         logging.info(f"Prüfe Signale... Status: {current_state.get('status')}. Signal: Buy={buy_signal}, Sell={sell_signal}")
 
-        # (Die restliche Handelslogik bleibt identisch)
         if in_position:
             position_side = current_state.get('last_side')
             if (position_side == 'buy' and sell_signal) or (position_side == 'short' and buy_signal):
