@@ -28,10 +28,7 @@ class BitgetFutures():
 
     def cancel_trigger_order(self, order_id: str, symbol: str) -> Dict[str, Any]:
         try:
-            if hasattr(self.session, 'cancel_trigger_order'):
-                return self.session.cancel_trigger_order(order_id, symbol)
-            else:
-                return self.session.cancel_order(order_id, symbol, params={'stop': True})
+            return self.session.cancel_order(order_id, symbol, params={'stop': True})
         except Exception as e:
             self._handle_exception(f"cancel_trigger_order {order_id} für {symbol}", e)
 
@@ -54,11 +51,29 @@ class BitgetFutures():
         except Exception as e:
             self._handle_exception(f"flash_close_position für {symbol}", e)
 
-    def set_leverage(self, symbol: str, leverage: int) -> Dict[str, Any]:
+    def set_margin_mode(self, symbol: str, margin_mode: str) -> None:
+        """Setzt den Margin-Modus für ein Handelspaar."""
         try:
-            return self.session.set_leverage(leverage, symbol)
+            self.session.set_margin_mode(margin_mode.lower(), symbol, params={'productType': 'USDT-FUTURES', 'marginCoin': 'USDT'})
         except Exception as e:
-            self._handle_exception(f"set_leverage auf {leverage}x für {symbol}", e)
+            self._handle_exception(f"set_margin_mode auf '{margin_mode}' für {symbol}", e)
+
+    def set_leverage(self, symbol: str, leverage: int, margin_mode: str) -> None:
+        """Setzt den Hebel intelligent basierend auf dem Margin-Modus."""
+        try:
+            margin_mode = margin_mode.lower()
+            if margin_mode == 'isolated':
+                params_long = {'productType': 'USDT-FUTURES', 'marginCoin': 'USDT', 'holdSide': 'long'}
+                params_short = {'productType': 'USDT-FUTURES', 'marginCoin': 'USDT', 'holdSide': 'short'}
+                self.session.set_leverage(leverage, symbol, params=params_long)
+                self.session.set_leverage(leverage, symbol, params=params_short)
+            elif margin_mode == 'cross':
+                params_cross = {'productType': 'USDT-FUTURES', 'marginCoin': 'USDT'}
+                self.session.set_leverage(leverage, symbol, params=params_cross)
+            else:
+                raise ValueError(f"Ungültiger Margin-Modus: {margin_mode}")
+        except Exception as e:
+            self._handle_exception(f"set_leverage auf {leverage}x für {symbol} mit Modus {margin_mode}", e)
     
     def fetch_recent_ohlcv(self, symbol: str, timeframe: str, limit: int = 100) -> pd.DataFrame:
         try:
@@ -73,11 +88,8 @@ class BitgetFutures():
     def fetch_historical_ohlcv(self, symbol: str, timeframe: str, start_date: str, end_date: str) -> pd.DataFrame:
         try:
             since = self.session.parse8601(f"{start_date}T00:00:00Z") if start_date else None
-            end_ts = self.session.parse8601(f"{end_date}T23:59:59Z") if end_date else None
-            
             all_ohlcv = self.session.fetch_ohlcv(symbol, timeframe, since, limit=1000)
             if not all_ohlcv: return pd.DataFrame()
-
             df = pd.DataFrame(all_ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
             df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms', utc=True)
             df.drop_duplicates(subset='timestamp', inplace=True)
