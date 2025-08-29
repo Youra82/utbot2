@@ -2,6 +2,7 @@
     "_HEADING_STRATEGY_": "------------------- 1. STRATEGIE-PARAMETER -------------------",
     "_info_strategy_": "Parameter für die UT-Bot-Strategie.",
     "strategy_params": {
+        "margin_mode": "isolated",
         "use_dynamic_leverage": true,
         "min_leverage": 2.5,
         "base_leverage": 5.0,
@@ -15,7 +16,6 @@
     },
 
     "_HEADING_GLOBAL_": "------------------- 2. GLOBALE EINSTELLUNGEN -------------------",
-    "_info_global_": "Diese Einstellungen gelten für den Bot-Lauf.",
     "global_settings": {
         "symbol": "PEPE/USDT:USDT",
         "timeframe": "4h",
@@ -24,16 +24,14 @@
     },
 
     "_HEADING_RISK_": "------------------- 3. RISIKOMANAGEMENT -------------------",
-    "_info_risk_": "Bestimmt, wie viel % des Kapitals pro Trade riskiert wird.",
     "risk_management": {
         "risk_per_trade_percent": 5.0
     },
 
     "_HEADING_TEST_": "------------------- 4. LIVE-TEST MODUS -------------------",
-    "_info_test_": "Wenn 'enabled' auf true steht, wird ein Test-Trade mit dem angegebenen Risiko (in USDT) erzwungen. Der Modus wird danach automatisch deaktiviert!",
     "test_mode": {
         "enabled": false,
         "test_risk_usd": 1.0,
         "side": "buy"
-    },
+    }
 }
