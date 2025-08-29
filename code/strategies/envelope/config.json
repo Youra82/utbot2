@@ -4,70 +4,52 @@
     "strategy_params": {
         "_comment_margin_mode": "'isolated' (Risiko pro Trade begrenzt) oder 'cross' (gesamtes Konto als Sicherheit).",
         "margin_mode": "isolated",
-
         "_comment_use_dynamic_leverage": "Hauptschalter, um den dynamischen Hebel zu aktivieren (true) oder deaktivieren (false).",
         "use_dynamic_leverage": true,
-
         "_comment_min_leverage": "Die absolute Untergrenze für den dynamischen Hebel.",
         "min_leverage": 7.5,
-
         "_comment_base_leverage": "Der Basis-Hebel bei 'normaler' Markt-Volatilität. Dient als Ausgangspunkt für die dynamische Berechnung.",
         "base_leverage": 15.0,
-
         "_comment_max_leverage": "Die absolute Obergrenze für den dynamischen Hebel (Sicherheitsnetz).",
         "max_leverage": 22.5,
-
         "_comment_leverage": "Fester Hebel. Wird nur genutzt, wenn 'use_dynamic_leverage' auf 'false' steht.",
         "leverage": 5.0,
-
         "_comment_stop_loss_atr_multiplier": "Multiplikator für den ATR-Wert, um den initialen Stop-Loss-Abstand zu bestimmen.",
         "stop_loss_atr_multiplier": 1.0,
-
         "_comment_trailing_tp_percent": "Prozentualer Abstand, den der Trailing Stop dem Kurs folgt, um Gewinne zu sichern.",
         "trailing_tp_percent": 1.0,
-
         "_comment_ut_atr_period": "Die Periodenlänge (Anzahl der Kerzen) für die Berechnung des ATR im UT-Bot-Indikator.",
         "ut_atr_period": 7,
-
         "_comment_ut_key_value": "Der Multiplikator (Empfindlichkeit) für den UT-Bot-Indikator. Beeinflusst, wie schnell Signale generiert werden.",
         "ut_key_value": 1.0,
-
         "_comment_ltf_vol_sensitivity": "Empfindlichkeit, wie stark die Volatilität des kleineren Timeframes den Hebel beeinflusst (dämpft).",
         "ltf_vol_sensitivity": 1.5
     },
-
     "_HEADING_GLOBAL_": "------------------- 2. GLOBALE EINSTELLUNGEN -------------------",
     "_info_global_": "Diese Einstellungen gelten für den Bot-Lauf.",
     "global_settings": {
         "_comment_symbol": "Das Handelspaar im Bitget-Format (z.B. BTC/USDT:USDT).",
         "symbol": "PEPE/USDT:USDT",
-
         "_comment_timeframe": "Das Zeitfenster der Kerzen (z.B. '15m', '1h', '4h').",
         "timeframe": "4h",
-
         "_comment_use_longs": "Erlaube dem Bot, Long-Positionen (auf steigende Kurse) zu eröffnen.",
         "use_longs": true,
-
         "_comment_use_shorts": "Erlaube dem Bot, Short-Positionen (auf fallende Kurse) zu eröffnen.",
         "use_shorts": true
     },
-
     "_HEADING_RISK_": "------------------- 3. RISIKOMANAGEMENT -------------------",
     "_info_risk_": "Bestimmt, wie viel % des Kapitals pro Trade riskiert wird.",
     "risk_management": {
         "_comment_risk_per_trade_percent": "Wie viel Prozent des verfügbaren Kapitals pro Trade riskiert werden soll. Die Positionsgröße wird daraus berechnet.",
         "risk_per_trade_percent": 5.0
     },
-
     "_HEADING_TEST_": "------------------- 4. LIVE-TEST MODUS -------------------",
     "_info_test_": "Wenn 'enabled' auf true steht, wird ein Test-Trade mit dem angegebenen Risiko (in USDT) erzwungen. Der Modus wird danach automatisch deaktiviert!",
     "test_mode": {
         "_comment_enabled": "Aktiviert (true) oder deaktiviert (false) den Test-Modus für einen einzelnen Lauf.",
         "enabled": false,
-
         "_comment_test_risk_usd": "Der feste Betrag in USDT, der im Test-Modus riskiert wird (unabhängig vom Kontostand).",
         "test_risk_usd": 1.0,
-
         "_comment_side": "Die zu testende Handelsrichtung ('buy' für Long oder 'sell' für Short).",
         "side": "buy"
     }
