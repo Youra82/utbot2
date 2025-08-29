@@ -6,7 +6,6 @@ import logging
 import time
 from pathlib import Path
 
-# Pfad zum Hauptverzeichnis des Projekts hinzufügen
 sys.path.append(str(Path(__file__).resolve().parent.parent.parent))
 
 from utilities.bitget_futures import BitgetFutures
@@ -21,7 +20,6 @@ def setup_logging(log_path):
     logging.Formatter.converter = time.gmtime
 
 def get_active_params(config):
-    """Liest die neue Config-Struktur und gibt ein kombiniertes Parameter-Dict zurück."""
     params = {}
     params.update(config['global_settings'])
     params.update(config['risk_management'])
@@ -30,7 +28,6 @@ def get_active_params(config):
     return params
 
 def run_test_mode(config, params, api_keys):
-    """Führt einen einzelnen Test-Trade mit festem USD-Risiko aus."""
     test_params = config['test_mode']
     side_to_test = test_params['side'].lower()
     risk_in_usd = test_params['test_risk_usd']
@@ -42,17 +39,18 @@ def run_test_mode(config, params, api_keys):
     
     bitget = BitgetFutures(api_keys)
     
-    # Daten holen, um Hebel und SL korrekt berechnen zu können
     main_ohlcv_data = load_data_for_backtest(params['symbol'], params['timeframe'], None, None, hide_messages=True)
     ltf_ohlcv_data = load_data_for_backtest(params['symbol'], get_lower_timeframe(params['timeframe']), None, None, hide_messages=True)
     data_with_signals = calculate_signals(main_ohlcv_data, params, ltf_data=ltf_ohlcv_data)
     last_candle = data_with_signals.iloc[-2]
     
     leverage_for_this_trade = int(last_candle['leverage'])
-    bitget.set_leverage(params['symbol'], leverage_for_this_trade)
-    logging.info(f"Dynamischer Hebel für Test-Trade berechnet und auf {leverage_for_this_trade}x gesetzt.")
+    margin_mode = params['margin_mode']
+    
+    bitget.set_margin_mode(params['symbol'], margin_mode=margin_mode)
+    bitget.set_leverage(params['symbol'], leverage=leverage_for_this_trade, margin_mode=margin_mode)
+    logging.info(f"Dynamischer Hebel ({leverage_for_this_trade}x) und Margin-Modus ({margin_mode}) für Test-Trade gesetzt.")
 
-    # Positionsgröße basierend auf festem USD-Risiko berechnen
     ticker = bitget.fetch_ticker(params['symbol'])
     current_price = float(ticker['last'])
     atr_for_sl = last_candle['atr']
@@ -64,7 +62,6 @@ def run_test_mode(config, params, api_keys):
         
     amount = risk_in_usd / distance_to_sl
     
-    # Trade wie im echten Bot platzieren (Market Order + Trailing Stop)
     logging.info(f"Platziere Test-Market-Order ({side_to_test.upper()}) für {amount:.4f} Coins...")
     order = bitget.place_market_order(params['symbol'], side_to_test, amount)
     entry_price = float(order.get('price', order.get('avgFillPrice', current_price)))
@@ -80,7 +77,6 @@ def run_test_mode(config, params, api_keys):
     )
     logging.info(f"✅ Trailing Stop für Test-Trade platziert (ID: {tsl_order['id']}).")
     
-    # Test-Modus in der Config-Datei automatisch deaktivieren
     config['test_mode']['enabled'] = False
     config_path = Path(__file__).parent / 'config.json'
     with open(config_path, 'w') as f:
@@ -89,7 +85,6 @@ def run_test_mode(config, params, api_keys):
     logging.info(">>> Bot beendet sich jetzt. Bitte die Position manuell verwalten. <<<")
 
 def run_live_mode(params, api_keys, telegram_config):
-    """Führt den normalen, signalbasierten Handels-Check aus."""
     bitget = BitgetFutures(api_keys)
     state_manager = StateManager(str(Path(__file__).parent / 'bot_state.db'))
     
@@ -108,7 +103,7 @@ def run_live_mode(params, api_keys, telegram_config):
 
     if in_position:
         position_side = current_state.get('last_side')
-        if (position_side == 'buy' and sell_signal) or (position_side == 'sell' and buy_signal): # 'short' wurde durch 'sell' ersetzt für Konsistenz
+        if (position_side == 'buy' and sell_signal) or (position_side == 'sell' and buy_signal):
             logging.info(f"--- GEGENSIGNAL ERKANNT: Schließe Position ---")
             close_order = bitget.flash_close_position(params['symbol'])
             price_str = f"{float(close_order.get('price', 0.0)):.4f}"
@@ -124,7 +119,10 @@ def run_live_mode(params, api_keys, telegram_config):
         if side:
             logging.info(f"--- NEUES EINSTIEGSSIGNAL: {side.upper()} ---")
             leverage_for_this_trade = int(last_candle['leverage'])
-            bitget.set_leverage(params['symbol'], leverage_for_this_trade)
+            margin_mode = params['margin_mode']
+            
+            bitget.set_margin_mode(params['symbol'], margin_mode=margin_mode)
+            bitget.set_leverage(params['symbol'], leverage=leverage_for_this_trade, margin_mode=margin_mode)
             
             balance_info = bitget.fetch_balance()
             available_usdt = float(balance_info['USDT']['free'])
@@ -149,7 +147,6 @@ def run_live_mode(params, api_keys, telegram_config):
             state_manager.set_state('in_position', last_side=side, stop_loss_ids=[tsl_order['id']])
 
 def main():
-    """Hauptfunktion, die den Bot startet und zwischen Test- und Live-Modus unterscheidet."""
     telegram_config = {}
     try:
         base_path = Path(__file__).parent
@@ -164,7 +161,6 @@ def main():
         
         params = get_active_params(config)
 
-        # HIER IST DIE NEUE LOGIK: Prüfe, ob der Test-Modus aktiv ist
         if config.get('test_mode', {}).get('enabled', False):
             run_test_mode(config, params, api_keys)
         else:
