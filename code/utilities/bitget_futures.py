@@ -26,6 +26,24 @@ class BitgetFutures():
         except Exception as e:
             self._handle_exception("fetch_balance", e)
 
+    def fetch_open_orders(self, symbol: str) -> List[Dict[str, Any]]:
+        try:
+            return self.session.fetch_open_orders(symbol)
+        except Exception as e:
+            self._handle_exception(f"fetch_open_orders für {symbol}", e)
+
+    def fetch_open_trigger_orders(self, symbol: str) -> List[Dict[str, Any]]:
+        try:
+            return self.session.fetch_open_orders(symbol, params={'stop': True})
+        except Exception as e:
+            self._handle_exception(f"fetch_open_trigger_orders für {symbol}", e)
+
+    def cancel_order(self, order_id: str, symbol: str) -> Dict[str, Any]:
+        try:
+            return self.session.cancel_order(order_id, symbol)
+        except Exception as e:
+            self._handle_exception(f"cancel_order {order_id} für {symbol}", e)
+            
     def cancel_trigger_order(self, order_id: str, symbol: str) -> Dict[str, Any]:
         try:
             return self.session.cancel_order(order_id, symbol, params={'stop': True})
@@ -42,40 +60,18 @@ class BitgetFutures():
     def flash_close_position(self, symbol: str) -> Dict[str, Any]:
         try:
             positions = self.fetch_open_positions(symbol)
-            if not positions:
-                raise Exception("Keine offene Position zum Schließen gefunden.")
+            if not positions: raise Exception("Keine offene Position zum Schließen gefunden.")
             position_info = positions[0]
             amount = float(position_info['contracts'])
             side_to_close = 'buy' if position_info['side'] == 'short' else 'sell'
-            return self.place_market_order(symbol, side_to_close, amount, reduce=True)
+            return self.place_market_order(symbol, side_to_close, amount, leverage=1, margin_mode='isolated', reduce=True)
         except Exception as e:
             self._handle_exception(f"flash_close_position für {symbol}", e)
-
-    def set_margin_mode(self, symbol: str, margin_mode: str) -> None:
-        """Setzt den Margin-Modus für ein Handelspaar."""
-        try:
-            self.session.set_margin_mode(margin_mode.lower(), symbol, params={'productType': 'USDT-FUTURES', 'marginCoin': 'USDT'})
-        except Exception as e:
-            self._handle_exception(f"set_margin_mode auf '{margin_mode}' für {symbol}", e)
-
-    def set_leverage(self, symbol: str, leverage: int, margin_mode: str) -> None:
-        """Setzt den Hebel intelligent basierend auf dem Margin-Modus."""
-        try:
-            margin_mode = margin_mode.lower()
-            if margin_mode == 'isolated':
-                params_long = {'productType': 'USDT-FUTURES', 'marginCoin': 'USDT', 'holdSide': 'long'}
-                params_short = {'productType': 'USDT-FUTURES', 'marginCoin': 'USDT', 'holdSide': 'short'}
-                self.session.set_leverage(leverage, symbol, params=params_long)
-                self.session.set_leverage(leverage, symbol, params=params_short)
-            elif margin_mode == 'cross':
-                params_cross = {'productType': 'USDT-FUTURES', 'marginCoin': 'USDT'}
-                self.session.set_leverage(leverage, symbol, params=params_cross)
-            else:
-                raise ValueError(f"Ungültiger Margin-Modus: {margin_mode}")
-        except Exception as e:
-            self._handle_exception(f"set_leverage auf {leverage}x für {symbol} mit Modus {margin_mode}", e)
     
-    def fetch_recent_ohlcv(self, symbol: str, timeframe: str, limit: int = 100) -> pd.DataFrame:
+    def set_margin_mode(self, symbol: str, margin_mode: str) -> None: pass
+    def set_leverage(self, symbol: str, leverage: int, margin_mode: str) -> None: pass
+    
+    def fetch_recent_ohlcv(self, symbol: str, timeframe: str, limit: int = 200) -> pd.DataFrame:
         try:
             ohlcv = self.session.fetch_ohlcv(symbol, timeframe, limit=limit)
             df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
@@ -100,11 +96,16 @@ class BitgetFutures():
         except Exception as e:
             self._handle_exception(f"fetch_historical_ohlcv für {symbol}", e)
 
-    def place_market_order(self, symbol: str, side: str, amount: float, reduce: bool = False) -> Dict[str, Any]:
+    def place_market_order(self, symbol: str, side: str, amount: float, leverage: int, margin_mode: str, reduce: bool = False) -> Dict[str, Any]:
         try:
-            return self.session.create_order(symbol, 'market', side, amount, params={'reduceOnly': reduce})
+            params = {
+                'reduceOnly': reduce,
+                'leverage': leverage,
+                'marginMode': margin_mode.lower()
+            }
+            return self.session.create_order(symbol, 'market', side, amount, params=params)
         except Exception as e:
-            self._handle_exception(f"place_market_order ({side}, {amount}) für {symbol}", e)
+            self._handle_exception(f"place_market_order ({side}, {amount}) für {symbol} mit Params {params}", e)
 
     def place_trailing_stop_order(self, symbol: str, side: str, amount: float, trail_percent: float, activation_price: float) -> Dict[str, Any]:
         try:
