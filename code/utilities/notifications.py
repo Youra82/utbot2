@@ -13,9 +13,7 @@ def send_telegram_message(config, message):
         logging.warning("Telegram-Zugangsdaten (bot_token, chat_id) in secret.json nicht gefunden. Keine Benachrichtigung gesendet.")
         return
 
-    # Telegram's MarkdownV2 erfordert das Escapen von Sonderzeichen
     escape_chars = '_*[]()~`>#+-=|{}.!'
-    # Ersetze nur, wenn das Zeichen nicht bereits escaped ist
     for char in escape_chars:
         message = message.replace(f'\\{char}', char).replace(char, f'\\{char}')
 
