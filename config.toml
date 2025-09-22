@@ -1,5 +1,5 @@
 # ----------------------------------------------------
-# Globale Strategie-Einstellungen für den Gemini-Trader
+# Globale Strategie-Einstellungen für den utbot2
 # ----------------------------------------------------
 [strategy]
 # Wie viele Tage an historischen Daten soll die KI analysieren?
