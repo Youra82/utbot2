@@ -3,11 +3,11 @@
 # ----------------------------------------------------
 [strategy]
 # Wie viele Tage an historischen Daten soll die KI analysieren?
-lookback_period_days = 14
+lookback_period_days = 60
 
 # Definiert die "Persönlichkeit" der KI.
 # Mögliche Werte: "swing", "daytrade", "scalp"
-trading_mode = "swing"
+trading_mode = "daytrade"
 
 
 # ----------------------------------------------------
@@ -16,11 +16,11 @@ trading_mode = "swing"
 
 [[targets]]
 enabled = true
-symbol = "BTC/USDT:USDT"
-timeframe = "4h"
+symbol = "XRP/USDT:USDT"
+timeframe = "1h"
 
 [targets.risk]
-portfolio_fraction_pct = 25
+portfolio_fraction_pct = 20
 risk_per_trade_pct = 2
 max_leverage = 15
 
@@ -28,9 +28,37 @@ max_leverage = 15
 [[targets]]
 enabled = true
 symbol = "ETH/USDT:USDT"
-timeframe = "4h"
+timeframe = "1h"
 
 [targets.risk]
 portfolio_fraction_pct = 20
 risk_per_trade_pct = 2
 max_leverage = 20
+
+
+[[targets]]
+enabled = true
+symbol = "SOL/USDT:USDT"
+timeframe = "1h"
+
+[targets.risk]
+portfolio_fraction_pct = 20
+risk_per_trade_pct = 2
+max_leverage = 20
+
+
+[[targets]]
+enabled = true
+symbol = "ADA/USDT:USDT"
+timeframe = "1h"
+
+[targets.risk]
+portfolio_fraction_pct = 20
+risk_per_trade_pct = 2
+max_leverage = 20
+
+
+[[targets]]
+enabled = true
+symbol = "PEPE/USDT:USDT"
+timeframe = "1h"
