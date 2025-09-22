@@ -40,19 +40,28 @@ def open_new_trade(target, strategy_cfg, trading_style_text, exchange, gemini_mo
     latest = ohlcv_df.iloc[-1]
     current_price = latest['close']
     
-    # --- KORREKTUR: Richtiger Spaltenname für Bollinger Band Percentage ---
-    bbp_column_name = 'BBP_20_2.0' # Dies ist der korrekte Name
+    # --- HIER WAR DER FEHLER: Der korrekte Spaltenname wird jetzt verwendet ---
+    bbp_column_name = 'BBP_20_2.0'
     
     indicator_summary = (
         f"Aktueller technischer Zustand:\n"
         f"- Momentum (StochRSI K/D): {latest['STOCHRSIk_14_14_3_3']:.2f}/{latest['STOCHRSId_14_14_3_3']:.2f}\n"
         f"- Trend (MACD Hist): {latest['MACDh_12_26_9']:.4f}\n"
-        f"- Volatilität (Bollinger Bands %): {latest[bbp_column_name]:.2f}\n" # Geändert, um die Variable zu verwenden
+        f"- Volatilität (Bollinger Bands %): {latest[bbp_column_name]:.2f}\n"
         f"- Volumen (OBV): {latest['OBV']:.0f}"
     )
     logger.info(f"[{symbol}] Preis: {current_price} | {indicator_summary.replace(chr(10), ' ')}")
     
-    prompt = (f"Du bist ein Trading-Analyse-System... {trading_style_text} ...") # Gekürzt zur Lesbarkeit
+    prompt = (
+        f"Du bist ein Trading-Analyse-System. {trading_style_text} "
+        f"Analysiere die folgende Zusammenfassung für {symbol} (aktueller Preis: {current_price} USDT). "
+        f"{indicator_summary}\n\n"
+        "Triff deine Handelsentscheidung PRIMÄR auf Basis dieser Indikator-Zusammenfassung. "
+        "Deine einzige Aufgabe ist es, ein JSON-Objekt zurückzugeben. "
+        "Deine Antwort MUSS exakt diesem Format entsprechen: "
+        '\'\'\'{"aktion": "KAUFEN", "stop_loss": 123.45, "take_profit": 125.67}\'\'\' '
+        "oder mit \"VERKAUFEN\" oder \"HALTEN\"."
+    )
     
     response = gemini_model.generate_content(prompt)
     cleaned_response_text = response.text.replace('```json', '').replace('```', '').strip()
@@ -66,7 +75,6 @@ def open_new_trade(target, strategy_cfg, trading_style_text, exchange, gemini_mo
         return None
 
     if decision.get('aktion') in ['KAUFEN', 'VERKAUFEN']:
-        # Rest der Funktion bleibt unverändert...
         side, sl_price, tp_price = ('buy', decision['stop_loss'], decision['take_profit']) if decision['aktion'] == 'KAUFEN' else ('sell', decision['stop_loss'], decision['take_profit'])
         allocated_capital = total_usdt_balance * (risk_cfg['portfolio_fraction_pct'] / 100)
         capital_at_risk = allocated_capital * (risk_cfg['risk_per_trade_pct'] / 100)
@@ -86,7 +94,6 @@ def open_new_trade(target, strategy_cfg, trading_style_text, exchange, gemini_mo
         return None
 
 def monitor_open_trade(symbol, trade_info, exchange, telegram_api):
-    # Diese Funktion bleibt unverändert...
     logger.info(f"[{symbol}] Überwache offenen Trade (ID: {trade_info['order_id']})...")
     if exchange.fetch_open_positions(symbol):
         logger.info(f"[{symbol}] Position ist weiterhin offen."); return False
@@ -105,7 +112,6 @@ def monitor_open_trade(symbol, trade_info, exchange, telegram_api):
     return True
 
 def main():
-    # Diese Funktion bleibt unverändert...
     logger.info("==============================================")
     logger.info("=     utbot2 v1.5 (Bugfixes & Stability)     =")
     logger.info("==============================================")
