@@ -1,20 +1,28 @@
 #!/bin/bash
-
-# Bricht das Skript bei Fehlern sofort ab
 set -e
 
-echo "--- Sicheres Update für utbot2 wird ausgeführt ---"
+echo "--- Sicheres Update wird ausgeführt (Robuste Version) ---"
 
-# Schritt 1: Lokale Änderungen (deine secret.json) sicher beiseite legen
-echo "1. Sichere deine lokalen Änderungen (insb. secret.json)..."
-git stash
+# 1. Sichere die einzige Datei, die lokal wichtig ist
+echo "1. Erstelle ein Backup von 'secret.json'..."
+if [ -f "secret.json" ]; then
+    cp secret.json secret.json.bak
+else
+    echo "Warnung: 'secret.json' nicht gefunden, erstelle leeres Backup."
+    touch secret.json.bak
+fi
 
-# Schritt 2: Neuesten Stand von GitHub holen
-echo "2. Hole die neuesten Updates von GitHub..."
-git pull origin main
+# 2. Hole die neuesten Daten von GitHub
+echo "2. Hole den neuesten Stand von GitHub..."
+git fetch origin
 
-# Schritt 3: Lokale Änderungen zurückholen und anwenden
-echo "3. Stelle deine lokalen Änderungen wieder her..."
-git stash pop
+# 3. Setze das lokale Verzeichnis hart auf den Stand von GitHub zurück
+echo "3. Setze alle Dateien auf den neuesten Stand zurück und verwerfe lokale Änderungen..."
+git reset --hard origin/main
 
-echo "✅ Update erfolgreich abgeschlossen. Dein Bot ist auf dem neuesten Stand."
+# 4. Stelle die API-Schlüssel aus dem Backup wieder her
+echo "4. Stelle den Inhalt von 'secret.json' aus dem Backup wieder her..."
+cp secret.json.bak secret.json
+rm secret.json.bak
+
+echo "✅ Update erfolgreich abgeschlossen. Dein Bot ist jetzt auf dem neuesten Stand."
