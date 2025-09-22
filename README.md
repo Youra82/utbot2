@@ -108,6 +108,73 @@ Füge die folgende Zeile am Ende der Datei ein. Sie startet den Bot alle 15 Minu
     ```
     *(`Strg + C` zum Beenden)*
 
+
+## Bot aktualisieren 🔄
+
+Um den Code des Bots auf den neuesten Stand zu bringen, ohne deine `secret.json` zu überschreiben, kannst du das mitgelieferte Update-Skript verwenden.
+
+#### 1\. Update-Skript ausführbar machen (einmalig)
+
+```bash
+chmod +x update.sh
+```
+
+#### 2\. Update ausführen
+
+Führe das Skript aus. Es legt deine lokalen Änderungen (insbesondere deine API-Schlüssel) sicher beiseite, holt die neuesten Updates von GitHub und fügt deine Änderungen danach wieder ein.
+
+```bash
+bash update.sh
+```
+
+*(Ende des Inhalts für die README.md)*
+
+-----
+
+### Code für das `update.sh`-Skript
+
+Du musst jetzt noch die Datei `update.sh` im Hauptverzeichnis deines Bots (`utbot2/`) mit folgendem Inhalt erstellen:
+
+```bash
+#!/bin/bash
+
+# Bricht das Skript bei Fehlern sofort ab
+set -e
+
+echo "--- Sicheres Update für utbot2 wird ausgeführt ---"
+
+# Schritt 1: Lokale Änderungen (deine secret.json) sicher beiseite legen
+echo "1. Sichere deine lokalen Änderungen (insb. secret.json)..."
+git stash
+
+# Schritt 2: Neuesten Stand von GitHub holen
+echo "2. Hole die neuesten Updates von GitHub..."
+git pull origin main
+
+# Schritt 3: Lokale Änderungen zurückholen und anwenden
+echo "3. Stelle deine lokalen Änderungen wieder her..."
+git stash pop
+
+echo "✅ Update erfolgreich abgeschlossen. Dein Bot ist auf dem neuesten Stand."
+
+```
+
+**Anleitung:**
+
+1.  Erstelle die Datei auf deinem Server: `nano update.sh`
+2.  Kopiere den Code von oben hinein.
+3.  Speichere mit `Strg + X`, dann `Y` und `Enter`.
+
+### Was macht dieses Skript genau?
+
+Der `git stash`-Befehl ist hier der Schlüssel. Er funktioniert wie ein sicherer Zwischenspeicher:
+
+1.  `git stash` nimmt alle deine lokalen, nicht committeten Änderungen (wie die ausgefüllte `secret.json`) und legt sie in einem temporären Speicher ab. Dein Projektordner ist danach "sauber".
+2.  `git pull` holt sich die neuen Code-Dateien von GitHub.
+3.  `git stash pop` holt deine zwischengespeicherten Änderungen zurück und fügt sie wieder in die aktualisierten Dateien ein.
+
+So wird dein Bot aktualisiert, ohne jemals deine wertvollen API-Schlüssel zu gefährden.
+   
 -----
 
 ### ✅ Requirements
