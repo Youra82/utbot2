@@ -37,7 +37,7 @@ max_leverage = 20
 
 
 [[targets]]
-enabled = true
+enabled = false
 symbol = "SOL/USDT:USDT"
 timeframe = "1h"
 
@@ -48,7 +48,7 @@ max_leverage = 20
 
 
 [[targets]]
-enabled = true
+enabled = false
 symbol = "ADA/USDT:USDT"
 timeframe = "1h"
 
@@ -59,6 +59,12 @@ max_leverage = 20
 
 
 [[targets]]
-enabled = true
+enabled = false
 symbol = "PEPE/USDT:USDT"
 timeframe = "1h"
+
+
+[targets.risk]
+portfolio_fraction_pct = 20
+risk_per_trade_pct = 2
+max_leverage = 20
