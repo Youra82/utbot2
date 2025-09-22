@@ -42,7 +42,7 @@ Führe die folgenden Schritte auf einem frischen Ubuntu-Server (empfohlen: 22.04
 Ersetze `DEIN_GITHUB_USERNAME` mit deinem tatsächlichen Benutzernamen.
 
 ```bash
-git clone https://github.com/DEIN_GITHUB_USERNAME/utbot2.git
+git clone https://github.com/Youra82/utbot2.git
 ```
 
 #### 2\. Installations-Skript ausführen
