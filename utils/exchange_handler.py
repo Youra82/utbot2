@@ -4,7 +4,6 @@ import logging
 import pandas as pd
 import time
 
-# GEÄNDERT: Logger-Name angepasst
 logger = logging.getLogger('utbot2')
 
 class ExchangeHandler:
@@ -28,16 +27,27 @@ class ExchangeHandler:
             logger.error(f"Fehler beim Setzen des Hebels für {symbol}: {e}")
             raise
 
+    # --- HIER IST DIE ÄNDERUNG ---
     def fetch_usdt_balance(self):
+        """
+        Ruft das verfügbare USDT-Guthaben über die standardisierte ccxt-Struktur ab.
+        """
         try:
+            # Lade die Guthaben-Informationen
             balance = self.session.fetch_balance()
-            for item in balance['info']['data']:
-                if item['marginCoin'] == 'USDT':
-                    return float(item['availableBalance'])
+            
+            # Greife auf den standardisierten 'free' (verfügbaren) Betrag für USDT zu
+            if 'USDT' in balance and 'free' in balance['USDT']:
+                return float(balance['USDT']['free'])
+            
+            # Fallback, falls die Struktur unerwartet ist
+            logger.warning("Konnte 'USDT' im standardisierten Guthaben nicht finden. Versuche Fallback...")
             return 0.0
+            
         except Exception as e:
             logger.error(f"Fehler beim Abrufen des USDT-Guthabens: {e}")
             raise
+    # --- ENDE DER ÄNDERUNG ---
 
     def fetch_ohlcv(self, symbol, timeframe, limit):
         try:
