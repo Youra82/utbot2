@@ -2,7 +2,8 @@
 import requests
 import logging
 
-logger = logging.getLogger('gemini-trader')
+# GEÄNDERT: Logger-Name angepasst
+logger = logging.getLogger('utbot2')
 
 def send_telegram_message(bot_token, chat_id, message):
     if not bot_token or not chat_id:
