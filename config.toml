@@ -1,0 +1,36 @@
+# ----------------------------------------------------
+# Globale Strategie-Einstellungen für den Gemini-Trader
+# ----------------------------------------------------
+[strategy]
+# Wie viele Tage an historischen Daten soll die KI analysieren?
+lookback_period_days = 14
+
+# Definiert die "Persönlichkeit" der KI.
+# Mögliche Werte: "swing", "daytrade", "scalp"
+trading_mode = "swing"
+
+
+# ----------------------------------------------------
+# Liste der zu handelnden Coins (Targets)
+# ----------------------------------------------------
+
+[[targets]]
+enabled = true
+symbol = "BTC/USDT:USDT"
+timeframe = "4h"
+
+[targets.risk]
+portfolio_fraction_pct = 25
+risk_per_trade_pct = 2
+max_leverage = 15
+
+
+[[targets]]
+enabled = true
+symbol = "ETH/USDT:USDT"
+timeframe = "4h"
+
+[targets.risk]
+portfolio_fraction_pct = 20
+risk_per_trade_pct = 2
+max_leverage = 20
