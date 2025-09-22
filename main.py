@@ -3,10 +3,11 @@ import os, sys, json, logging, pandas as pd, traceback, time, google.generativea
 from utils.exchange_handler import ExchangeHandler
 from utils.telegram_handler import send_telegram_message
 
+# --- SETUP & KONSTANTEN ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s UTC: %(levelname)s: %(message)s', datefmt='%Y-%m-%d %H:%M:%S', handlers=[logging.StreamHandler()])
 logger = logging.getLogger('utbot2')
 TRADES_FILE = 'open_trades.json'
-PROMPT_TEMPLATES = {"swing": "Deine Aufgabe ist es, eine Handelsentscheidung für einen Swing-Trader zu treffen...", "daytrade": "Deine Aufgabe ist es, eine Handelsentscheidung für einen Day-Trader zu treffen...", "scalp": "Deine Aufgabe ist es, eine Handelsentscheidung für einen Scalper zu treffen..."}
+PROMPT_TEMPLATES = {"swing": "Deine Aufgabe ist es, eine Handelsentscheidung für einen Swing-Trader zu treffen, der Positionen über mehrere Tage oder Wochen hält.", "daytrade": "Deine Aufgabe ist es, eine Handelsentscheidung für einen Day-Trader zu treffen, der Positionen innerhalb eines Tages eröffnet und schließt.", "scalp": "Deine Aufgabe ist es, eine Handelsentscheidung für einen Scalper zu treffen, der nach sehr kurzfristigen Gelegenheiten für kleine Gewinne sucht."}
 
 def load_open_trades():
     if os.path.exists(TRADES_FILE):
@@ -39,7 +40,6 @@ def open_new_trade(target, strategy_cfg, trading_style_text, exchange, gemini_mo
     
     json_string = ohlcv_df.to_json(orient='records', default_handler=str)
     
-    # --- GEÄNDERT: Der Prompt wurde verschärft ---
     prompt = (
         f"Du bist ein Trading-Analyse-System. {trading_style_text} "
         f"Analysiere die folgenden Daten für {symbol} (aktueller Preis: {current_price} USDT, Indikatoren: {indicator_summary}). "
@@ -52,8 +52,6 @@ def open_new_trade(target, strategy_cfg, trading_style_text, exchange, gemini_mo
     )
     
     response = gemini_model.generate_content(prompt)
-    
-    # WICHTIG: Manchmal gibt die KI trotzdem noch Markdown zurück, das entfernen wir hier.
     cleaned_response_text = response.text.replace('```json', '').replace('```', '').strip()
     
     try:
@@ -61,7 +59,8 @@ def open_new_trade(target, strategy_cfg, trading_style_text, exchange, gemini_mo
         logger.info(f"[{symbol}] Antwort von Gemini (bereinigt): {decision}")
     except json.JSONDecodeError:
         logger.error(f"[{symbol}] Antwort von Gemini konnte nicht als JSON dekodiert werden: '{cleaned_response_text}'")
-        send_telegram_message(telegram_api['bot_token'], telegram_api['chat_id'], f"🚨 FEHLER bei Gemini-Antwort für *{symbol}*: Ungültiges JSON\.")
+        # HIER IST DIE KORREKTUR: Der Backslash vor dem Punkt wurde entfernt.
+        send_telegram_message(telegram_api['bot_token'], telegram_api['chat_id'], f"🚨 FEHLER bei Gemini-Antwort für *{symbol}*: Ungültiges JSON.")
         return None
 
     if decision.get('aktion') in ['KAUFEN', 'VERKAUFEN']:
@@ -80,7 +79,8 @@ def open_new_trade(target, strategy_cfg, trading_style_text, exchange, gemini_mo
         order_result = exchange.create_market_order_with_sl_tp(symbol, side, amount_in_asset, sl_price, tp_price)
         logger.info(f"[{symbol}] ✅ Order platziert: {order_result['id']}")
         
-        msg = (f"🚀 NEUER TRADE: *{symbol}*\n\nModus: *{strategy_cfg['trading_mode'].capitalize()}*\nAktion: *{decision['aktion']}* (Dyn. Hebel: *{final_leverage}x*)\n..." )
+        msg = (f"🚀 NEUER TRADE: *{symbol}*\n\nModus: *{strategy_cfg['trading_mode'].capitalize()}*\nAktion: *{decision['aktion']}* (Dyn. Hebel: *{final_leverage}x*)\n"
+               f"Größe: {position_size_usdt:.2f} USDT\nStop-Loss: {sl_price}\nTake-Profit: {tp_price}")
         send_telegram_message(telegram_api['bot_token'], telegram_api['chat_id'], msg)
         
         return {"order_id": order_result['id'], "entry_timestamp": order_result['timestamp'], "side": side, "sl_price": sl_price, "tp_price": tp_price, "entry_price": order_result['price']}
@@ -89,19 +89,23 @@ def open_new_trade(target, strategy_cfg, trading_style_text, exchange, gemini_mo
         return None
 
 def monitor_open_trade(symbol, trade_info, exchange, telegram_api):
-    # Diese Funktion bleibt unverändert
     logger.info(f"[{symbol}] Überwache offenen Trade (ID: {trade_info['order_id']})...")
     if exchange.fetch_open_positions(symbol):
         logger.info(f"[{symbol}] Position ist weiterhin offen."); return False
+
     logger.info(f"[{symbol}] Position wurde geschlossen! Suche in Trade-Historie...")
     trade_history = exchange.fetch_trade_history(symbol, trade_info['entry_timestamp'])
+    
     closing_trade = next((t for t in reversed(trade_history) if t['order'] == trade_info['order_id'] and t['side'] != trade_info['side']), None)
     if not closing_trade:
         logger.warning(f"[{symbol}] Konnte Schließungs-Trade nicht finden."); return False
+
     exit_price = closing_trade['price']
     pnl = (exit_price - trade_info['entry_price']) * closing_trade['amount'] if trade_info['side'] == 'buy' else (trade_info['entry_price'] - exit_price) * closing_trade['amount']
     pnl -= closing_trade.get('fee', {}).get('cost', 0)
+
     is_tp = (trade_info['side'] == 'buy' and exit_price >= trade_info['tp_price']) or (trade_info['side'] == 'sell' and exit_price <= trade_info['tp_price'])
+    
     if is_tp:
         msg = f"✅ *TAKE-PROFIT GETROFFEN: {symbol}*\n\nGeschlossen bei: {exit_price}\nGeschätzter Gewinn: {pnl:.2f} USDT"
         logger.info(f"[{symbol}] Take-Profit bei {exit_price} getroffen.")
@@ -112,17 +116,19 @@ def monitor_open_trade(symbol, trade_info, exchange, telegram_api):
     return True
 
 def main():
-    # Diese Funktion bleibt unverändert
     logger.info("==============================================")
-    logger.info("=         utbot2 v1.1 (Strict Prompt)        =")
+    logger.info("=         utbot2 v1.2 (Clean Code)           =")
     logger.info("==============================================")
     
     config, secrets, open_trades = load_config('config.toml'), load_config('secret.json'), load_open_trades()
+    
     genai.configure(api_key=secrets['google']['api_key']); gemini_model = genai.GenerativeModel('gemini-1.5-flash')
     exchange = ExchangeHandler(secrets['bitget'])
+    
     total_usdt_balance = exchange.fetch_usdt_balance()
     if total_usdt_balance <= 0: logger.error("Kontoguthaben ist 0."); return
     logger.info(f"Verfügbares Guthaben: {total_usdt_balance:.2f} USDT")
+
     strategy_cfg = config['strategy']
     trading_style_text = PROMPT_TEMPLATES.get(strategy_cfg.get('trading_mode', 'swing'))
     
@@ -140,6 +146,7 @@ def main():
             logger.error(f"Kritischer Fehler für {symbol}: {traceback.format_exc()}")
             send_telegram_message(secrets['telegram']['bot_token'], secrets['telegram']['chat_id'], f"🚨 KRITISCHER FEHLER für *{symbol}*!\n\n`{str(e)}`")
         time.sleep(5)
+
     save_open_trades(open_trades)
     logger.info("<<< Alle Zyklen abgeschlossen. >>>\n")
         
