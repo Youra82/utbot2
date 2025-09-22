@@ -27,27 +27,15 @@ class ExchangeHandler:
             logger.error(f"Fehler beim Setzen des Hebels für {symbol}: {e}")
             raise
 
-    # --- HIER IST DIE ÄNDERUNG ---
     def fetch_usdt_balance(self):
-        """
-        Ruft das verfügbare USDT-Guthaben über die standardisierte ccxt-Struktur ab.
-        """
         try:
-            # Lade die Guthaben-Informationen
             balance = self.session.fetch_balance()
-            
-            # Greife auf den standardisierten 'free' (verfügbaren) Betrag für USDT zu
             if 'USDT' in balance and 'free' in balance['USDT']:
                 return float(balance['USDT']['free'])
-            
-            # Fallback, falls die Struktur unerwartet ist
-            logger.warning("Konnte 'USDT' im standardisierten Guthaben nicht finden. Versuche Fallback...")
             return 0.0
-            
         except Exception as e:
             logger.error(f"Fehler beim Abrufen des USDT-Guthabens: {e}")
             raise
-    # --- ENDE DER ÄNDERUNG ---
 
     def fetch_ohlcv(self, symbol, timeframe, limit):
         try:
@@ -75,13 +63,33 @@ class ExchangeHandler:
             logger.error(f"Fehler beim Abrufen der Handelshistorie für {symbol}: {e}")
             raise
 
+    # --- DIESE FUNKTION IST ENTSCHEIDEND ---
     def create_market_order_with_sl_tp(self, symbol: str, side: str, amount: float, sl_price: float, tp_price: float):
+        """
+        Erstellt eine Market-Order und platziert dann SL und TP in separaten Folge-Orders,
+        wie von der Bitget API gefordert.
+        """
         try:
-            params = {
+            # Schritt 1: Erstelle die initiale Market-Order
+            logger.info(f"Schritt 1: Erstelle Market-Order für {symbol} ({side}, {amount})...")
+            # Wir können versuchen, den Take-Profit hier zu setzen, da er oft als Teil der "Plan Order" erlaubt ist.
+            plan_order_params = {'takeProfitPrice': self.session.price_to_precision(symbol, tp_price)}
+            order = self.session.create_order(symbol, 'market', side, amount, params=plan_order_params)
+            
+            # Gib der Börse einen Moment Zeit, die Order zu verarbeiten und die Position zu erstellen
+            logger.info("Warte 5 Sekunden, damit die Position erstellt werden kann...")
+            time.sleep(5)
+            
+            # Schritt 2: Erstelle eine separate Stop-Loss-Order für die nun offene Position
+            logger.info(f"Schritt 2: Setze separaten Stop-Loss bei {sl_price}...")
+            sl_side = 'sell' if side == 'buy' else 'buy'
+            sl_params = {
                 'stopLossPrice': self.session.price_to_precision(symbol, sl_price),
-                'takeProfitPrice': self.session.price_to_precision(symbol, tp_price),
+                'reduceOnly': True # Stellt sicher, dass die Order nur schließt, niemals eine neue Position eröffnet
             }
-            return self.session.create_order(symbol, 'market', side, amount, params=params)
+            self.session.create_order(symbol, 'market', sl_side, amount, params=sl_params)
+            
+            return order
         except Exception as e:
-            logger.error(f"Fehler beim Erstellen der Market-Order für {symbol}: {e}")
+            logger.error(f"Fehler beim Erstellen der Market-Order mit SL/TP: {e}")
             raise
