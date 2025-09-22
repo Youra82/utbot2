@@ -40,8 +40,6 @@ def open_new_trade(target, strategy_cfg, trading_style_text, exchange, gemini_mo
     latest = ohlcv_df.iloc[-1]
     current_price = latest['close']
     
-    # --- FINALE KORREKTUR: Robuster Zugriff auf den Spaltennamen ---
-    # Wir suchen nach dem Spaltennamen, der mit 'BBP_' beginnt, anstatt uns auf den exakten Namen zu verlassen.
     bbp_column_name = next((col for col in latest.index if col.startswith('BBP_')), None)
     if bbp_column_name is None:
         logger.error(f"[{symbol}] Konnte die Spalte für Bollinger Band Percentage ('BBP_') nicht finden.")
@@ -70,7 +68,6 @@ def open_new_trade(target, strategy_cfg, trading_style_text, exchange, gemini_mo
         return None
 
     if decision.get('aktion') in ['KAUFEN', 'VERKAUFEN']:
-        # Rest der Funktion bleibt unverändert
         side, sl_price, tp_price = ('buy', decision['stop_loss'], decision['take_profit']) if decision['aktion'] == 'KAUFEN' else ('sell', decision['stop_loss'], decision['take_profit'])
         allocated_capital = total_usdt_balance * (risk_cfg['portfolio_fraction_pct'] / 100)
         capital_at_risk = allocated_capital * (risk_cfg['risk_per_trade_pct'] / 100)
@@ -90,7 +87,6 @@ def open_new_trade(target, strategy_cfg, trading_style_text, exchange, gemini_mo
         return None
 
 def monitor_open_trade(symbol, trade_info, exchange, telegram_api):
-    # Diese Funktion bleibt unverändert
     logger.info(f"[{symbol}] Überwache offenen Trade (ID: {trade_info['order_id']})...")
     if exchange.fetch_open_positions(symbol):
         logger.info(f"[{symbol}] Position ist weiterhin offen."); return False
@@ -124,7 +120,9 @@ def main():
     trading_style_text = PROMPT_TEMPLATES.get(strategy_cfg.get('trading_mode', 'swing'))
     
     for target in config.get('targets', []):
-        if not target.get('enabled', false): continue
+        # --- HIER IST DIE KORREKTUR: 'false' zu 'False' geändert ---
+        if not target.get('enabled', False): continue
+        
         symbol = target['symbol']
         try:
             if symbol in open_trades:
