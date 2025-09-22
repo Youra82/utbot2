@@ -10,9 +10,7 @@ class ExchangeHandler:
     def __init__(self, api_setup=None):
         if api_setup:
             self.session = ccxt.bitget({
-                'apiKey': api_setup['apiKey'],
-                'secret': api_setup['secret'],
-                'password': api_setup['password'],
+                'apiKey': api_setup['apiKey'], 'secret': api_setup['secret'], 'password': api_setup['password'],
                 'options': { 'defaultType': 'swap' },
             })
         else:
@@ -24,8 +22,7 @@ class ExchangeHandler:
             self.session.set_leverage(leverage, symbol)
             logger.info(f"Hebel für {symbol} erfolgreich auf {leverage}x gesetzt.")
         except Exception as e:
-            logger.error(f"Fehler beim Setzen des Hebels für {symbol}: {e}")
-            raise
+            logger.error(f"Fehler beim Setzen des Hebels: {e}"); raise
 
     def fetch_usdt_balance(self):
         try:
@@ -34,8 +31,7 @@ class ExchangeHandler:
                 return float(balance['USDT']['free'])
             return 0.0
         except Exception as e:
-            logger.error(f"Fehler beim Abrufen des USDT-Guthabens: {e}")
-            raise
+            logger.error(f"Fehler beim Abrufen des Guthabens: {e}"); raise
 
     def fetch_ohlcv(self, symbol, timeframe, limit):
         try:
@@ -44,52 +40,41 @@ class ExchangeHandler:
             df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
             return df
         except Exception as e:
-            logger.error(f"Fehler beim Laden der Kerzendaten für {symbol}: {e}")
-            raise
+            logger.error(f"Fehler beim Laden der Kerzendaten: {e}"); raise
 
     def fetch_open_positions(self, symbol: str):
         try:
             all_positions = self.session.fetch_positions([symbol])
             return [p for p in all_positions if p.get('contracts') is not None and float(p['contracts']) > 0]
         except Exception as e:
-            logger.error(f"Fehler beim Abrufen der offenen Positionen für {symbol}: {e}")
-            raise
+            logger.error(f"Fehler beim Abrufen offener Positionen: {e}"); raise
 
     def fetch_trade_history(self, symbol: str, since_timestamp: int):
         try:
             time.sleep(2)
             return self.session.fetch_my_trades(symbol, since=since_timestamp, limit=50)
         except Exception as e:
-            logger.error(f"Fehler beim Abrufen der Handelshistorie für {symbol}: {e}")
-            raise
+            logger.error(f"Fehler beim Abrufen der Trade-Historie: {e}"); raise
 
-    # --- DIESE FUNKTION IST ENTSCHEIDEND ---
     def create_market_order_with_sl_tp(self, symbol: str, side: str, amount: float, sl_price: float, tp_price: float):
-        """
-        Erstellt eine Market-Order und platziert dann SL und TP in separaten Folge-Orders,
-        wie von der Bitget API gefordert.
-        """
         try:
-            # Schritt 1: Erstelle die initiale Market-Order
-            logger.info(f"Schritt 1: Erstelle Market-Order für {symbol} ({side}, {amount})...")
-            # Wir können versuchen, den Take-Profit hier zu setzen, da er oft als Teil der "Plan Order" erlaubt ist.
-            plan_order_params = {'takeProfitPrice': self.session.price_to_precision(symbol, tp_price)}
-            order = self.session.create_order(symbol, 'market', side, amount, params=plan_order_params)
+            # Schritt 1: Erstelle die reine Market-Order, um die Position zu eröffnen
+            logger.info(f"Schritt 1: Eröffne Market-Order für {symbol}...")
+            order = self.session.create_order(symbol, 'market', side, amount)
             
-            # Gib der Börse einen Moment Zeit, die Order zu verarbeiten und die Position zu erstellen
-            logger.info("Warte 5 Sekunden, damit die Position erstellt werden kann...")
+            logger.info("Warte 5 Sekunden, bis die Position vollständig erstellt ist...")
             time.sleep(5)
-            
-            # Schritt 2: Erstelle eine separate Stop-Loss-Order für die nun offene Position
-            logger.info(f"Schritt 2: Setze separaten Stop-Loss bei {sl_price}...")
-            sl_side = 'sell' if side == 'buy' else 'buy'
-            sl_params = {
+
+            # Schritt 2: Setze SL und TP für die existierende Position
+            logger.info(f"Schritt 2: Setze SL ({sl_price}) und TP ({tp_price}) für die neue Position...")
+            sl_tp_params = {
                 'stopLossPrice': self.session.price_to_precision(symbol, sl_price),
-                'reduceOnly': True # Stellt sicher, dass die Order nur schließt, niemals eine neue Position eröffnet
+                'takeProfitPrice': self.session.price_to_precision(symbol, tp_price),
             }
-            self.session.create_order(symbol, 'market', sl_side, amount, params=sl_params)
-            
+            # Dieser API-Call modifiziert eine bestehende Position
+            self.session.private_post_mix_v2_position_set_tpsl_position(
+                {'symbol': self.session.market(symbol)['id'], **sl_tp_params}
+            )
             return order
         except Exception as e:
-            logger.error(f"Fehler beim Erstellen der Market-Order mit SL/TP: {e}")
-            raise
+            logger.error(f"Fehler im Order-Prozess: {e}"); raise
