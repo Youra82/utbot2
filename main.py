@@ -6,7 +6,7 @@ from utils.telegram_handler import send_telegram_message
 logging.basicConfig(level=logging.INFO, format='%(asctime)s UTC: %(levelname)s: %(message)s', datefmt='%Y-%m-%d %H:%M:%S', handlers=[logging.StreamHandler()])
 logger = logging.getLogger('utbot2')
 TRADES_FILE = 'open_trades.json'
-PROMPT_TEMPLATES = {"swing": "Deine Aufgabe ist es, eine Handelsentscheidung für einen Swing-Trader zu treffen...", "daytrade": "Deine Aufgabe ist es, eine Handelsentscheidung für einen Day-Trader zu treffen...", "scalp": "Deine Aufgabe ist es, eine Handelsentscheidung für einen Scalper zu treffen..."}
+PROMPT_TEMPLATES = {"swing": "Swing-Trading-Strategie", "daytrade": "Day-Trading-Strategie", "scalp": "Scalping-Strategie"}
 
 def load_open_trades():
     if os.path.exists(TRADES_FILE):
@@ -30,44 +30,44 @@ def open_new_trade(target, strategy_cfg, trading_style_text, exchange, gemini_mo
     ohlcv_df = exchange.fetch_ohlcv(symbol, target['timeframe'], limit)
     if ohlcv_df.empty: logger.error(f"[{symbol}] Keine Kerzendaten erhalten."); return None
     
-    ohlcv_df.ta.stochrsi(append=True)
-    ohlcv_df.ta.macd(append=True)
-    ohlcv_df.ta.atr(append=True)
-    ohlcv_df.ta.bbands(append=True)
-    ohlcv_df.ta.obv(append=True)
-    
-    ohlcv_df.dropna(inplace=True)
-    latest = ohlcv_df.iloc[-1]
-    current_price = latest['close']
+    ohlcv_df.ta.stochrsi(append=True); ohlcv_df.ta.macd(append=True); ohlcv_df.ta.atr(append=True)
+    ohlcv_df.ta.bbands(append=True); ohlcv_df.ta.obv(append=True)
+    ohlcv_df.dropna(inplace=True); latest = ohlcv_df.iloc[-1]; current_price = latest['close']
     
     bbp_column_name = next((col for col in latest.index if col.startswith('BBP_')), None)
-    if bbp_column_name is None:
-        logger.error(f"[{symbol}] Konnte die Spalte für Bollinger Band Percentage ('BBP_') nicht finden.")
-        return None
+    if bbp_column_name is None: logger.error(f"[{symbol}] Bollinger Band Spalte nicht gefunden."); return None
 
     indicator_summary = (
-        f"Aktueller technischer Zustand:\n"
-        f"- Momentum (StochRSI K/D): {latest['STOCHRSIk_14_14_3_3']:.2f}/{latest['STOCHRSId_14_14_3_3']:.2f}\n"
-        f"- Trend (MACD Hist): {latest['MACDh_12_26_9']:.4f}\n"
-        f"- Volatilität (Bollinger Bands %): {latest[bbp_column_name]:.2f}\n"
-        f"- Volumen (OBV): {latest['OBV']:.0f}"
+        f"Preis={current_price:.4f}, "
+        f"StochRSI_K={latest['STOCHRSIk_14_14_3_3']:.2f}, StochRSI_D={latest['STOCHRSId_14_14_3_3']:.2f}, "
+        f"MACD_Hist={latest['MACDh_12_26_9']:.4f}, "
+        f"BBP={latest[bbp_column_name]:.2f}, "
+        f"OBV={latest['OBV']:.0f}"
     )
-    logger.info(f"[{symbol}] Preis: {current_price} | {indicator_summary.replace(chr(10), ' ')}")
+    logger.info(f"[{symbol}] {indicator_summary}")
     
-    prompt = (f"Du bist ein Trading-Analyse-System... {trading_style_text} ...") # Gekürzt
+    # --- NEUER, RADIKAL VEREINFACHTER PROMPT ---
+    prompt = (
+        "Aufgabe: Analysiere die folgenden Trading-Daten und gib eine JSON-Antwort zurück. "
+        f"Kontext: Symbol={symbol}, Strategie='{trading_style_text}'. "
+        f"Aktuelle Indikatoren: {indicator_summary}. "
+        "Deine Antwort darf NUR das JSON-Objekt enthalten, sonst nichts. "
+        'Beispiel-Format: {"aktion": "KAUFEN", "stop_loss": 123.45, "take_profit": 125.67}'
+    )
     
     response = gemini_model.generate_content(prompt)
     cleaned_response_text = response.text.replace('```json', '').replace('```', '').strip()
     
     try:
         decision = json.loads(cleaned_response_text)
-        logger.info(f"[{symbol}] Antwort von Gemini (bereinigt): {decision}")
+        logger.info(f"[{symbol}] Antwort von Gemini: {decision}")
     except json.JSONDecodeError:
         logger.error(f"[{symbol}] Antwort von Gemini konnte nicht als JSON dekodiert werden: '{cleaned_response_text}'")
         send_telegram_message(telegram_api['bot_token'], telegram_api['chat_id'], f"🚨 FEHLER bei Gemini-Antwort für *{symbol}*: Ungültiges JSON.")
         return None
 
     if decision.get('aktion') in ['KAUFEN', 'VERKAUFEN']:
+        # (Rest der Funktion bleibt unverändert)
         side, sl_price, tp_price = ('buy', decision['stop_loss'], decision['take_profit']) if decision['aktion'] == 'KAUFEN' else ('sell', decision['stop_loss'], decision['take_profit'])
         allocated_capital = total_usdt_balance * (risk_cfg['portfolio_fraction_pct'] / 100)
         capital_at_risk = allocated_capital * (risk_cfg['risk_per_trade_pct'] / 100)
@@ -87,10 +87,11 @@ def open_new_trade(target, strategy_cfg, trading_style_text, exchange, gemini_mo
         return None
 
 def monitor_open_trade(symbol, trade_info, exchange, telegram_api):
-    logger.info(f"[{symbol}] Überwache offenen Trade (ID: {trade_info['order_id']})...")
+    # (Diese Funktion bleibt unverändert)
+    logger.info(f"[{symbol}] Überwache offenen Trade...")
     if exchange.fetch_open_positions(symbol):
         logger.info(f"[{symbol}] Position ist weiterhin offen."); return False
-    logger.info(f"[{symbol}] Position wurde geschlossen! Suche in Trade-Historie...")
+    logger.info(f"[{symbol}] Position wurde geschlossen!")
     trade_history = exchange.fetch_trade_history(symbol, trade_info['entry_timestamp'])
     closing_trade = next((t for t in reversed(trade_history) if t['order'] == trade_info['order_id'] and t['side'] != trade_info['side']), None)
     if not closing_trade:
@@ -106,7 +107,7 @@ def monitor_open_trade(symbol, trade_info, exchange, telegram_api):
 
 def main():
     logger.info("==============================================")
-    logger.info("=      utbot2 v1.6 (Final Bugfix)            =")
+    logger.info("=      utbot2 v1.7 (Simplified Prompt)       =")
     logger.info("==============================================")
     
     config, secrets, open_trades = load_config('config.toml'), load_config('secret.json'), load_open_trades()
@@ -120,9 +121,7 @@ def main():
     trading_style_text = PROMPT_TEMPLATES.get(strategy_cfg.get('trading_mode', 'swing'))
     
     for target in config.get('targets', []):
-        # --- HIER IST DIE KORREKTUR: 'false' zu 'False' geändert ---
         if not target.get('enabled', False): continue
-        
         symbol = target['symbol']
         try:
             if symbol in open_trades:
