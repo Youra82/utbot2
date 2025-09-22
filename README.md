@@ -8,7 +8,7 @@ Dieses System wurde für den Betrieb auf einem Ubuntu-Server entwickelt und füh
 
 Der Bot implementiert eine KI-gestützte Strategie, die darauf abzielt, die kontextbezogene Mustererkennung eines großen Sprachmodells (LLM) zu nutzen.
 
-**Handelsthese:** Obwohl Finanzmärkte größtenteils zufällig sind, können menschliche Analysten wiederkehrende Muster erkennen. Ein großes Sprachmodell (LLM) wie Google Gemini kann diese Fähigkeit simulieren. Durch die Analyse von Preisdaten und technischen Indikatoren in einem menschenähnlichen Kontext kann es plausible, kurzfristige Handelsentscheidungen generieren, inklusive konkreter Ausstiegsziele.
+**Handelsthese:** Ein großes Sprachmodell (LLM) wie Google Gemini kann die Fähigkeit menschlicher Analysten simulieren, wiederkehrende Muster in Märkten zu erkennen. Durch die Analyse von Preisdaten und technischen Indikatoren in einem vordefinierten, kontextbezogenen Rahmen (z.B. "Swing-Trading") kann es plausible, kurzfristige Handelsentscheidungen generieren, inklusive konkreter Ausstiegsziele.
 
 **Signale:**
 
@@ -20,7 +20,7 @@ Der Bot implementiert eine KI-gestützte Strategie, die darauf abzielt, die kont
 
   * **KI-definierte Ziele:** Sowohl der **Stop-Loss** als auch der **Take-Profit** werden direkt von der KI in ihrer JSON-Antwort vorgegeben und vom Bot übernommen.
   * **Dynamische Positionsgröße & Hebel:** Die Positionsgröße wird für jeden Trade dynamisch berechnet, um ein festes prozentuales Risiko des Kapitals zu gewährleisten. Der Hebel wird automatisch basierend auf der Volatilität (ATR) und dem von der KI vorgegebenen Stop-Loss-Abstand angepasst, um das Risiko präzise zu steuern.
-  * **Trade-Überwachung:** Der Bot verfügt über ein "Gedächtnis" (`open_trades.json`), um eröffnete Positionen zu verwalten. Er erkennt automatisch, wenn ein Trade durch Stop-Loss oder Take-Profit geschlossen wurde und sendet eine entsprechende Benachrichtigung.
+  * **Trade-Überwachung:** Der Bot verfügt über ein "Gedächtnis" (`open_trades.json`), um eröffnete Positionen zu verwalten. Er erkennt automatisch, wenn ein Trade durch Stop-Loss oder Take-Profit geschlossen wurde und sendet eine entsprechende Erfolgs- oder Verlust-Benachrichtigung.
 
 ## Arbeitsablauf in 2 Phasen
 
@@ -39,8 +39,10 @@ Führe die folgenden Schritte auf einem frischen Ubuntu-Server (empfohlen: 22.04
 
 #### 1\. Projekt klonen
 
+Ersetze `DEIN_GITHUB_USERNAME` mit deinem tatsächlichen Benutzernamen.
+
 ```bash
-git clone https://github.com/Youra82/utbot2.git
+git clone https://github.com/DEIN_GITHUB_USERNAME/utbot2.git
 ```
 
 #### 2\. Installations-Skript ausführen
@@ -80,7 +82,6 @@ Richte einen automatischen Prozess für den Live-Handel ein.
 ```bash
 # Mache das Start-Skript zuerst ausführbar (einmalig)
 chmod +x run.sh
-bash run.sh
 
 # Öffne den Cronjob-Editor
 crontab -e
@@ -96,36 +97,29 @@ Füge die folgende Zeile am Ende der Datei ein. Sie startet den Bot alle 15 Minu
 
 ## Verwaltung ⚙️
 
-  * **Strategien verwalten:** Bearbeite **ausschließlich die `config.toml`-Datei**.
-  * **Bot aktualisieren:**
-    ```bash
-    git pull origin main
-    ```
-  * **Logs überwachen:**
-    **Cronjob-Log ansehen (Echtzeit):**
-    ```bash
-    tail -f logs/cron.log
-    ```
-    *(`Strg + C` zum Beenden)*
-
-
-## Bot aktualisieren 🔄
+#### Bot aktualisieren 🔄
 
 Um den Code des Bots auf den neuesten Stand zu bringen, ohne deine `secret.json` zu überschreiben, kannst du das mitgelieferte Update-Skript verwenden.
 
-#### 1\. Update-Skript ausführbar machen (einmalig)
-
 ```bash
+# 1. Update-Skript ausführbar machen (einmalig)
 chmod +x update.sh
+
+# 2. Update ausführen
+bash update.sh
 ```
 
-#### 2\. Update ausführen
+#### Logs überwachen
 
-Führe das Skript aus. Es legt deine lokalen Änderungen (insbesondere deine API-Schlüssel) sicher beiseite, holt die neuesten Updates von GitHub und fügt deine Änderungen danach wieder ein.
+Die Ausgaben des Bots werden in die Datei `logs/cron.log` geschrieben.
+**Log-Datei in Echtzeit ansehen:**
 
 ```bash
-bash update.sh
-   
+tail -f logs/cron.log
+```
+
+*(`Strg + C` zum Beenden)*
+
 -----
 
 ### ✅ Requirements
