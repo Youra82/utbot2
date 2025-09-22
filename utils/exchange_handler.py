@@ -4,7 +4,8 @@ import logging
 import pandas as pd
 import time
 
-logger = logging.getLogger('gemini-trader')
+# GEÄNDERT: Logger-Name angepasst
+logger = logging.getLogger('utbot2')
 
 class ExchangeHandler:
     def __init__(self, api_setup=None):
