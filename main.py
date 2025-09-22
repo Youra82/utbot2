@@ -6,7 +6,7 @@ from utils.telegram_handler import send_telegram_message
 logging.basicConfig(level=logging.INFO, format='%(asctime)s UTC: %(levelname)s: %(message)s', datefmt='%Y-%m-%d %H:%M:%S', handlers=[logging.StreamHandler()])
 logger = logging.getLogger('utbot2')
 TRADES_FILE = 'open_trades.json'
-PROMPT_TEMPLATES = {"swing": "Swing-Trading-Strategie", "daytrade": "Day-Trading-Strategie", "scalp": "Scalping-Strategie"}
+PROMPT_TEMPLATES = {"swing": "Deine Aufgabe ist es, eine Handelsentscheidung für einen Swing-Trader zu treffen...", "daytrade": "Deine Aufgabe ist es, eine Handelsentscheidung für einen Day-Trader zu treffen...", "scalp": "Deine Aufgabe ist es, eine Handelsentscheidung für einen Scalper zu treffen..."}
 
 def load_open_trades():
     if os.path.exists(TRADES_FILE):
@@ -46,7 +46,6 @@ def open_new_trade(target, strategy_cfg, trading_style_text, exchange, gemini_mo
     )
     logger.info(f"[{symbol}] {indicator_summary}")
     
-    # --- NEUER, RADIKAL VEREINFACHTER PROMPT ---
     prompt = (
         "Aufgabe: Analysiere die folgenden Trading-Daten und gib eine JSON-Antwort zurück. "
         f"Kontext: Symbol={symbol}, Strategie='{trading_style_text}'. "
@@ -67,47 +66,58 @@ def open_new_trade(target, strategy_cfg, trading_style_text, exchange, gemini_mo
         return None
 
     if decision.get('aktion') in ['KAUFEN', 'VERKAUFEN']:
-        # (Rest der Funktion bleibt unverändert)
         side, sl_price, tp_price = ('buy', decision['stop_loss'], decision['take_profit']) if decision['aktion'] == 'KAUFEN' else ('sell', decision['stop_loss'], decision['take_profit'])
         allocated_capital = total_usdt_balance * (risk_cfg['portfolio_fraction_pct'] / 100)
         capital_at_risk = allocated_capital * (risk_cfg['risk_per_trade_pct'] / 100)
         sl_distance_pct = abs(current_price - sl_price) / current_price
         if sl_distance_pct == 0: raise ValueError("SL-Distanz ist Null.")
+        
         position_size_usdt = capital_at_risk / sl_distance_pct
         final_leverage = round(max(1, min(position_size_usdt / allocated_capital, risk_cfg.get('max_leverage', 1))))
         amount_in_asset = position_size_usdt / current_price
+        
         exchange.set_leverage(symbol, final_leverage)
         order_result = exchange.create_market_order_with_sl_tp(symbol, side, amount_in_asset, sl_price, tp_price)
         logger.info(f"[{symbol}] ✅ Order platziert: {order_result['id']}")
-        msg = (f"🚀 NEUER TRADE: *{symbol}*\n\nModus: *{strategy_cfg['trading_mode'].capitalize()}*\nAktion: *{decision['aktion']}* (Dyn. Hebel: *{final_leverage}x*)\n..." )
+        
+        msg = (f"🚀 NEUER TRADE: *{symbol}*\n\nModus: *{strategy_cfg['trading_mode'].capitalize()}*\nAktion: *{decision['aktion']}* (Dyn. Hebel: *{final_leverage}x*)\n"
+               f"Größe: {position_size_usdt:.2f} USDT\nStop-Loss: {sl_price}\nTake-Profit: {tp_price}")
         send_telegram_message(telegram_api['bot_token'], telegram_api['chat_id'], msg)
+        
         return {"order_id": order_result['id'], "entry_timestamp": order_result['timestamp'], "side": side, "sl_price": sl_price, "tp_price": tp_price, "entry_price": order_result['price']}
     else:
         logger.info(f"[{symbol}] Keine Handelsaktion ({decision.get('aktion', 'unbekannt')}).")
         return None
 
 def monitor_open_trade(symbol, trade_info, exchange, telegram_api):
-    # (Diese Funktion bleibt unverändert)
     logger.info(f"[{symbol}] Überwache offenen Trade...")
     if exchange.fetch_open_positions(symbol):
         logger.info(f"[{symbol}] Position ist weiterhin offen."); return False
     logger.info(f"[{symbol}] Position wurde geschlossen!")
+    
     trade_history = exchange.fetch_trade_history(symbol, trade_info['entry_timestamp'])
     closing_trade = next((t for t in reversed(trade_history) if t['order'] == trade_info['order_id'] and t['side'] != trade_info['side']), None)
     if not closing_trade:
         logger.warning(f"[{symbol}] Konnte Schließungs-Trade nicht finden."); return False
+        
     exit_price = closing_trade['price']
     pnl = (exit_price - trade_info['entry_price']) * closing_trade['amount'] if trade_info['side'] == 'buy' else (trade_info['entry_price'] - exit_price) * closing_trade['amount']
     pnl -= closing_trade.get('fee', {}).get('cost', 0)
     is_tp = (trade_info['side'] == 'buy' and exit_price >= trade_info['tp_price']) or (trade_info['side'] == 'sell' and exit_price <= trade_info['tp_price'])
-    if is_tp: msg = f"✅ *TAKE-PROFIT GETROFFEN: {symbol}*\n\n...{pnl:.2f} USDT"
-    else: msg = f"🛑 *STOP-LOSS AUSGELÖST: {symbol}*\n\n...{pnl:.2f} USDT"
+    
+    if is_tp:
+        msg = f"✅ *TAKE-PROFIT GETROFFEN: {symbol}*\n\nGeschlossen bei: {exit_price}\nGeschätzter Gewinn: {pnl:.2f} USDT"
+        logger.info(f"[{symbol}] Take-Profit bei {exit_price} getroffen.")
+    else:
+        msg = f"🛑 *STOP-LOSS AUSGELÖST: {symbol}*\n\nGeschlossen bei: {exit_price}\nGeschätzter Verlust: {pnl:.2f} USDT"
+        logger.warning(f"[{symbol}] Stop-Loss bei {exit_price} ausgelöst.")
+        
     send_telegram_message(telegram_api['bot_token'], telegram_api['chat_id'], msg)
     return True
 
 def main():
     logger.info("==============================================")
-    logger.info("=      utbot2 v1.7 (Simplified Prompt)       =")
+    logger.info("=         utbot2 v1.8 (Final Version)        =")
     logger.info("==============================================")
     
     config, secrets, open_trades = load_config('config.toml'), load_config('secret.json'), load_open_trades()
