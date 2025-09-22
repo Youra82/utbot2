@@ -82,6 +82,8 @@ Richte einen automatischen Prozess für den Live-Handel ein.
 ```bash
 # Mache das Start-Skript zuerst ausführbar (einmalig)
 chmod +x run.sh
+manuell starten:
+bash run.sh
 
 # Öffne den Cronjob-Editor
 crontab -e
