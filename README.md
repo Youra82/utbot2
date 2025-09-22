@@ -125,25 +125,6 @@ Führe das Skript aus. Es legt deine lokalen Änderungen (insbesondere deine API
 
 ```bash
 bash update.sh
-
-
-```
-
-**Anleitung:**
-
-1.  Erstelle die Datei auf deinem Server: `nano update.sh`
-2.  Kopiere den Code von oben hinein.
-3.  Speichere mit `Strg + X`, dann `Y` und `Enter`.
-
-### Was macht dieses Skript genau?
-
-Der `git stash`-Befehl ist hier der Schlüssel. Er funktioniert wie ein sicherer Zwischenspeicher:
-
-1.  `git stash` nimmt alle deine lokalen, nicht committeten Änderungen (wie die ausgefüllte `secret.json`) und legt sie in einem temporären Speicher ab. Dein Projektordner ist danach "sauber".
-2.  `git pull` holt sich die neuen Code-Dateien von GitHub.
-3.  `git stash pop` holt deine zwischengespeicherten Änderungen zurück und fügt sie wieder in die aktualisierten Dateien ein.
-
-So wird dein Bot aktualisiert, ohne jemals deine wertvollen API-Schlüssel zu gefährden.
    
 -----
 
