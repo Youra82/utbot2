@@ -122,6 +122,23 @@ tail -f logs/cron.log
 
 *(`Strg + C` zum Beenden)*
 
+Die Wahl des richtigen Timeframes hängt direkt von deinem Trading-Stil ab. Hier ist eine Übersicht der gängigsten Kombinationen.
+
+---
+## ## Timeframes nach Trading-Stil
+
+Die Grundregel lautet: Je kürzer du einen Trade halten möchtest, desto kleiner sollte dein Timeframe sein.
+
+| Trading-Stil | Typische Timeframes | Zweck / Haltedauer |
+| :--- | :--- | :--- |
+| **Swing-Trading** | **4h, 1D** (4-Stunden, 1-Tag) | Große Marktschwankungen über **Tage bis Wochen** erfassen. |
+| **Day-Trading** | **15m, 1h** (15-Minuten, 1-Stunde) | Trades innerhalb **desselben Tages** eröffnen und schließen. |
+| **Scalping** | **1m, 5m** (1-Minute, 5-Minuten) | Viele kleine Gewinne aus minimalen Preisbewegungen erzielen; Haltedauer von **Sekunden bis Minuten**. |
+
+
+
+Dein Bot ist aktuell im **Swing-Modus** konfiguriert, weshalb Timeframes wie **4h** oder **1D** am besten zu dieser Einstellung passen.
+
 -----
 
 ### ✅ Requirements
