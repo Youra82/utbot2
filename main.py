@@ -3,8 +3,9 @@ import os, sys, json, logging, pandas as pd, traceback, time, google.generativea
 from utils.exchange_handler import ExchangeHandler
 from utils.telegram_handler import send_telegram_message
 
+# GEÄNDERT: Logger-Name angepasst
 logging.basicConfig(level=logging.INFO, format='%(asctime)s UTC: %(levelname)s: %(message)s', datefmt='%Y-%m-%d %H:%M:%S', handlers=[logging.StreamHandler()])
-logger = logging.getLogger('gemini-trader')
+logger = logging.getLogger('utbot2')
 TRADES_FILE = 'open_trades.json'
 PROMPT_TEMPLATES = {"swing": "Deine Aufgabe ist es, eine Handelsentscheidung für einen Swing-Trader zu treffen...", "daytrade": "Deine Aufgabe ist es, eine Handelsentscheidung für einen Day-Trader zu treffen...", "scalp": "Deine Aufgabe ist es, eine Handelsentscheidung für einen Scalper zu treffen..."}
 
@@ -96,8 +97,9 @@ def monitor_open_trade(symbol, trade_info, exchange, telegram_api):
     return True
 
 def main():
+    # GEÄNDERT: Banner angepasst
     logger.info("==============================================")
-    logger.info("= Gemini-Trader v3.0 (Trade Lifecycle Manager) =")
+    logger.info("=         utbot2 v1.0 (KI-gesteuert)         =")
     logger.info("==============================================")
     
     config, secrets, open_trades = load_config('config.toml'), load_config('secret.json'), load_open_trades()
