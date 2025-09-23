@@ -35,14 +35,18 @@ def open_new_trade(target, strategy_cfg, exchange, gemini_model, telegram_api, t
     
     limit = calculate_candle_limit(timeframe, strategy_cfg['lookback_period_days'])
     ohlcv_df = exchange.fetch_ohlcv(symbol, timeframe, limit)
-    if ohlcv_df.empty: logger.error(f"[{symbol}] Keine Kerzendaten."); return None
+    if ohlcv_df.empty: 
+        logger.error(f"[{symbol}] Keine Kerzendaten erhalten.")
+        return None
     
     ohlcv_df.ta.stochrsi(append=True); ohlcv_df.ta.macd(append=True)
     ohlcv_df.ta.bbands(append=True); ohlcv_df.ta.obv(append=True)
     ohlcv_df.dropna(inplace=True); latest = ohlcv_df.iloc[-1]; current_price = latest['close']
     
     bbp_column_name = next((col for col in latest.index if col.startswith('BBP_')), None)
-    if bbp_column_name is None: logger.error(f"[{symbol}] Bollinger Band Spalte nicht gefunden."); return None
+    if bbp_column_name is None: 
+        logger.error(f"[{symbol}] Bollinger Band Spalte nicht gefunden.")
+        return None
 
     indicator_summary = (
         f"Preis={current_price:.4f}, "
@@ -61,7 +65,8 @@ def open_new_trade(target, strategy_cfg, exchange, gemini_model, telegram_api, t
     
     response = gemini_model.generate_content(prompt)
     if not response.parts:
-        logger.warning(f"[{symbol}] Leere Antwort von Gemini (möglicherweise durch Sicherheitsfilter blockiert). Überspringe."); return None
+        logger.warning(f"[{symbol}] Leere Antwort von Gemini (möglicherweise durch Sicherheitsfilter blockiert). Überspringe.")
+        return None
         
     cleaned_response_text = response.text.replace('```json', '').replace('```', '').strip()
     
@@ -69,17 +74,21 @@ def open_new_trade(target, strategy_cfg, exchange, gemini_model, telegram_api, t
         decision = json.loads(cleaned_response_text)
         logger.info(f"[{symbol}] Antwort von Gemini: {decision}")
     except json.JSONDecodeError:
-        logger.error(f"[{symbol}] Antwort konnte nicht als JSON dekodiert werden: '{cleaned_response_text}'"); return None
+        logger.error(f"[{symbol}] Antwort konnte nicht als JSON dekodiert werden: '{cleaned_response_text}'")
+        return None
 
     if decision.get('aktion') in ['KAUFEN', 'VERKAUFEN']:
         side, sl_price, tp_price = ('buy', decision.get('stop_loss'), decision.get('take_profit')) if decision['aktion'] == 'KAUFEN' else ('sell', decision.get('stop_loss'), decision.get('take_profit'))
         if not all([isinstance(sl_price, (int, float)), isinstance(tp_price, (int, float))]):
-            logger.error(f"[{symbol}] Ungültige SL/TP-Werte erhalten: SL={sl_price}, TP={tp_price}"); return None
+            logger.error(f"[{symbol}] Ungültige SL/TP-Werte erhalten: SL={sl_price}, TP={tp_price}")
+            return None
             
         allocated_capital = total_usdt_balance * (risk_cfg['portfolio_fraction_pct'] / 100)
         capital_at_risk = allocated_capital * (risk_cfg['risk_per_trade_pct'] / 100)
         sl_distance_pct = abs(current_price - sl_price) / current_price
-        if sl_distance_pct == 0: raise ValueError("SL-Distanz ist Null.")
+        if sl_distance_pct == 0: 
+            logger.error(f"[{symbol}] SL-Distanz ist Null. Trade wird abgebrochen.")
+            return None
         
         position_size_usdt = capital_at_risk / sl_distance_pct
         final_leverage = round(max(1, min(position_size_usdt / allocated_capital, risk_cfg.get('max_leverage', 1))))
@@ -87,10 +96,16 @@ def open_new_trade(target, strategy_cfg, exchange, gemini_model, telegram_api, t
         
         market_info = exchange.session.market(symbol)
         min_amount = market_info['limits']['amount']['min']
+        min_cost = market_info['limits']['cost']['min']
+
         if amount_in_asset < min_amount:
-            logger.warning(f"[{symbol}] Berechnete Ordermenge ({amount_in_asset:.4f}) unter Minimum ({min_amount})."); return None
+            logger.warning(f"[{symbol}] Berechnete Menge ({amount_in_asset:.4f}) unter Minimum ({min_amount}). Trade abgebrochen.")
+            return None
+        if position_size_usdt < min_cost:
+            logger.warning(f"[{symbol}] Berechneter Wert ({position_size_usdt:.2f} USDT) unter Minimum ({min_cost} USDT). Trade abgebrochen.")
+            return None
             
-        exchange.set_leverage(symbol, final_leverage)
+        exchange.set_leverage(symbol, final_leverage, risk_cfg.get('margin_mode', 'isolated'))
         order_result = exchange.create_market_order_with_sl_tp(symbol, side, amount_in_asset, sl_price, tp_price)
         
         entry_price = order_result.get('price') or current_price
@@ -106,18 +121,21 @@ def open_new_trade(target, strategy_cfg, exchange, gemini_model, telegram_api, t
         
         return {"order_id": order_result['id'], "entry_timestamp": order_result['timestamp'], "side": side, "sl_price": sl_price, "tp_price": tp_price, "entry_price": entry_price}
     else:
-        logger.info(f"[{symbol}] Keine Handelsaktion ({decision.get('aktion', 'unbekannt')})."); return None
+        logger.info(f"[{symbol}] Keine Handelsaktion ({decision.get('aktion', 'unbekannt')}).")
+        return None
 
 def monitor_open_trade(symbol, trade_info, exchange, telegram_api):
     logger.info(f"[{symbol}] Überwache offenen Trade...")
     if exchange.fetch_open_positions(symbol):
-        logger.info(f"[{symbol}] Position ist weiterhin offen."); return False
+        logger.info(f"[{symbol}] Position ist weiterhin offen.")
+        return False
     logger.info(f"[{symbol}] Position wurde geschlossen!")
     
     trade_history = exchange.fetch_trade_history(symbol, trade_info['entry_timestamp'])
     closing_trade = next((t for t in reversed(trade_history) if t['order'] == trade_info['order_id'] and t['side'] != trade_info['side']), None)
     if not closing_trade:
-        logger.warning(f"[{symbol}] Konnte Schließungs-Trade nicht finden."); return False
+        logger.warning(f"[{symbol}] Konnte Schließungs-Trade nicht finden.")
+        return False
         
     exit_price = closing_trade['price']
     pnl = (exit_price - trade_info['entry_price']) * closing_trade['amount'] if trade_info['side'] == 'buy' else (trade_info['entry_price'] - exit_price) * closing_trade['amount']
@@ -133,7 +151,7 @@ def monitor_open_trade(symbol, trade_info, exchange, telegram_api):
 
 def main():
     logger.info("==============================================")
-    logger.info("=         utbot2 v2.2 (Stable)               =")
+    logger.info("=         utbot2 v2.3 (Final Jaeger Logic)   =")
     logger.info("==============================================")
     
     config, secrets, open_trades = load_config('config.toml'), load_config('secret.json'), load_open_trades()
@@ -152,7 +170,9 @@ def main():
             if symbol in open_trades:
                 if monitor_open_trade(symbol, open_trades[symbol], exchange, secrets['telegram']): del open_trades[symbol]
             else:
-                if exchange.fetch_open_positions(symbol): logger.warning(f"[{symbol}] Unbekannte Position ist offen."); continue
+                if exchange.fetch_open_positions(symbol): 
+                    logger.warning(f"[{symbol}] Unbekannte Position ist offen. Bot wird nicht handeln.")
+                    continue
                 new_trade_details = open_new_trade(target, strategy_cfg, exchange, gemini_model, secrets['telegram'], total_usdt_balance)
                 if new_trade_details: open_trades[symbol] = new_trade_details
         except Exception as e:
