@@ -107,7 +107,7 @@ def open_new_trade(target, strategy_cfg, exchange, gemini_model, telegram_api, t
             
         exchange.set_leverage(symbol, final_leverage, risk_cfg.get('margin_mode', 'isolated'))
         
-        # --- FINALE KORREKTUR: Die Funktionsaufrufe werden an die JaegerBot-Logik angepasst ---
+        # --- FINALE KORREKTUR: Die Funktionsaufrufe passen jetzt zum exchange_handler ---
         logger.info(f"Schritt 1: Eröffne reine Market-Order für {symbol}...")
         order_result = exchange.create_market_order(symbol, side, amount_in_asset)
         
@@ -141,32 +141,41 @@ def open_new_trade(target, strategy_cfg, exchange, gemini_model, telegram_api, t
 
 def monitor_open_trade(symbol, trade_info, exchange, telegram_api):
     logger.info(f"[{symbol}] Überwache offenen Trade...")
-    if exchange.fetch_open_positions(symbol):
-        logger.info(f"[{symbol}] Position ist weiterhin offen.")
-        return False
-    logger.info(f"[{symbol}] Position wurde geschlossen!")
+    current_positions = exchange.fetch_open_positions(symbol)
     
-    trade_history = exchange.fetch_trade_history(symbol, trade_info['entry_timestamp'])
-    closing_trade = next((t for t in reversed(trade_history) if t['order'] == trade_info['order_id'] and t['side'] != trade_info['side']), None)
-    if not closing_trade:
-        logger.warning(f"[{symbol}] Konnte Schließungs-Trade nicht finden.")
-        return False
-        
-    exit_price = closing_trade['price']
-    pnl = (exit_price - trade_info['entry_price']) * closing_trade['amount'] if trade_info['side'] == 'buy' else (trade_info['entry_price'] - exit_price) * closing_trade['amount']
-    pnl -= closing_trade.get('fee', {}).get('cost', 0)
-    is_tp = (trade_info['side'] == 'buy' and exit_price >= trade_info['tp_price']) or (trade_info['side'] == 'sell' and exit_price <= trade_info['tp_price'])
+    # Prüfen, ob eine Position mit der bekannten Order-ID noch existiert
+    trade_is_open = any(p.get('info', {}).get('posId') == trade_info.get('order_id') for p in current_positions)
     
-    if is_tp:
-        msg = f"✅ *TAKE-PROFIT GETROFFEN: {symbol}*\n\nGeschlossen bei: {exit_price}\nGeschätzter Gewinn: {pnl:.2f} USDT"
-    else:
-        msg = f"🛑 *STOP-LOSS AUSGELÖST: {symbol}*\n\nGeschlossen bei: {exit_price}\nGeschätzter Verlust: {pnl:.2f} USDT"
-    send_telegram_message(telegram_api['bot_token'], telegram_api['chat_id'], msg)
-    return True
+    if trade_is_open or (not trade_is_open and not current_positions): # Fange beide Fälle ab
+        logger.info(f"[{symbol}] Position ist weiterhin offen oder wurde bereits geschlossen.")
+        if not current_positions:
+             # Position ist definitiv geschlossen
+            logger.info(f"[{symbol}] Position wurde geschlossen! Suche in Trade-Historie...")
+    
+            trade_history = exchange.fetch_trade_history(symbol, trade_info['entry_timestamp'])
+            closing_trade = next((t for t in reversed(trade_history) if t.get('order') == trade_info.get('order_id') and t.get('side') != trade_info.get('side')), None)
+            
+            if not closing_trade:
+                logger.warning(f"[{symbol}] Konnte Schließungs-Trade nicht finden.")
+                return False
+                
+            exit_price = closing_trade['price']
+            pnl = (exit_price - trade_info['entry_price']) * closing_trade['amount'] if trade_info['side'] == 'buy' else (trade_info['entry_price'] - exit_price) * closing_trade['amount']
+            pnl -= closing_trade.get('fee', {}).get('cost', 0)
+            is_tp = (trade_info['side'] == 'buy' and exit_price >= trade_info['tp_price']) or (trade_info['side'] == 'sell' and exit_price <= trade_info['tp_price'])
+            
+            if is_tp:
+                msg = f"✅ *TAKE-PROFIT GETROFFEN: {symbol}*\n\nGeschlossen bei: {exit_price}\nGeschätzter Gewinn: {pnl:.2f} USDT"
+            else:
+                msg = f"🛑 *STOP-LOSS AUSGELÖST: {symbol}*\n\nGeschlossen bei: {exit_price}\nGeschätzter Verlust: {pnl:.2f} USDT"
+            send_telegram_message(telegram_api['bot_token'], telegram_api['chat_id'], msg)
+            return True
+        return False
+    return False
 
 def main():
     logger.info("==============================================")
-    logger.info("=         utbot2 v2.8 (Final Fix)            =")
+    logger.info("=         utbot2 v3.1 (Final Jaeger Logic)   =")
     logger.info("==============================================")
     
     config, secrets, open_trades = load_config('config.toml'), load_config('secret.json'), load_open_trades()
