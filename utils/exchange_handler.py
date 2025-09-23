@@ -19,10 +19,14 @@ class ExchangeHandler:
 
     def set_leverage(self, symbol: str, leverage: int):
         try:
-            self.session.set_leverage(leverage, symbol)
+            # Wichtig: Wie in deinem JaegerBot-Beispiel, den Hebel für beide Seiten setzen
+            self.session.set_leverage(leverage, symbol, {'marginMode': 'isolated', 'holdSide': 'long'})
+            self.session.set_leverage(leverage, symbol, {'marginMode': 'isolated', 'holdSide': 'short'})
             logger.info(f"Hebel für {symbol} erfolgreich auf {leverage}x gesetzt.")
         except Exception as e:
-            if 'Leverage not changed' not in str(e):
+            if 'repeat submit' in str(e) or 'Leverage not changed' in str(e):
+                logger.info(f"Hebel für {symbol} ist bereits auf {leverage}x gesetzt.")
+            else:
                 logger.error(f"Fehler beim Setzen des Hebels: {e}"); raise
 
     def fetch_usdt_balance(self):
@@ -56,22 +60,19 @@ class ExchangeHandler:
             return self.session.fetch_my_trades(symbol, since=since_timestamp, limit=50)
         except Exception as e:
             logger.error(f"Fehler beim Abrufen der Trade-Historie: {e}"); raise
-    
-    # --- NEUE, VON JAEGERBOT INSPIRIERTE FUNKTIONEN ---
-    def _create_market_order(self, symbol: str, side: str, amount: float):
-        """Erstellt eine reine Market-Order."""
-        return self.session.create_order(symbol, 'market', side, amount)
-
-    def _place_trigger_market_order(self, symbol: str, side: str, amount: float, trigger_price: float, params: dict = None):
+            
+    # --- Private Hilfsfunktion, inspiriert von deinem JaegerBot ---
+    def _place_trigger_order(self, symbol: str, side: str, amount: float, trigger_price: float, params: dict = None):
         """Platziert eine SL- oder TP-Order als Trigger-Market-Order."""
         order_params = {'stopPrice': trigger_price, **(params or {})}
         return self.session.create_order(symbol, 'market', side, amount, None, order_params)
 
+    # --- FINALE ORDER-LOGIK, 1:1 NACH DEM JAEGERBOT-PRINZIP ---
     def create_market_order_with_sl_tp(self, symbol: str, side: str, amount: float, sl_price: float, tp_price: float):
         try:
             # Schritt 1: Reine Market-Order zur Eröffnung
-            logger.info(f"Schritt 1: Eröffne Market-Order für {symbol}...")
-            order = self._create_market_order(symbol, side, amount)
+            logger.info(f"Schritt 1: Eröffne reine Market-Order für {symbol}...")
+            order = self.session.create_order(symbol, 'market', side, amount)
             
             logger.info("Warte 5 Sekunden, damit die Position an der Börse vollständig erfasst wird...")
             time.sleep(5)
@@ -79,12 +80,12 @@ class ExchangeHandler:
             close_side = 'sell' if side == 'buy' else 'buy'
             
             # Schritt 2: Separate Trigger-Order für den Take-Profit
-            logger.info(f"Schritt 2: Setze Take-Profit bei {tp_price}...")
-            self._place_trigger_market_order(symbol, close_side, amount, tp_price, {'reduceOnly': True})
+            logger.info(f"Schritt 2: Setze Take-Profit als separate Trigger-Order bei {tp_price}...")
+            self._place_trigger_order(symbol, close_side, amount, tp_price, {'reduceOnly': True})
 
             # Schritt 3: Separate Trigger-Order für den Stop-Loss
-            logger.info(f"Schritt 3: Setze Stop-Loss bei {sl_price}...")
-            self._place_trigger_market_order(symbol, close_side, amount, sl_price, {'reduceOnly': True})
+            logger.info(f"Schritt 3: Setze Stop-Loss als separate Trigger-Order bei {sl_price}...")
+            self._place_trigger_order(symbol, close_side, amount, sl_price, {'reduceOnly': True})
 
             return order
         except Exception as e:
