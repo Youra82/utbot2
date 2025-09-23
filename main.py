@@ -106,7 +106,22 @@ def open_new_trade(target, strategy_cfg, exchange, gemini_model, telegram_api, t
             return None
             
         exchange.set_leverage(symbol, final_leverage, risk_cfg.get('margin_mode', 'isolated'))
-        order_result = exchange.create_market_order_with_sl_tp(symbol, side, amount_in_asset, sl_price, tp_price)
+        
+        # --- FINALE KORREKTUR: Die Funktionsaufrufe werden an die JaegerBot-Logik angepasst ---
+        logger.info(f"Schritt 1: Eröffne reine Market-Order für {symbol}...")
+        order_result = exchange.create_market_order(symbol, side, amount_in_asset)
+        
+        logger.info("Warte 5 Sekunden, damit die Position erfasst wird...")
+        time.sleep(5)
+
+        close_side = 'sell' if side == 'buy' else 'buy'
+        
+        logger.info(f"Schritt 2: Setze Take-Profit als Trigger-Order bei {tp_price}...")
+        exchange.place_trigger_market_order(symbol, close_side, amount_in_asset, tp_price, {'reduceOnly': True})
+
+        logger.info(f"Schritt 3: Setze Stop-Loss als Trigger-Order bei {sl_price}...")
+        exchange.place_trigger_market_order(symbol, close_side, amount_in_asset, sl_price, {'reduceOnly': True})
+        # --- ENDE DER KORREKTUR ---
         
         entry_price = order_result.get('price') or current_price
         logger.info(f"[{symbol}] ✅ Order platziert: {order_result['id']}")
@@ -151,7 +166,7 @@ def monitor_open_trade(symbol, trade_info, exchange, telegram_api):
 
 def main():
     logger.info("==============================================")
-    logger.info("=      utbot2 v3.0 (Final Prompt Attempt)    =")
+    logger.info("=         utbot2 v2.8 (Final Fix)            =")
     logger.info("==============================================")
     
     config, secrets, open_trades = load_config('config.toml'), load_config('secret.json'), load_open_trades()
