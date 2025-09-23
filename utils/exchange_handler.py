@@ -37,48 +37,16 @@ class ExchangeHandler:
             else:
                 logger.error(f"Fehler beim Setzen des Hebels: {e}"); raise
 
-    def _create_market_order(self, symbol: str, side: str, amount: float):
+    def create_market_order(self, symbol: str, side: str, amount: float):
         """Erstellt eine reine Market-Order. (Von JaegerBot)"""
         return self.session.create_order(symbol, 'market', side, amount)
 
-    def _place_trigger_order(self, symbol: str, side: str, amount: float, trigger_price: float, params: dict = None):
+    def place_trigger_market_order(self, symbol: str, side: str, amount: float, trigger_price: float, params: dict = None):
         """Platziert eine SL- oder TP-Order als Trigger-Market-Order. (Von JaegerBot)"""
         order_params = {'stopPrice': self.session.price_to_precision(symbol, trigger_price), **(params or {})}
         return self.session.create_order(symbol, 'market', side, amount, None, order_params)
 
-    # --- FINALE ORDER-LOGIK, 1:1 NACH DEM JAEGERBOT-PRINZIP ---
-    def create_market_order_with_sl_tp(self, symbol: str, side: str, amount: float, sl_price: float, tp_price: float):
-        try:
-            # Schritt 1: Reine Market-Order zur Eröffnung
-            logger.info(f"Schritt 1: Eröffne reine Market-Order für {symbol}...")
-            order = self._create_market_order(symbol, side, amount)
-            
-            logger.info("Warte 5 Sekunden, damit die Position an der Börse vollständig erfasst wird...")
-            time.sleep(5)
-
-            close_side = 'sell' if side == 'buy' else 'buy'
-            
-            # Schritt 2: Separate Trigger-Order für den Take-Profit
-            logger.info(f"Schritt 2: Setze Take-Profit als separate Trigger-Order bei {tp_price}...")
-            self._place_trigger_order(symbol, close_side, amount, tp_price, {'reduceOnly': True})
-
-            # Schritt 3: Separate Trigger-Order für den Stop-Loss
-            logger.info(f"Schritt 3: Setze Stop-Loss als separate Trigger-Order bei {sl_price}...")
-            self._place_trigger_order(symbol, close_side, amount, sl_price, {'reduceOnly': True})
-
-            return order
-        except Exception as e:
-            # Bevor wir den Fehler werfen, stornieren wir alle eventuell schon platzierten Trigger-Orders
-            try:
-                logger.warning("Fehler im Order-Prozess. Räume alle offenen Trigger-Orders für dieses Symbol auf...")
-                open_triggers = self.session.fetch_open_orders(symbol, params={'stop': True})
-                for o in open_triggers:
-                    self.session.cancel_order(o['id'], symbol, params={'stop': True})
-                    logger.info(f"Trigger-Order {o['id']} wurde zur Sicherheit storniert.")
-            except Exception as cleanup_e:
-                logger.error(f"Fehler beim Aufräumen der Trigger-Orders: {cleanup_e}")
-            raise e # Werfe den ursprünglichen Fehler weiter
-            
+    # --- Standard-Hilfsfunktionen ---
     def fetch_usdt_balance(self):
         try:
             balance = self.session.fetch_balance()
