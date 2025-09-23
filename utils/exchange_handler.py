@@ -61,9 +61,7 @@ class ExchangeHandler:
         try:
             # Schritt 1: Reine Market-Order zur Eröffnung der Position
             logger.info(f"Schritt 1: Eröffne Market-Order für {symbol} ({side}, {amount})...")
-            # Wichtig: Wir fügen den 'positionSide'-Parameter hinzu, um den Fehler zu beheben
-            params = {'positionSide': 'long' if side == 'buy' else 'short'}
-            order = self.session.create_order(symbol, 'market', side, amount, params=params)
+            order = self.session.create_order(symbol, 'market', side, amount)
             
             logger.info("Warte 5 Sekunden, damit die Position vollständig erstellt ist...")
             time.sleep(5)
