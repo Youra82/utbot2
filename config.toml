@@ -20,7 +20,7 @@ symbol = "XRP/USDT:USDT"
 timeframe = "1h"
 
 [targets.risk]
-portfolio_fraction_pct = 20
+portfolio_fraction_pct = 30
 risk_per_trade_pct = 2
 max_leverage = 15
 
