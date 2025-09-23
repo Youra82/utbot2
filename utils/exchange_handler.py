@@ -55,31 +55,32 @@ class ExchangeHandler:
             return self.session.fetch_my_trades(symbol, since=since_timestamp, limit=50)
         except Exception as e:
             logger.error(f"Fehler beim Abrufen der Trade-Historie: {e}"); raise
-            
-    # --- FINALE, KORRIGIERTE ORDER-LOGIK ---
+
+    def place_trigger_market_order(self, symbol: str, side: str, amount: float, trigger_price: float, params: dict = None):
+        """Hilfsfunktion zum Platzieren einer Trigger-Order (SL/TP)."""
+        order_params = {'stopPrice': trigger_price, **(params or {})}
+        return self.session.create_order(symbol, 'market', side, amount, None, order_params)
+
+    # --- FINALE ORDER-LOGIK, 1:1 NACH DEM JAEGERBOT-PRINZIP ---
     def create_market_order_with_sl_tp(self, symbol: str, side: str, amount: float, sl_price: float, tp_price: float):
         try:
-            # Schritt 1: Reine Market-Order mit dem entscheidenden 'tradeSide' Parameter für den One-Way Mode
+            # Schritt 1: Reine Market-Order, um die Position zu eröffnen
             logger.info(f"Schritt 1: Eröffne Market-Order für {symbol} ({side}, {amount})...")
+            order = self.session.create_order(symbol, 'market', side, amount)
             
-            # HIER IST DIE ENDGÜLTIGE KORREKTUR:
-            params = {'tradeSide': side}
-            
-            order = self.session.create_order(symbol, 'market', side, amount, params=params)
-            
-            logger.info("Warte 5 Sekunden, damit die Position vollständig erstellt ist...")
+            logger.info("Warte 5 Sekunden, damit die Position an der Börse vollständig erfasst wird...")
             time.sleep(5)
 
-            # Schritt 2 & 3 bleiben gleich
-            tp_side = 'sell' if side == 'buy' else 'buy'
+            # Definiere die Schließungsseite (immer die Gegenrichtung)
+            close_side = 'sell' if side == 'buy' else 'buy'
+            
+            # Schritt 2: Separate Trigger-Order für den Take-Profit
             logger.info(f"Schritt 2: Setze Take-Profit bei {tp_price}...")
-            tp_params = {'stopPrice': tp_price, 'reduceOnly': True}
-            self.session.create_order(symbol, 'market', tp_side, amount, params=tp_params)
+            self.place_trigger_market_order(symbol, close_side, amount, tp_price, {'reduceOnly': True})
 
-            sl_side = 'sell' if side == 'buy' else 'buy'
+            # Schritt 3: Separate Trigger-Order für den Stop-Loss
             logger.info(f"Schritt 3: Setze Stop-Loss bei {sl_price}...")
-            sl_params = {'stopPrice': sl_price, 'reduceOnly': True}
-            self.session.create_order(symbol, 'market', sl_side, amount, params=sl_params)
+            self.place_trigger_market_order(symbol, close_side, amount, sl_price, {'reduceOnly': True})
 
             return order
         except Exception as e:
