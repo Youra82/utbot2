@@ -59,19 +59,18 @@ class ExchangeHandler:
     # --- FINALE, KORRIGIERTE ORDER-LOGIK ---
     def create_market_order_with_sl_tp(self, symbol: str, side: str, amount: float, sl_price: float, tp_price: float):
         try:
-            # Schritt 1: Reine Market-Order mit dem entscheidenden 'positionSide' Parameter
+            # Schritt 1: Reine Market-Order mit dem entscheidenden 'tradeSide' Parameter für den One-Way Mode
             logger.info(f"Schritt 1: Eröffne Market-Order für {symbol} ({side}, {amount})...")
             
-            # HIER IST DIE KORREKTUR: Wir sagen der API explizit, welche Seite der Position wir eröffnen.
-            position_side = 'long' if side == 'buy' else 'short'
-            params = {'positionSide': position_side}
+            # HIER IST DIE ENDGÜLTIGE KORREKTUR:
+            params = {'tradeSide': side}
             
             order = self.session.create_order(symbol, 'market', side, amount, params=params)
             
             logger.info("Warte 5 Sekunden, damit die Position vollständig erstellt ist...")
             time.sleep(5)
 
-            # Schritt 2 & 3 bleiben gleich, da sie auf eine bestehende Position wirken
+            # Schritt 2 & 3 bleiben gleich
             tp_side = 'sell' if side == 'buy' else 'buy'
             logger.info(f"Schritt 2: Setze Take-Profit bei {tp_price}...")
             tp_params = {'stopPrice': tp_price, 'reduceOnly': True}
