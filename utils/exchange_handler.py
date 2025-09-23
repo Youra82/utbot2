@@ -55,26 +55,31 @@ class ExchangeHandler:
             return self.session.fetch_my_trades(symbol, since=since_timestamp, limit=50)
         except Exception as e:
             logger.error(f"Fehler beim Abrufen der Trade-Historie: {e}"); raise
-
+            
+    # --- FINALE, ROBUSTE ORDER-LOGIK (inspiriert von JaegerBot) ---
     def create_market_order_with_sl_tp(self, symbol: str, side: str, amount: float, sl_price: float, tp_price: float):
         try:
-            # Schritt 1: Erstelle die reine Market-Order, um die Position zu eröffnen
-            logger.info(f"Schritt 1: Eröffne Market-Order für {symbol}...")
-            order = self.session.create_order(symbol, 'market', side, amount)
+            # Schritt 1: Reine Market-Order zur Eröffnung der Position
+            logger.info(f"Schritt 1: Eröffne Market-Order für {symbol} ({side}, {amount})...")
+            # Wichtig: Wir fügen den 'positionSide'-Parameter hinzu, um den Fehler zu beheben
+            params = {'positionSide': 'long' if side == 'buy' else 'short'}
+            order = self.session.create_order(symbol, 'market', side, amount, params=params)
             
-            logger.info("Warte 5 Sekunden, bis die Position vollständig erstellt ist...")
+            logger.info("Warte 5 Sekunden, damit die Position vollständig erstellt ist...")
             time.sleep(5)
 
-            # Schritt 2: Setze SL und TP für die existierende Position
-            logger.info(f"Schritt 2: Setze SL ({sl_price}) und TP ({tp_price}) für die neue Position...")
-            sl_tp_params = {
-                'stopLossPrice': self.session.price_to_precision(symbol, sl_price),
-                'takeProfitPrice': self.session.price_to_precision(symbol, tp_price),
-            }
-            # Dieser API-Call modifiziert eine bestehende Position
-            self.session.private_post_mix_v2_position_set_tpsl_position(
-                {'symbol': self.session.market(symbol)['id'], **sl_tp_params}
-            )
+            # Schritt 2: Separate Trigger-Order für den Take-Profit
+            tp_side = 'sell' if side == 'buy' else 'buy'
+            logger.info(f"Schritt 2: Setze Take-Profit bei {tp_price}...")
+            tp_params = {'stopPrice': tp_price, 'reduceOnly': True}
+            self.session.create_order(symbol, 'market', tp_side, amount, params=tp_params)
+
+            # Schritt 3: Separate Trigger-Order für den Stop-Loss
+            sl_side = 'sell' if side == 'buy' else 'buy'
+            logger.info(f"Schritt 3: Setze Stop-Loss bei {sl_price}...")
+            sl_params = {'stopPrice': sl_price, 'reduceOnly': True}
+            self.session.create_order(symbol, 'market', sl_side, amount, params=sl_params)
+
             return order
         except Exception as e:
-            logger.error(f"Fehler im Order-Prozess: {e}"); raise
+            logger.error(f"Fehler im finalen Order-Prozess: {e}"); raise
