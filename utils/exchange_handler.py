@@ -61,7 +61,6 @@ class ExchangeHandler:
         except Exception as e:
             logger.error(f"Fehler beim Abrufen der Trade-Historie: {e}"); raise
             
-    # --- Private Hilfsfunktion, inspiriert von deinem JaegerBot ---
     def _place_trigger_order(self, symbol: str, side: str, amount: float, trigger_price: float, params: dict = None):
         """Platziert eine SL- oder TP-Order als Trigger-Market-Order."""
         order_params = {'stopPrice': trigger_price, **(params or {})}
