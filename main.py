@@ -7,6 +7,12 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s UTC: %(levelname)s: 
 logger = logging.getLogger('utbot2')
 TRADES_FILE = 'open_trades.json'
 
+PROMPT_TEMPLATES = {
+    "swing": "Swing-Trading-Strategie",
+    "daytrade": "Day-Trading-Strategie",
+    "scalp": "Scalping-Strategie"
+}
+
 def load_open_trades():
     if os.path.exists(TRADES_FILE):
         with open(TRADES_FILE, 'r') as f: return json.load(f)
@@ -25,6 +31,7 @@ def calculate_candle_limit(timeframe, lookback_days):
 
 def open_new_trade(target, strategy_cfg, exchange, gemini_model, telegram_api, total_usdt_balance):
     symbol, risk_cfg, timeframe = target['symbol'], target['risk'], target['timeframe']
+    trading_style_text = PROMPT_TEMPLATES.get(strategy_cfg.get('trading_mode', 'swing'))
     
     limit = calculate_candle_limit(timeframe, strategy_cfg['lookback_period_days'])
     ohlcv_df = exchange.fetch_ohlcv(symbol, timeframe, limit)
@@ -37,16 +44,19 @@ def open_new_trade(target, strategy_cfg, exchange, gemini_model, telegram_api, t
     bbp_column_name = next((col for col in latest.index if col.startswith('BBP_')), None)
     if bbp_column_name is None: logger.error(f"[{symbol}] Bollinger Band Spalte nicht gefunden."); return None
 
-    indicator_summary = (f"Preis={current_price:.4f}, "
-                         f"StochRSI_K={latest['STOCHRSIk_14_14_3_3']:.2f}, StochRSI_D={latest['STOCHRSId_14_14_3_3']:.2f}, "
-                         f"MACD_Hist={latest['MACDh_12_26_9']:.4f}, BBP={latest[bbp_column_name]:.2f}, OBV={latest['OBV']:.0f}")
+    indicator_summary = (
+        f"Preis={current_price:.4f}, "
+        f"StochRSI_K={latest['STOCHRSIk_14_14_3_3']:.2f}, StochRSI_D={latest['STOCHRSId_14_14_3_3']:.2f}, "
+        f"MACD_Hist={latest['MACDh_12_26_9']:.4f}, BBP={latest[bbp_column_name]:.2f}, OBV={latest['OBV']:.0f}"
+    )
     logger.info(f"[{symbol}] {indicator_summary}")
     
-    # --- FINALER, MINIMALISTISCHER PROMPT ---
     prompt = (
-        "Du bist ein JSON-Generator. Analysiere die folgenden Trading-Daten und gib NUR ein JSON-Objekt zurück. "
-        f"Input: strategie='{strategy_cfg['trading_mode']}', symbol='{symbol}', indikatoren='{indicator_summary}'. "
-        'Output-Format: {"aktion": "KAUFEN|VERKAUFEN|HALTEN", "stop_loss": zahl, "take_profit": zahl}'
+        "Aufgabe: Analysiere die folgenden Trading-Daten und gib eine JSON-Antwort zurück. "
+        f"Kontext: Symbol={symbol}, Strategie='{trading_style_text}'. "
+        f"Aktuelle Indikatoren: {indicator_summary}. "
+        "Deine Antwort darf NUR das JSON-Objekt enthalten, sonst nichts. "
+        'Beispiel-Format: {"aktion": "KAUFEN", "stop_loss": 123.45, "take_profit": 125.67}'
     )
     
     response = gemini_model.generate_content(prompt)
@@ -63,7 +73,7 @@ def open_new_trade(target, strategy_cfg, exchange, gemini_model, telegram_api, t
 
     if decision.get('aktion') in ['KAUFEN', 'VERKAUFEN']:
         side, sl_price, tp_price = ('buy', decision.get('stop_loss'), decision.get('take_profit')) if decision['aktion'] == 'KAUFEN' else ('sell', decision.get('stop_loss'), decision.get('take_profit'))
-        if not all([sl_price, tp_price]):
+        if not all([isinstance(sl_price, (int, float)), isinstance(tp_price, (int, float))]):
             logger.error(f"[{symbol}] Ungültige SL/TP-Werte erhalten: SL={sl_price}, TP={tp_price}"); return None
             
         allocated_capital = total_usdt_balance * (risk_cfg['portfolio_fraction_pct'] / 100)
@@ -82,13 +92,19 @@ def open_new_trade(target, strategy_cfg, exchange, gemini_model, telegram_api, t
             
         exchange.set_leverage(symbol, final_leverage)
         order_result = exchange.create_market_order_with_sl_tp(symbol, side, amount_in_asset, sl_price, tp_price)
+        
+        entry_price = order_result.get('price') or current_price
         logger.info(f"[{symbol}] ✅ Order platziert: {order_result['id']}")
         
-        msg = (f"🚀 NEUER TRADE: *{symbol}*\n\nModus: *{strategy_cfg['trading_mode'].capitalize()}*\nAktion: *{decision['aktion']}* (Dyn. Hebel: *{final_leverage}x*)\n"
-               f"Größe: {position_size_usdt:.2f} USDT\nStop-Loss: {sl_price}\nTake-Profit: {tp_price}")
+        msg = (f"🚀 NEUER TRADE: *{symbol}*\n\n"
+               f"Modus: *{strategy_cfg['trading_mode'].capitalize()}*\n"
+               f"Aktion: *{decision['aktion']}* (Dyn. Hebel: *{final_leverage}x*)\n"
+               f"Größe: {position_size_usdt:.2f} USDT\n"
+               f"Stop-Loss: {sl_price}\n"
+               f"Take-Profit: {tp_price}")
         send_telegram_message(telegram_api['bot_token'], telegram_api['chat_id'], msg)
         
-        return {"order_id": order_result['id'], "entry_timestamp": order_result['timestamp'], "side": side, "sl_price": sl_price, "tp_price": tp_price, "entry_price": order_result['price']}
+        return {"order_id": order_result['id'], "entry_timestamp": order_result['timestamp'], "side": side, "sl_price": sl_price, "tp_price": tp_price, "entry_price": entry_price}
     else:
         logger.info(f"[{symbol}] Keine Handelsaktion ({decision.get('aktion', 'unbekannt')})."); return None
 
@@ -108,14 +124,16 @@ def monitor_open_trade(symbol, trade_info, exchange, telegram_api):
     pnl -= closing_trade.get('fee', {}).get('cost', 0)
     is_tp = (trade_info['side'] == 'buy' and exit_price >= trade_info['tp_price']) or (trade_info['side'] == 'sell' and exit_price <= trade_info['tp_price'])
     
-    if is_tp: msg = f"✅ *TAKE-PROFIT GETROFFEN: {symbol}*\n\nGeschlossen bei: {exit_price}\nGeschätzter Gewinn: {pnl:.2f} USDT"
-    else: msg = f"🛑 *STOP-LOSS AUSGELÖST: {symbol}*\n\nGeschlossen bei: {exit_price}\nGeschätzter Verlust: {pnl:.2f} USDT"
+    if is_tp:
+        msg = f"✅ *TAKE-PROFIT GETROFFEN: {symbol}*\n\nGeschlossen bei: {exit_price}\nGeschätzter Gewinn: {pnl:.2f} USDT"
+    else:
+        msg = f"🛑 *STOP-LOSS AUSGELÖST: {symbol}*\n\nGeschlossen bei: {exit_price}\nGeschätzter Verlust: {pnl:.2f} USDT"
     send_telegram_message(telegram_api['bot_token'], telegram_api['chat_id'], msg)
     return True
 
 def main():
     logger.info("==============================================")
-    logger.info("=      utbot2 v2.1 (Minimalist Prompt)       =")
+    logger.info("=         utbot2 v2.2 (Stable)               =")
     logger.info("==============================================")
     
     config, secrets, open_trades = load_config('config.toml'), load_config('secret.json'), load_open_trades()
@@ -141,7 +159,7 @@ def main():
             logger.error(f"Kritischer Fehler für {symbol}: {traceback.format_exc()}")
             send_telegram_message(secrets['telegram']['bot_token'], secrets['telegram']['chat_id'], f"🚨 KRITISCHER FEHLER für *{symbol}*!\n\n`{str(e)}`")
         
-        logger.info(f"Warte 20 Sekunden vor dem nächsten Coin ({config.get('targets',[]).index(target) + 1}/{len(config.get('targets',[]))})...")
+        logger.info(f"Warte 20 Sekunden vor dem nächsten Coin...")
         time.sleep(20)
 
     save_open_trades(open_trades)
