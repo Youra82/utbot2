@@ -19,18 +19,16 @@ class ExchangeHandler:
 
     def set_leverage(self, symbol: str, leverage: int, margin_mode: str = 'isolated'):
         try:
-            # Stellt sicher, dass der Margin-Modus korrekt ist
             try:
-                self.session.set_margin_mode(margin_mode, symbol)
+                self.session.set_margin_mode(margin_mode.lower(), symbol)
             except Exception as e:
                  if 'Margin mode is the same' not in str(e): 
                      logger.warning(f"Set margin mode failed: {e}")
 
-            # Setzt den Hebel für beide Seiten, wie von Bitget oft gefordert
             if margin_mode.lower() == 'isolated':
                 self.session.set_leverage(leverage, symbol, params={'holdSide': 'long'})
                 self.session.set_leverage(leverage, symbol, params={'holdSide': 'short'})
-            else: # cross
+            else:
                 self.session.set_leverage(leverage, symbol)
             logger.info(f"Hebel für {symbol} erfolgreich auf {leverage}x gesetzt.")
         except Exception as e:
@@ -39,38 +37,6 @@ class ExchangeHandler:
             else:
                 logger.error(f"Fehler beim Setzen des Hebels: {e}"); raise
 
-    def fetch_usdt_balance(self):
-        try:
-            balance = self.session.fetch_balance()
-            if 'USDT' in balance and 'free' in balance['USDT']:
-                return float(balance['USDT']['free'])
-            return 0.0
-        except Exception as e:
-            logger.error(f"Fehler beim Abrufen des Guthabens: {e}"); raise
-
-    def fetch_ohlcv(self, symbol, timeframe, limit):
-        try:
-            ohlcv = self.session.fetch_ohlcv(symbol, timeframe, limit=limit)
-            df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-            df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
-            return df
-        except Exception as e:
-            logger.error(f"Fehler beim Laden der Kerzendaten: {e}"); raise
-
-    def fetch_open_positions(self, symbol: str):
-        try:
-            all_positions = self.session.fetch_positions([symbol])
-            return [p for p in all_positions if p.get('contracts') is not None and float(p['contracts']) > 0]
-        except Exception as e:
-            logger.error(f"Fehler beim Abrufen offener Positionen: {e}"); raise
-
-    def fetch_trade_history(self, symbol: str, since_timestamp: int):
-        try:
-            time.sleep(2)
-            return self.session.fetch_my_trades(symbol, since=since_timestamp, limit=50)
-        except Exception as e:
-            logger.error(f"Fehler beim Abrufen der Trade-Historie: {e}"); raise
-            
     def _create_market_order(self, symbol: str, side: str, amount: float):
         """Erstellt eine reine Market-Order. (Von JaegerBot)"""
         return self.session.create_order(symbol, 'market', side, amount)
@@ -102,4 +68,41 @@ class ExchangeHandler:
 
             return order
         except Exception as e:
-            logger.error(f"Fehler im finalen Order-Prozess: {e}"); raise
+            # Bevor wir den Fehler werfen, stornieren wir alle eventuell schon platzierten Trigger-Orders
+            try:
+                logger.warning("Fehler im Order-Prozess. Räume alle offenen Trigger-Orders für dieses Symbol auf...")
+                open_triggers = self.session.fetch_open_orders(symbol, params={'stop': True})
+                for o in open_triggers:
+                    self.session.cancel_order(o['id'], symbol, params={'stop': True})
+                    logger.info(f"Trigger-Order {o['id']} wurde zur Sicherheit storniert.")
+            except Exception as cleanup_e:
+                logger.error(f"Fehler beim Aufräumen der Trigger-Orders: {cleanup_e}")
+            raise e # Werfe den ursprünglichen Fehler weiter
+            
+    def fetch_usdt_balance(self):
+        try:
+            balance = self.session.fetch_balance()
+            if 'USDT' in balance and 'free' in balance['USDT']:
+                return float(balance['USDT']['free'])
+            return 0.0
+        except Exception as e: logger.error(f"Fehler beim Abrufen des Guthabens: {e}"); raise
+        
+    def fetch_ohlcv(self, symbol, timeframe, limit):
+        try:
+            ohlcv = self.session.fetch_ohlcv(symbol, timeframe, limit=limit)
+            df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+            df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+            return df
+        except Exception as e: logger.error(f"Fehler beim Laden der Kerzendaten: {e}"); raise
+        
+    def fetch_open_positions(self, symbol: str):
+        try:
+            all_positions = self.session.fetch_positions([symbol])
+            return [p for p in all_positions if p.get('contracts') is not None and float(p['contracts']) > 0]
+        except Exception as e: logger.error(f"Fehler beim Abrufen offener Positionen: {e}"); raise
+        
+    def fetch_trade_history(self, symbol: str, since_timestamp: int):
+        try:
+            time.sleep(2)
+            return self.session.fetch_my_trades(symbol, since=since_timestamp, limit=50)
+        except Exception as e: logger.error(f"Fehler beim Abrufen der Trade-Historie: {e}"); raise
