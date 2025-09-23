@@ -56,23 +56,27 @@ class ExchangeHandler:
         except Exception as e:
             logger.error(f"Fehler beim Abrufen der Trade-Historie: {e}"); raise
             
-    # --- FINALE, ROBUSTE ORDER-LOGIK (inspiriert von JaegerBot) ---
+    # --- FINALE, KORRIGIERTE ORDER-LOGIK ---
     def create_market_order_with_sl_tp(self, symbol: str, side: str, amount: float, sl_price: float, tp_price: float):
         try:
-            # Schritt 1: Reine Market-Order zur Eröffnung der Position
+            # Schritt 1: Reine Market-Order mit dem entscheidenden 'positionSide' Parameter
             logger.info(f"Schritt 1: Eröffne Market-Order für {symbol} ({side}, {amount})...")
-            order = self.session.create_order(symbol, 'market', side, amount)
+            
+            # HIER IST DIE KORREKTUR: Wir sagen der API explizit, welche Seite der Position wir eröffnen.
+            position_side = 'long' if side == 'buy' else 'short'
+            params = {'positionSide': position_side}
+            
+            order = self.session.create_order(symbol, 'market', side, amount, params=params)
             
             logger.info("Warte 5 Sekunden, damit die Position vollständig erstellt ist...")
             time.sleep(5)
 
-            # Schritt 2: Separate Trigger-Order für den Take-Profit
+            # Schritt 2 & 3 bleiben gleich, da sie auf eine bestehende Position wirken
             tp_side = 'sell' if side == 'buy' else 'buy'
             logger.info(f"Schritt 2: Setze Take-Profit bei {tp_price}...")
             tp_params = {'stopPrice': tp_price, 'reduceOnly': True}
             self.session.create_order(symbol, 'market', tp_side, amount, params=tp_params)
 
-            # Schritt 3: Separate Trigger-Order für den Stop-Loss
             sl_side = 'sell' if side == 'buy' else 'buy'
             logger.info(f"Schritt 3: Setze Stop-Loss bei {sl_price}...")
             sl_params = {'stopPrice': sl_price, 'reduceOnly': True}
