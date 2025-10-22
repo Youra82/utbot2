@@ -1,6 +1,6 @@
 ccxt
 pandas
 requests
-google-generativeai
 pandas-ta
 toml
+openai
