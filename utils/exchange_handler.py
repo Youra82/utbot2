@@ -37,6 +37,60 @@ class ExchangeHandler:
             else:
                 logger.error(f"Fehler beim Setzen des Hebels: {e}"); raise
 
+    # --- NEUE FUNKTION (Die fehlende Implementierung) ---
+    def create_market_order_with_sl_tp(self, symbol: str, side: str, amount: float, sl_price: float, tp_price: float):
+        """
+        Führt den 3-Schritt-Prozess zur Trade-Eröffnung aus:
+        1. Market-Order (Einstieg)
+        2. Plan-Order (Stop-Loss)
+        3. Plan-Order (Take-Profit)
+        """
+        logger.info(f"[{symbol}] 1/3: Platziere Market-Order ({side}, {amount})...")
+        try:
+            # 1. Market-Order (Einstieg)
+            market_order = self.create_market_order(symbol, side, amount)
+            logger.info(f"[{symbol}] 1/3: ✅ Market-Order platziert: {market_order['id']}")
+        except Exception as e:
+            logger.error(f"[{symbol}] ❌ FEHLER: Market-Order fehlgeschlagen: {e}")
+            raise # Wenn der Einstieg fehlschlägt, den gesamten Trade abbrechen
+
+        # 2. Definiere die Schließungs-Richtung
+        close_side = 'sell' if side == 'buy' else 'buy'
+        
+        # 3. Stop-Loss (Plan-Order)
+        try:
+            logger.info(f"[{symbol}] 2/3: Platziere Stop-Loss ({close_side}) bei {sl_price}...")
+            # Wir verwenden die bereits vorhandene Hilfsfunktion
+            self.place_trigger_market_order(
+                symbol, 
+                close_side, 
+                amount, 
+                sl_price, 
+                params={'planType': 'stop_loss'} # Bitget-spezifischer Param für SL
+            )
+            logger.info(f"[{symbol}] 2/3: ✅ Stop-Loss platziert.")
+        except Exception as e:
+            # WICHTIG: Loggen, aber nicht abbrechen, damit der TP noch gesetzt werden kann
+            logger.error(f"[{symbol}] ❌ KRITISCH: SL-Order fehlgeschlagen: {e}. Position ist UNGESCHÜTZT!")
+
+        # 4. Take-Profit (Plan-Order)
+        try:
+            logger.info(f"[{symbol}] 3/3: Platziere Take-Profit ({close_side}) bei {tp_price}...")
+            self.place_trigger_market_order(
+                symbol, 
+                close_side, 
+                amount, 
+                tp_price, 
+                params={'planType': 'take_profit'} # Bitget-spezifischer Param für TP
+            )
+            logger.info(f"[{symbol}] 3/3: ✅ Take-Profit platziert.")
+        except Exception as e:
+            logger.error(f"[{symbol}] ❌ WARNUNG: TP-Order fehlgeschlagen: {e}.")
+
+        # 5. Gebe die ursprüngliche Market-Order zurück (wichtig für 'open_trades.json')
+        return market_order
+    # --- ENDE NEUE FUNKTION ---
+
     def create_market_order(self, symbol: str, side: str, amount: float):
         """Erstellt eine reine Market-Order. (Von JaegerBot)"""
         return self.session.create_order(symbol, 'market', side, amount)
