@@ -184,6 +184,10 @@ bash ./run_tests.sh
   * **Erfolgreiches Ergebnis:** Alle Tests werden als `PASSED` (grün) markiert. Das bedeutet, alle geprüften Kernfunktionen arbeiten wie erwartet.
   * **Fehlerhaftes Ergebnis:** Mindestens ein Test wird als `FAILED` (rot) markiert. Die Ausgabe gibt einen detaillierten Hinweis darauf, welche Funktion nicht mehr wie erwartet funktioniert. In diesem Fall sollte der Bot nicht im Live-Betrieb eingesetzt werden, bis der Fehler behoben ist.
 
+crontab -e
+```bash
+*/15 * * * * /usr/bin/python3 /root/utbot2/master_runner.py >> /root/utbot2/logs/master_runner_cron.log 2>&1
+```
 -----
 
 ### ✅ Requirements
