@@ -4,4 +4,5 @@ requests
 google-generativeai
 pandas-ta
 toml
-joblib  # Hinzugefügt (wird oft mit ML-Modellen verwendet, sicherheitshalber)
+joblib
+pytest  # Hinzugefügt
