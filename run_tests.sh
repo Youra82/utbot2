@@ -1,4 +1,5 @@
 #!/bin/bash
+# Dieses Skript führt das komplette Test-Sicherheitsnetz aus.
 echo "--- Starte utbot2 Tests ---"
 
 # Aktiviere die virtuelle Umgebung
@@ -9,12 +10,10 @@ if [ ! -f "$VENV_PATH" ]; then
 fi
 source "$VENV_PATH"
 
-# Führe pytest aus
-# -v: Zeigt mehr Details pro Test
-# -s: Zeigt print()-Ausgaben aus den Tests an
-python3 -m pytest -v -s
+# Führe pytest aus. -v für mehr Details, -s um print() Ausgaben anzuzeigen.
+python3 -m pytest -v -s tests/
 
-# Deaktiviere die Umgebung
+# Deaktiviere die Umgebung wieder
 deactivate
 
 echo "--- Tests abgeschlossen ---"
