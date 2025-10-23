@@ -139,6 +139,15 @@ Die Grundregel lautet: Je kürzer du einen Trade halten möchtest, desto kleiner
 
 Dein Bot ist aktuell im **Swing-Modus** konfiguriert, weshalb Timeframes wie **4h** oder **1D** am besten zu dieser Einstellung passen.
 
+Komplette Projektstruktur anzeigen:
+
+```bash
+chmod +x show_status.sh
+```
+
+```bash
+bash ./show_status.sh
+```
 -----
 
 ### ✅ Requirements
