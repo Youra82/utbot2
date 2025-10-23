@@ -149,6 +149,21 @@ chmod +x show_status.sh
 bash ./show_status.sh
 ```
 -----
+
+Projekt hochladen:
+
+```bash
+git add .
+```
+
+```bash
+git commit -m "Rollback auf stabile Server-Version vom 12.10."
+```
+
+```bash
+git push --force origin main
+```
+
 ## Qualitätssicherung & Tests 🛡️
 
 Um sicherzustellen, dass alle Kernfunktionen des Bots nach jeder Code-Änderung wie erwartet funktionieren und keine alten Fehler ("Regressionen") wieder auftreten, verfügt das Projekt über ein automatisiertes Test-System.
