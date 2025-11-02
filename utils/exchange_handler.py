@@ -24,7 +24,6 @@ class ExchangeHandler:
     def fetch_ohlcv(self, symbol, timeframe, limit):
         """ Lädt die letzten 'limit' Kerzen. """
         try:
-            # Bitget (und viele andere) erwarten 'limit', nicht 'since' für die letzten Kerzen
             ohlcv = self.session.fetch_ohlcv(symbol, timeframe, limit=limit)
             if not ohlcv:
                 logger.warning(f"[{symbol}] Keine OHLCV-Daten erhalten.")
@@ -34,7 +33,6 @@ class ExchangeHandler:
             df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms', utc=True)
             df.set_index('timestamp', inplace=True)
             df.sort_index(inplace=True)
-            # Stelle sicher, dass die benötigten Spalten numerisch sind
             for col in ['open', 'high', 'low', 'close', 'volume']:
                 df[col] = pd.to_numeric(df[col], errors='coerce')
             return df
@@ -50,19 +48,15 @@ class ExchangeHandler:
             logger.error(f"[{symbol}] Fehler beim Abrufen des Tickers: {e}", exc_info=True)
             raise
 
-    # --- KORRIGIERT (ltbbot-Logik) ---
     def fetch_balance_usdt(self):
         """ Holt das verfügbare USDT-Guthaben (robuste Version). """
         try:
-            # Spezifiziere productType, um nur Futures-Guthaben abzurufen
             params = {'productType': 'USDT-FUTURES', 'marginCoin': 'USDT'}
             balance = self.session.fetch_balance(params=params)
             usdt_balance = 0.0
 
-            # 1. Standard ccxt 'free'
             if 'USDT' in balance and 'free' in balance['USDT'] and balance['USDT']['free'] is not None:
                 usdt_balance = float(balance['USDT']['free'])
-            # 2. 'info'-Struktur (Liste, oft bei Unified Accounts)
             elif 'info' in balance and 'data' in balance['info'] and isinstance(balance['info']['data'], list):
                 for asset_info in balance['info']['data']:
                     if asset_info.get('marginCoin') == 'USDT':
@@ -72,10 +66,8 @@ class ExchangeHandler:
                         elif 'equity' in asset_info and asset_info['equity'] is not None and usdt_balance == 0.0:
                              logger.warning("Verwende 'equity' als Fallback für Guthaben.")
                              usdt_balance = float(asset_info['equity'])
-            # 3. 'info'-Struktur (Dict, oft bei Classic Accounts)
             elif 'free' in balance and 'USDT' in balance['free']:
                  usdt_balance = float(balance['free']['USDT'])
-            # 4. Fallback auf 'total'
             elif 'total' in balance and 'USDT' in balance['total'] and usdt_balance == 0.0: 
                 logger.warning("Konnte 'free' USDT-Balance nicht finden, verwende 'total' als Fallback.")
                 usdt_balance = float(balance['total']['USDT'])
@@ -88,11 +80,9 @@ class ExchangeHandler:
             logger.error(f"Fehler beim Abrufen des USDT-Guthabens: {e}", exc_info=True)
             return 0.0
 
-    # --- KORRIGIERT (ltbbot-Logik) ---
     def fetch_open_positions(self, symbol: str):
         """ Holt alle offenen Positionen für ein Symbol (TitanBot-Logik). """
         try:
-            # WICHTIG: Spezifiziere 'USDT-FUTURES'
             params = {'productType': 'USDT-FUTURES'}
             positions = self.session.fetch_positions([symbol], params=params)
             
@@ -100,7 +90,6 @@ class ExchangeHandler:
             for p in positions:
                 try:
                     contracts_str = p.get('contracts')
-                    # Robuste Prüfung auf > 0
                     if contracts_str is not None and abs(float(contracts_str)) > 1e-9:
                         open_positions.append(p)
                 except (ValueError, TypeError) as e:
@@ -112,7 +101,6 @@ class ExchangeHandler:
             logger.error(f"[{symbol}] Fehler beim Abrufen offener Positionen: {e}", exc_info=True)
             raise
 
-    # --- KORRIGIERT (ltbbot-Logik) ---
     def fetch_open_trigger_orders(self, symbol: str):
         """ Ruft alle offenen Trigger-Orders (SL/TP) für ein Symbol ab. """
         try:
@@ -122,7 +110,6 @@ class ExchangeHandler:
             logger.error(f"[{symbol}] Fehler beim Abrufen offener Trigger-Orders: {e}", exc_info=True)
             return [] 
 
-    # --- KORRIGIERT (ltbbot-Logik) ---
     def cleanup_all_open_orders(self, symbol: str):
         """ Storniert ALLE offenen Orders (Trigger und Normal) für ein Symbol. """
         cancelled_count = 0
@@ -133,7 +120,7 @@ class ExchangeHandler:
             self.session.cancel_all_orders(symbol, params=params_normal)
             cancelled_count += 1
             logger.info(f"[{symbol}] Housekeeper: 'cancel_all_orders' (Normal) gesendet.")
-            time.sleep(0.5) # Kurze Pause zwischen den Befehlen
+            time.sleep(0.5) 
         except ccxt.ExchangeError as e:
             if 'Order not found' in str(e) or 'no order to cancel' in str(e).lower() or '22001' in str(e):
                  logger.info(f"[{symbol}] Housekeeper: Keine normalen Orders zum Stornieren gefunden.")
@@ -162,13 +149,11 @@ class ExchangeHandler:
 
     # --- Order Platzierung (Kernlogik von JaegerBot) ---
 
-    # --- KORRIGIERT (ltbbot-Logik) ---
     def set_leverage(self, symbol: str, leverage: int, margin_mode: str = 'isolated'):
         """ Setzt Hebel und Margin-Modus. """
         leverage = int(round(leverage))
         if leverage < 1: leverage = 1 
         try:
-            # 1. Margin-Modus setzen
             try:
                 params_margin = {'productType': 'USDT-FUTURES', 'marginCoin': 'USDT'}
                 self.session.set_margin_mode(margin_mode.lower(), symbol, params=params_margin)
@@ -179,14 +164,13 @@ class ExchangeHandler:
             except ccxt.NotSupported:
                  logger.warning(f"[{symbol}] Exchange unterstützt set_margin_mode nicht explizit.")
 
-            # 2. Hebel setzen
             params = {'productType': 'USDT-FUTURES', 'marginCoin': 'USDT'}
             if margin_mode.lower() == 'isolated':
                 params_long = {**params, 'holdSide': 'long', 'posSide': 'net'}
                 params_short = {**params, 'holdSide': 'short', 'posSide': 'net'}
                 try:
                     self.session.set_leverage(leverage, symbol, params=params_long)
-                    time.sleep(0.2) # Kurze Pause
+                    time.sleep(0.2) 
                     self.session.set_leverage(leverage, symbol, params=params_short)
                     logger.info(f"[{symbol}] Hebel erfolgreich auf {leverage}x für Long & Short (Isolated) gesetzt.")
                 except ccxt.ExchangeError as e_lev_iso:
@@ -208,15 +192,30 @@ class ExchangeHandler:
             logger.error(f"[{symbol}] Unerwarteter Fehler beim Setzen von Hebel/Margin: {e_general}", exc_info=True)
             raise
 
+    # -----------------------------------------------------------------
+    # --- START KORREKTUR (create_market_order) ---
+    # -----------------------------------------------------------------
     def create_market_order(self, symbol: str, side: str, amount: float, params: dict = {}):
         """ 
         Erstellt eine reine Market-Order (MIT TITANBOT-LOGIK).
         Fügt 'productType' hinzu und rundet den Betrag.
+        ENTFERNT 'marginMode' aus den Standard-Params, wenn 'reduceOnly' verwendet wird.
         """
         try:
             order_params = {**params}
             if 'productType' not in order_params:
                 order_params['productType'] = 'USDT-FUTURES' 
+            
+            # --- NEUE KORREKTUR ---
+            # Wenn 'reduceOnly' True ist (oder 'YES' als String, wie im Traceback),
+            # darf 'marginMode' NICHT im Request sein.
+            is_reduce_only = str(order_params.get('reduceOnly', 'false')).lower() == 'true' or order_params.get('reduceOnly') == 'YES'
+            
+            if is_reduce_only and 'marginMode' in order_params:
+                # Entferne marginMode, da es den Fehler "No position to close" verursacht
+                logger.debug(f"Entferne 'marginMode' aus reduceOnly-Order-Params.")
+                del order_params['marginMode']
+            # --- ENDE NEUE KORREKTUR ---
             
             rounded_amount = float(self.session.amount_to_precision(symbol, amount))
             if rounded_amount <= 0:
@@ -237,6 +236,9 @@ class ExchangeHandler:
         except Exception as e:
             logger.error(f"[{symbol}] Unerwarteter Fehler bei Market-Order: {e}", exc_info=True)
             raise
+    # -----------------------------------------------------------------
+    # --- ENDE KORREKTUR (create_market_order) ---
+    # -----------------------------------------------------------------
 
     def place_trigger_market_order(self, symbol: str, side: str, amount: float, trigger_price: float, params: dict = {}):
         """ 
