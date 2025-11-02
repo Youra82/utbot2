@@ -92,7 +92,7 @@ def test_setup():
                 time.sleep(3) # Warte auf Schließung
             except Exception as e_close:
                 pytest.fail(f"Konnte initiale Position nicht schließen: {e_close}")
-        print("-> AusgangszSustand ist sauber.")
+        print("-> Ausgangszustand ist sauber.")
 
         # Erstelle Mock Gemini Model
         mock_gemini = MockGeminiModel()
@@ -149,21 +149,38 @@ def test_full_utbot2_workflow_on_bitget(test_setup):
     # 2. Hauptzyklus aufrufen
     print("[Schritt 1/3] Rufe run_strategy_cycle auf...")
     try:
-        # Annahme: Kontostand ist für den Test ausreichend
         
         # -----------------------------------------------------------------
-        # --- START DER KORREKTUR ---
+        # --- START DER KORREKTUR (TitanBot-Stil) ---
         # -----------------------------------------------------------------
-        # Wir überschreiben die Portfolio-Fraktion *nur für diesen Test* auf 99%,
-        # um den "Insufficient Funds"-Fehler zu vermeiden (damit Puffer für Fees bleibt).
-        # Der Bot wird nun 99% von 3000 = 2970 USDT als Basis nehmen.
-        test_target['risk']['portfolio_fraction_pct'] = 99
-        dummy_balance = 3000 # Behalte 3000
+        # 1. Wir verwenden KEIN dummy_balance mehr.
+        # 2. Wir holen das ECHTE Guthaben, um sicherzustellen, dass der Test laufen KANN.
+        
+        try:
+            real_balance = exchange.fetch_balance_usdt()
+            logger.info(f"[Test Workflow] Aktuelles Test-Guthaben: {real_balance:.2f} USDT")
+            if real_balance < 10: # Mindestguthaben für einen Trade
+                pytest.skip(f"Test-Guthaben ist zu gering ({real_balance:.2f} USDT). Benötige mind. 10 USDT für den Test.")
+        except Exception as e:
+            pytest.fail(f"Konnte reales Guthaben für den Test nicht abrufen: {e}")
+
+        # 3. Wir setzen die portfolio_fraction_pct zurück auf den Wert aus der config,
+        #    da der 1%-Puffer jetzt in main.py eingebaut ist.
+        #    (Finde das erste Target in der config, das dem Test-Target entspricht)
+        original_target_config = next((t for t in config.get('targets', []) if t.get('symbol') == symbol), None)
+        if original_target_config:
+             test_target['risk']['portfolio_fraction_pct'] = original_target_config['risk']['portfolio_fraction_pct']
+        else:
+             logger.warning("Konnte Original-Config nicht finden, fahre mit potenziell altem Wert fort.")
+
+
+        # 4. Rufe den Zyklus OHNE balance-Argument auf.
+        run_strategy_cycle(test_target, strategy_cfg, exchange, mock_gemini, telegram_config, logger)
+        
         # -----------------------------------------------------------------
         # --- ENDE DER KORREKTUR ---
         # -----------------------------------------------------------------
-
-        run_strategy_cycle(test_target, strategy_cfg, exchange, mock_gemini, telegram_config, dummy_balance, logger)
+        
         print("-> run_strategy_cycle ausgeführt.")
         # Wartezeit, damit Orders bei Bitget verarbeitet werden können
         print("-> Warte 10 Sekunden, damit Orders verarbeitet werden...")
@@ -178,8 +195,6 @@ def test_full_utbot2_workflow_on_bitget(test_setup):
         assert len(positions) == 1, f"FEHLER: Erwartete 1 offene Position, gefunden {len(positions)}."
         position = positions[0]
         assert position['side'] == 'long', f"FEHLER: Erwartete 'long' Position, gefunden '{position['side']}'."
-        # Optional: Prüfe MarginMode und Leverage, falls von der API zurückgegeben
-        # assert position.get('marginMode') == test_target['risk'].get('margin_mode', 'isolated'), "FEHLER: Falscher Margin-Modus."
         print(f"-> ✔ Position korrekt eröffnet (Seite: {position['side']}, Größe: {position['contracts']}).")
     except Exception as e:
         pytest.fail(f"Fehler beim Überprüfen der Position: {e}")
@@ -189,7 +204,6 @@ def test_full_utbot2_workflow_on_bitget(test_setup):
     try:
         trigger_orders = exchange.fetch_open_trigger_orders(symbol)
         
-        # --- KORREKTUR FÜR TSL vs. FIX SL ---
         # Wir prüfen, ob TSL in der Config aktiviert ist
         tsl_enabled = test_target.get('risk', {}).get('trailing_stop', {}).get('enabled', False)
         
