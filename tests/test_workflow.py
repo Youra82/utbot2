@@ -1,4 +1,4 @@
-# tests/test_workflow.py (FINALER FIX: Korrigierte side_effect Kette (4 Aufrufe))
+# tests/test_workflow.py (KORRIGIERT: Entfernt veraltete Imports aus main.py)
 import pytest 
 import os
 import sys
@@ -11,12 +11,43 @@ import pandas as pd
 
 # Füge das Projekt-Hauptverzeichnis zum Python-Pfad hinzu
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-sys.path.insert(0, PROJECT_ROOT)
+sys.path.append(os.path.join(PROJECT_ROOT, 'src'))
+sys.path.append(PROJECT_ROOT) # Wichtig, falls utils/ nicht in src/ liegt
 
 # Importiere die notwendigen Teile von utbot2
+# HINWEIS: Wir müssen diese Funktionen jetzt im Test definieren oder nachladen, 
+# da sie aus main.py entfernt wurden (ImportError).
 from utils.exchange_handler import ExchangeHandler
+
+# --- HELFERFUNKTIONEN WIEDERHERSTELLEN (Da sie aus main.py entfernt wurden) ---
+
+def load_config(file_path):
+    # Einfache Version zum Laden von toml/json
+    if file_path.endswith('.toml'):
+        import toml
+        with open(file_path, 'r', encoding='utf-8') as f:
+            return toml.load(f)
+    elif file_path.endswith('.json'):
+        with open(file_path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    raise ValueError(f"Unbekanntes Konfigurationsformat: {file_path}")
+
+def setup_logging(symbol, timeframe):
+    # Einfacher Logger für den Test
+    logger = logging.getLogger(f'utbot2_{symbol.replace("/", "").replace(":", "")}_{timeframe}')
+    logger.setLevel(logging.INFO)
+    if not logger.handlers:
+        ch = logging.StreamHandler(sys.stdout)
+        ch_formatter = logging.Formatter('%(asctime)s UTC - %(levelname)s: [%(name)s] %(message)s', datefmt='%H:%M:%S')
+        ch.setFormatter(ch_formatter)
+        logger.addHandler(ch)
+    return logger
+# --- ENDE HELFERFUNKTIONEN WIEDERHERSTELLEN ---
+
 # Importiere die *tatsächliche* Funktion, die wir testen wollen
-from main import run_strategy_cycle, load_config, setup_logging
+# Wir können load_config und setup_logging nicht mehr aus main importieren, nutzen stattdessen unsere Helfer.
+from main import run_strategy_cycle 
+
 
 # --- Mock Klassen (unverändert) ---
 class MockGeminiResponse:
@@ -31,9 +62,11 @@ class MockGeminiModel:
         self.response_json = {"aktion": "HALTEN", "stop_loss": 0, "take_profit": 0}
 
     def set_next_response(self, action="KAUFEN", sl=10000, tp=12000):
+        """ Legt die nächste JSON-Antwort fest, die simuliert werden soll. """
         self.response_json = {"aktion": action, "stop_loss": sl, "take_profit": tp}
 
     def generate_content(self, prompt, generation_config=None, safety_settings=None):
+        """ Simuliert den API-Aufruf und gibt die festgelegte Antwort zurück. """
         response_text = json.dumps(self.response_json)
         print(f"\n[Mock Gemini] Empfing Prompt, sende Antwort: {response_text}")
         return MockGeminiResponse(response_text)
@@ -100,6 +133,7 @@ def test_setup():
         if not hasattr(exchange, 'fetch_ticker'):
              def mock_fetch_ticker_instance(symbol_arg):
                 logger.warning(f"Simuliere fetch_ticker für {symbol_arg}. Methode fehlt im Modul.")
+                # Muss gültigen Preis zurückgeben
                 return {'last': 2.50} 
              exchange.fetch_ticker = mock_fetch_ticker_instance
              
@@ -107,6 +141,7 @@ def test_setup():
         if not hasattr(exchange, 'fetch_balance_usdt'):
              def mock_fetch_balance_instance():
                 logger.warning(f"Simuliere fetch_balance_usdt. Methode fehlt im Modul.")
+                # Muss die reale Balance zurückgeben, um den Test zu bestehen.
                 return 1.15
              exchange.fetch_balance_usdt = mock_fetch_balance_instance
              
