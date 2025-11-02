@@ -1,336 +1,262 @@
-# utbot2/main.py (Version 4.2 - Atomare Order/TitanBot-Stil)
-import os, sys, json, logging, pandas as pd, traceback, time, argparse, ccxt
-import google.generativeai as genai
-import pandas_ta as ta
+# utbot2/main.py (Version 4.4 - Mit neuem 3-Schritt-Aufruf)
+import logging
+import json
+import time
+import os
+import ccxt
+import pandas as pd
 import toml
-from google.api_core import exceptions
-from logging.handlers import RotatingFileHandler
-from pathlib import Path # Importiert für Ladefunktionen (in tests/test_basic.py)
-
-# Korrekte Importpfade für utils
-PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
-# Stelle sicher, dass das übergeordnete Verzeichnis (utbot2/) im Pfad ist,
-sys.path.append(os.path.dirname(PROJECT_ROOT)) 
-sys.path.append(PROJECT_ROOT)
-
 
 from utils.exchange_handler import ExchangeHandler
-from utils.telegram_handler import send_telegram_message
-from utils.guardian import guardian_decorator
+from utils.telegram_handler import send_telegram_message, format_trade_message
+from utils.indicator_handler import calculate_indicators
+# Annahme: Gemini API ist korrekt importiert
+try:
+    from utils.gemini_handler import get_trade_decision
+    GEMINI_AVAILABLE = True
+except ImportError:
+    GEMINI_AVAILABLE = False
 
-# --- Logging Setup (unverändert) ---
-log_dir = os.path.join(PROJECT_ROOT, 'logs')
-os.makedirs(log_dir, exist_ok=True)
 
 def setup_logging(symbol, timeframe):
-    """ Richtet einen spezifischen Logger für jede Strategie ein. """
-    safe_filename = f"{symbol.replace('/', '').replace(':', '')}_{timeframe}"
-    log_file = os.path.join(log_dir, f'utbot2_{safe_filename}.log')
-
-    logger = logging.getLogger(f'utbot2_{safe_filename}')
+    """Konfiguriert den Logger für das Skript."""
+    logger = logging.getLogger(f'utbot2_{symbol.replace("/", "").replace(":", "")}_{timeframe}')
     logger.setLevel(logging.INFO)
-    logger.propagate = False
-    
     if not logger.handlers:
-        fh = RotatingFileHandler(log_file, maxBytes=5*1024*1024, backupCount=3, encoding='utf-8')
-        fh_formatter = logging.Formatter('%(asctime)s UTC - %(levelname)s - %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
-        fh_formatter.converter = time.gmtime
-        fh.setFormatter(fh_formatter)
-        logger.addHandler(fh)
-
         ch = logging.StreamHandler()
         ch_formatter = logging.Formatter('%(asctime)s UTC - %(levelname)s: [%(name)s] %(message)s', datefmt='%H:%M:%S')
-        ch_formatter.converter = time.gmtime
         ch.setFormatter(ch_formatter)
         logger.addHandler(ch)
-
     return logger
 
-# --- Globale Konfiguration & Hilfsfunktionen ---
-PROMPT_TEMPLATES = {
-    "swing": (
-        "Du bist ein Swing-Trader (Haltedauer: Tage bis Wochen). "
-        "Analysiere die Daten und identifiziere übergeordnete Trends. "
-        "Ignoriere kurzfristiges Rauschen. Suche nach starken Ein- und Ausstiegspunkten für einen Swing-Trade."
-    ),
-    "daytrade": (
-        "Du bist ein Day-Trader (Haltedauer: Stunden bis maximal 1 Tag). "
-        "Analysiere die Daten und identifiziere Intraday-Trends und Momentum. "
-        "Suche nach klaren Ein- und Ausstiegspunkten für einen Trade innerhalb des aktuellen oder nächsten Tages."
-    ),
-    "scalp": (
-        "Du bist ein Scalper (Haltedauer: Minuten bis Stunden). "
-        "Analysiere die Daten und identifiziere kurzfristige Umkehrpunkte und Volatilität. "
-        "Suche nach schnellen Ein- und Ausstiegen mit engem Stop-Loss für kleine Gewinne."
-    )
-}
 
-def calculate_candle_limit(timeframe, lookback_days, logger): 
-    # Implementierung beibehalten
-    try:
-        if 'm' in timeframe:
-            minutes = int(timeframe.replace('m', ''))
-            if minutes == 0: raise ValueError("Minuten dürfen nicht 0 sein")
-            return int((60 / minutes) * 24 * lookback_days)
-        elif 'h' in timeframe:
-            hours = int(timeframe.replace('h', ''))
-            if hours == 0: raise ValueError("Stunden dürfen nicht 0 sein")
-            return int((24 / hours) * lookback_days)
-        elif 'd' in timeframe:
-            days = int(timeframe.replace('d', ''))
-            if days == 0: raise ValueError("Tage dürfen nicht 0 sein")
-            return int(lookback_days / days)
-        else:
-            logger.warning(f"Unbekanntes Timeframe-Format: {timeframe}. Verwende Fallback-Limit 1000.")
-            return 1000
-    except Exception:
-        return 1000
-
-# --- Trade-Eröffnung (Angepasst für Atomaren Aufruf) ---
-def attempt_new_trade(target, strategy_cfg, exchange, gemini_model, telegram_api, logger):
-
-    symbol, risk_cfg, timeframe = target['symbol'], target['risk'], target['timeframe']
-    trading_style_text = PROMPT_TEMPLATES.get(strategy_cfg.get('trading_mode', 'swing'))
-    margin_mode = risk_cfg.get('margin_mode', 'isolated')
-
-    # <<< KRITISCHE KORREKTUR >>>
-    decision = None # Initialisiere decision auf None, falls der Gemini-Aufruf fehlschlägt.
-    # <<< ENDE KRITISCHE KORREKTUR >>>
-
-    # --- Guthaben wird HIER abgerufen ---
-    try:
-        total_usdt_balance = exchange.fetch_balance_usdt()
-        if total_usdt_balance <= 0:
-            logger.error("Kontoguthaben ist 0 oder konnte nicht abgerufen werden. Abbruch.")
-            return
-        logger.info(f"Verwende aktuelles Guthaben: {total_usdt_balance:.2f} USDT")
-    except Exception as e:
-        logger.error(f"Fehler beim Abrufen des Kontostands: {e}", exc_info=True)
-        return
-    # --- ENDE KORREKTUR ---
-
-    limit = calculate_candle_limit(timeframe, strategy_cfg['lookback_period_days'], logger)
-    logger.info(f"Lade {limit} Kerzen für {symbol} ({timeframe})...")
-    ohlcv_df = exchange.fetch_ohlcv(symbol, timeframe, limit=limit)
-    if ohlcv_df.empty or len(ohlcv_df) < 60:
-        logger.error(f"Nicht genügend Kerzendaten erhalten (benötigt >= 60, erhalten {len(ohlcv_df)}). Überspringe.")
-        return
-
-    try:
-        ohlcv_df.ta.stochrsi(append=True); ohlcv_df.ta.macd(append=True)
-        ohlcv_df.ta.bbands(append=True); ohlcv_df.ta.obv(append=True)
-        ohlcv_df.dropna(inplace=True)
-    except Exception as e:
-        logger.error(f"Fehler bei der Indikatorberechnung: {e}", exc_info=True)
-        return
-
-    data_to_send = ohlcv_df.tail(60)
-    if len(data_to_send) < 60:
-        logger.error(f"Nicht genügend Daten nach Indikatorberechnung (nur {len(data_to_send)} Kerzen).")
-        return
-
-    cols_to_send = ['open', 'high', 'low', 'close', 'volume'] + [col for col in data_to_send.columns if col not in ['open', 'high', 'low', 'close', 'volume', 'timestamp']]
-    historical_data_string = data_to_send[cols_to_send].round(5).to_csv(index=False, lineterminator='\n')
-    latest = data_to_send.iloc[-1]; current_price = latest['close']
-    bbp_column_name = next((col for col in latest.index if col.startswith('BBP_')), None)
-    if bbp_column_name:
-        indicator_summary = f"P={current_price:.4f}, StochK={latest['STOCHRSIk_14_14_3_3']:.1f}, StochD={latest['STOCHRSId_14_14_3_3']:.1f}, MACD_H={latest['MACDh_12_26_9']:.4f}, BBP={latest[bbp_column_name]:.2f}, OBV={latest['OBV']:.0f}"
+def calculate_amount_and_risk(target_config, balance_usdt, current_price, sl_price):
+    """Berechnet die Ordergröße und überprüft das Risiko."""
+    
+    portfolio_fraction = target_config['risk']['portfolio_fraction_pct'] / 100.0
+    risk_capital = balance_usdt * portfolio_fraction
+    leverage = target_config['risk']['max_leverage']
+    
+    if sl_price == 0:
+        position_size_usdt = risk_capital * leverage
     else:
-        indicator_summary = f"P={current_price:.4f}, StochK={latest['STOCHRSIk_14_14_3_3']:.1f}, StochD={latest['STOCHRSId_14_14_3_3']:.1f}, MACD_H={latest['MACDh_12_26_9']:.4f}, OBV={latest['OBV']:.0f} (BBP Fehler)"
-    logger.info(f"Aktuelle Indikatoren (letzte Kerze): {indicator_summary}")
-
-    prompt = (
-        "Du bist eine API, die NUR JSON zurückgibt. Gib KEINEN Text oder Erklärungen vor oder nach dem JSON aus. "
-        "Analysiere die folgenden Kerzendaten und technischen Indikatoren für das Handelspaar. "
-        "Basierend auf der 'strategie' und den Daten, triff eine Handelsentscheidung.\n"
-        "Antworte mit einer der folgenden Aktionen: 'KAUFEN', 'VERKAUFEN', oder 'HALTEN'.\n"
-        "Wenn 'KAUFEN' oder 'VERKAUFEN':\n"
-        "1. Setze 'stop_loss': Ein logischer Preis, um Verluste zu begrenzen (z.B. unter einem Tiefpunkt für KAUFEN).\n"
-        "2. Setze 'take_profit': Ein logischer Preis, um Gewinne mitzunehmen (z.B. an einem Widerstand für KAUFEN).\n"
-        "Wenn 'HALTEN': Setze 'stop_loss' und 'take_profit' auf 0.\n"
-        "Format: {\"aktion\": \"...\", \"stop_loss\": ..., \"take_profit\": ...}\n\n"
-        f"Input: strategie='{trading_style_text}', symbol='{symbol}', aktueller_preis='{current_price}'.\n\n"
-        "HISTORISCHE DATEN (letzte 60 Kerzen):\n"
-        f"{historical_data_string}"
-    )
-
-    try:
-        logger.info("Sende Anfrage an Gemini...")
-        generation_config = genai.types.GenerationConfig(temperature=0.7)
-        safety_settings = [ { "category": c, "threshold": "BLOCK_NONE" } for c in ["HARM_CATEGORY_HARASSMENT", "HARM_CATEGORY_HATE_SPEECH", "HARM_CATEGORY_SEXUALLY_EXPLICIT", "HARM_CATEGORY_DANGEROUS_CONTENT"]]
-        response = gemini_model.generate_content(prompt, generation_config=generation_config, safety_settings=safety_settings)
-        logger.info("Antwort von Gemini erhalten.")
-
-        if not response.parts:
-            try: feedback = response.prompt_feedback; logger.warning(f"Leere Antwort von Gemini (Blockiert?). Feedback: {feedback}")
-            except Exception: logger.warning(f"Leere Antwort von Gemini (Grund unbekannt).")
-            return
-
-        cleaned_response_text = response.text.replace('```json', '').replace('```', '').strip()
-        decision = json.loads(cleaned_response_text)
-        logger.info(f"KI-Entscheidung: {decision}")
-
-    except exceptions.ResourceExhausted as e: logger.warning(f"Gemini API-Ratenlimit erreicht. Pausiere 60s. Fehler: {e}"); time.sleep(60); return
-    except Exception as e: logger.error(f"Kritischer Fehler bei Gemini API-Anfrage: {e}", exc_info=True); return
-
-    # decision wird hier nun IMMER definiert sein, außer im Falle eines Gemini API-Fehlers, 
-    # wo es auf None initialisiert ist.
-    if decision and decision.get('aktion') in ['KAUFEN', 'VERKAUFEN']:
-        side = 'buy' if decision['aktion'] == 'KAUFEN' else 'sell'
-        sl_price = decision.get('stop_loss')
-        tp_price = decision.get('take_profit')
-
-        # ... (Validierung von SL/TP bleibt unverändert) ...
-
-        # --- RISIKOBERECHNUNG ---
-        allocated_capital = total_usdt_balance * (risk_cfg['portfolio_fraction_pct'] / 100)
-        allocated_capital_with_buffer = allocated_capital * 0.99
-        
-        minimum_capital_check = 1.0 
-        if allocated_capital_with_buffer < minimum_capital_check: 
-            logger.warning(f"Zugewiesenes Kapital ({allocated_capital_with_buffer:.2f}) nach Puffer zu gering. Abbruch.")
-            return
-
-        capital_at_risk = allocated_capital_with_buffer * (risk_cfg['risk_per_trade_pct'] / 100)
         sl_distance_pct = abs(current_price - sl_price) / current_price
+        position_size_usdt = risk_capital / sl_distance_pct
         
-        if sl_distance_pct < 0.001: logger.error(f"SL zu nah (<0.1%). SL={sl_price}, P={current_price}. Abbruch."); return
-
-        position_size_usdt = capital_at_risk / sl_distance_pct
-        max_leverage = risk_cfg.get('max_leverage', 1)
-        final_leverage = round(max(1, min(position_size_usdt / allocated_capital_with_buffer, max_leverage)))
-        amount_in_asset = position_size_usdt / current_price
+        max_size_by_leverage = balance_usdt * leverage
         
-        # ... (Marktlimit-Prüfung bleibt unverändert) ...
-
-        # --- ATOMARER ORDER-AUFRUF ---
-        try:
-            logger.info(f"Versuche ATOMAREN Trade: {side} {amount_in_asset:.4f} {symbol.split('/')[0]} ({position_size_usdt:.2f} USDT) mit {final_leverage}x Hebel...")
-            exchange.set_leverage(symbol, final_leverage, margin_mode)
-
-            # --- NUTZE DEN ATOMAREN AUFRUF ---
-            order_result = exchange.create_order_atomic(
-                symbol, side, amount_in_asset, sl_price, tp_price, margin_mode
-            )
-
-            actual_entry_price = order_result.get('average')
-            filled_amount = order_result.get('filled') 
+        if position_size_usdt > max_size_by_leverage:
+            position_size_usdt = max_size_by_leverage
             
-            logger.info(f"✅ Trade platziert! ID: {order_result['id']}, Entry: ≈{actual_entry_price:.4f}, Menge: {filled_amount:.4f}")
-            msg = (f"🚀 NEUER TRADE: *{symbol}*\n\n"
-                    f"Aktion: *{decision['aktion']}* ({final_leverage}x)\n"
-                    f"Größe: {filled_amount * actual_entry_price:.2f} USDT\n"
-                    f"Entry: ≈ {actual_entry_price:.4f}\n"
-                    f"SL: {sl_price}\n"
-                    f"TP: {tp_price}")
-            send_telegram_message(telegram_api['bot_token'], telegram_api['chat_id'], msg)
-            
-        except Exception as e:
-            logger.error(f"❌ FEHLER BEI TRADE-AUSFÜHRUNG: {e}", exc_info=True)
-            logger.info("Versuche Housekeeping...")
-            try:
-                exchange.session.cancel_all_orders(symbol, params={'productType': 'USDT-FUTURES'})
-            except Exception as ce:
-                logger.warning(f"Housekeeping (Cancel All) fehlgeschlagen: {ce}")
+    if position_size_usdt <= 0:
+        return 0.0, 0.0
+        
+    amount = position_size_usdt / current_price
+    
+    logger.info(f"Verwende aktuelles Guthaben: {balance_usdt:.2f} USDT")
+    logger.info(f"Risiko-Kapital: {risk_capital:.2f} USDT, Geplante Positionsgröße (USD): {position_size_usdt:.2f}")
 
-    else: logger.info(f"Keine Handelsaktion ({decision.get('aktion', 'unbekannt') if decision else 'unbekannt'}).")
+    return amount, position_size_usdt
 
 
-# --- Strategie-Zyklus (Angepasst) ---
-@guardian_decorator
-def run_strategy_cycle(target, strategy_cfg, exchange, gemini_model, telegram_config, logger):
-    """ Führt einen kompletten Prüf- und Handelszyklus für EINE Strategie aus. """
-    symbol = target['symbol']
-    logger.info(f"--- Starte Zyklus für {symbol} ({target['timeframe']}) ---")
+def attempt_new_trade(target_config, strategy_config, exchange, gemini_model, telegram_config, logger):
+    """
+    Versucht, einen neuen Trade zu eröffnen, wenn die KI ein Signal gibt.
+    """
+    symbol = target_config['symbol']
+    timeframe = target_config['timeframe']
+    
+    # --- 1. Daten laden und Indikatoren berechnen ---
+    df = exchange.fetch_ohlcv(symbol, timeframe, limit=1440) 
+    if len(df) < 60:
+        logger.warning(f"Nicht genügend Daten ({len(df)}) für {symbol} verfügbar. Überspringe Zyklus.")
+        return 
+        
+    df = calculate_indicators(df)
+    last_row = df.iloc[-1]
+    
+    logger.info(f"Aktuelle Indikatoren (letzte Kerze): P={last_row['close']:.4f}, StochK={last_row['stochk']:.1f}, StochD={last_row['stochd']:.1f}, MACD_H={last_row['macd_hist']:.4f}, BBP={last_row['bbp']:.2f}, OBV={last_row['obv']:.0f}")
+    
+    # --- 2. KI-Entscheidung einholen ---
+    decision = None
+    
     try:
-        position = exchange.fetch_open_positions(symbol)
-        position = position[0] if position else None
-        
-        if position:
-            entry_price = float(position.get('entryPrice', 0)); contracts = float(position.get('contracts', 0)); side = position.get('side', 'unbekannt')
-            logger.info(f"Offene Position: {side} {contracts} @ {entry_price:.4f}. Warte auf SL/TP.")
+        if GEMINI_AVAILABLE:
+            prompt = strategy_config['prompt_template'].format(
+                symbol=symbol,
+                timeframe=timeframe,
+                data=df.iloc[-strategy_config['lookback_period']:].to_json(),
+                aktueller_preis=last_row['close']
+            )
+            logger.info("Sende Anfrage an Gemini...")
+            gemini_response = gemini_model.generate_content(prompt)
+            logger.info("Antwort von Gemini erhalten.")
+            decision_text = gemini_response.text.strip()
+            
+            if not decision_text.startswith('{') or not decision_text.endswith('}'):
+                start = decision_text.find('{')
+                end = decision_text.rfind('}')
+                if start != -1 and end != -1:
+                    decision_text = decision_text[start:end+1]
+                
+            decision = json.loads(decision_text)
             
         else:
-            logger.info("Keine offene Position gefunden.")
-            logger.info("Starte Housekeeping (storniere alte Orders)...")
-            try:
-                exchange.session.cancel_all_orders(symbol, params={'productType': 'USDT-FUTURES'})
-            except Exception as ce:
-                logger.warning(f"Housekeeping (Cancel All) fehlgeschlagen: {ce}")
-            logger.info("Housekeeping abgeschlossen.")
-            attempt_new_trade(target, strategy_cfg, exchange, gemini_model, telegram_config, logger)
+            gemini_response = gemini_model.generate_content(None)
+            decision_text = gemini_response.text.strip()
+            decision = json.loads(decision_text)
             
-    except ccxt.RateLimitExceeded as e: logger.warning(f"Exchange Rate Limit: {e}. Pausiere 30s."); time.sleep(30)
-    except ccxt.NetworkError as e: logger.warning(f"Netzwerkfehler: {e}. Pausiere 15s."); time.sleep(15)
+        logger.info(f"KI-Entscheidung: {decision}")
+        
+    except Exception as e:
+        logger.error(f"FEHLER beim Abrufen/Parsen der KI-Entscheidung: {e}")
+        return
+
+    # --- 3. Trade ausführen ---
+    action = decision.get('aktion', 'HALTEN')
+    
+    if action not in ['KAUFEN', 'VERKAUFEN']:
+        logger.info(f"KI signalisiert '{action}'. Kein Trade.")
+        return 
+        
+    side = 'buy' if action == 'KAUFEN' else 'sell'
+    sl_price = float(decision.get('stop_loss', 0))
+    tp_price = float(decision.get('take_profit', 0))
+    
+    balance_usdt = exchange.fetch_balance_usdt()
+    if balance_usdt < target_config['risk']['min_balance_usdt']:
+        logger.warning(f"Guthaben ({balance_usdt:.2f} USDT) liegt unter Minimum ({target_config['risk']['min_balance_usdt']} USDT). Kein Trade.")
+        return 
+        
+    current_price = last_row['close']
+    amount, position_size_usdt = calculate_amount_and_risk(target_config, balance_usdt, current_price, sl_price)
+    
+    if amount == 0:
+        logger.warning("Berechnete Ordergröße ist Null. Überspringe Trade.")
+        return
+
+    logger.info(f"Versuche 3-SCHRITT Trade: {side} {amount:.4f} {symbol.split('/')[0]} ({position_size_usdt:.2f} USDT) mit {target_config['risk']['max_leverage']}x Hebel...")
+
+    try:
+        exchange.set_leverage(symbol, target_config['risk']['max_leverage'], target_config['risk']['margin_mode'])
+        
+        # --- KRITISCHE ÄNDERUNG: Dreischritt-Aufruf anstatt Atomic ---
+        order_result = exchange.create_market_order_with_sl_tp(
+            symbol,
+            side,
+            amount,
+            sl_price,
+            tp_price,
+            target_config['risk']['margin_mode']
+        )
+        
+        # --- Benachrichtigung ---
+        entry_price = order_result.get('average', current_price)
+        msg = format_trade_message(symbol, side, entry_price, sl_price, tp_price, amount, order_result.get('filled', amount))
+        send_telegram_message(telegram_config, msg)
+        logger.info(f"✅ Trade erfolgreich ausgeführt und Telegram gesendet.")
+        
+    except Exception as e:
+        logger.error(f"❌ FEHLER BEI TRADE-AUSFÜHRUNG: {e}", exc_info=False)
+
+    logger.info("Versuche Housekeeping...")
+    exchange.cleanup_all_open_orders(symbol)
+
+
+def run_strategy_cycle(target_config, strategy_config, exchange, gemini_model, telegram_config, logger):
+    """
+    Führt einen kompletten Zyklus der Handelsstrategie aus (Trade prüfen oder neu eröffnen).
+    """
+    symbol = target_config['symbol']
+    
+    logger.info(f"--- Starte Zyklus für {symbol} ({target_config['timeframe']}) ---")
+    
+    try:
+        open_positions = exchange.fetch_open_positions(symbol)
+    except Exception as e:
+        logger.error(f"Fehler beim Abrufen offener Positionen: {e}")
+        return 
+        
+    exchange.cleanup_all_open_orders(symbol)
+
+    if not open_positions:
+        logger.info("Keine offene Position gefunden.")
+        attempt_new_trade(target_config, strategy_config, exchange, gemini_model, telegram_config, logger)
+        
+    else:
+        logger.info(f"Offene Position ({open_positions[0]['side']}, Größe: {open_positions[0]['contracts']}) gefunden. Überspringe neuen Trade.")
+        
     logger.info(f"--- Zyklus für {symbol} abgeschlossen ---")
 
 
-# --- Hauptfunktion (Initialisierung) ---
+def load_config(file_path='config.toml'):
+    """Lädt die TOML-Konfiguration."""
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            return toml.load(f)
+    except Exception:
+        return None
+
+
+def load_secrets(file_path='secret.json'):
+    """Lädt die JSON-Geheimnisse."""
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except Exception:
+        return None
+
+
 def main():
-    parser = argparse.ArgumentParser(description="utbot2 Einzelstrategie-Runner")
-    parser.add_argument('--symbol', required=True, help="Das Handelspaar (z.B. BTC/USDT:USDT)")
-    parser.add_argument('--timeframe', required=True, help="Das Zeitfenster (z.B. 1h)")
-    args = parser.parse_args()
-
-    # --- Lade Konfigurationen ---
+    """Hauptfunktion des Bots."""
+    config = load_config()
+    secrets = load_secrets()
+    
+    if not config or not secrets:
+        return 
+        
+    exchange_handler = ExchangeHandler()
+    
     try:
-        # Konfigurationen werden jetzt direkt im main-Block geladen
-        with open('config.toml', 'r', encoding='utf-8') as f: config = toml.load(f)
-        with open('secret.json', 'r', encoding='utf-8') as f: secrets = json.load(f)
+        bitget_config = secrets['bitget']
+        exchange_handler.session = ccxt.bitget({
+            'apiKey': bitget_config['apiKey'],
+            'secret': bitget_config['secret'],
+            'password': bitget_config['password'],
+            'options': {'defaultType': 'swap'},
+        })
+        exchange_handler.session.load_markets()
     except Exception as e:
-        sys.exit(1)
-
-    # --- Logger für diese spezifische Strategie einrichten ---
-    logger = setup_logging(args.symbol, args.timeframe)
-    logger.info("==============================================")
-    logger.info(f"=  Starte utbot2 v4.0 (TitanBot-Logik) für {args.symbol} ({args.timeframe}) =")
-    logger.info("==============================================")
-
-
-    # --- Finde das spezifische Target ---
-    target = None
-    for t in config.get('targets', []):
-        if t.get('symbol') == args.symbol and t.get('timeframe') == args.timeframe and t.get('enabled', False):
-            target = t
-            break
-
-    if not target:
-        logger.error(f"Kein aktives Target für {args.symbol} ({args.timeframe}) in config.toml gefunden.")
+        print(f"FEHLER: Bitget-Initialisierung fehlgeschlagen: {e}")
         return
-
-    # --- Initialisiere Gemini ---
-    try:
-        genai.configure(api_key=secrets['google']['api_key'])
-        gemini_model = genai.GenerativeModel('gemini-1.5-flash')
-        logger.info("Gemini-Client initialisiert.")
-    except KeyError: logger.critical("FATAL: Google API Key nicht in secret.json!"); return
-    except Exception as e: logger.critical(f"FATAL: Gemini Init Fehler: {e}"); return
-
-    # --- Initialisiere Exchange ---
-    try:
-        exchange = ExchangeHandler() # KEINE ARGUMENTE
-        # Die CCXT Session muss manuell gesetzt werden, da der Konstruktor sie nicht übernimmt
-        exchange.session = ccxt.bitget(secrets['bitget'])
-        exchange.session.load_markets()
-        logger.info("ExchangeHandler initialisiert.")
-    except KeyError: logger.critical("FATAL: Bitget Keys nicht in secret.json!"); return
-    except Exception as e: logger.critical(f"FATAL: Exchange Init Fehler: {e}", exc_info=True); return
-
-    # --- Führe den Strategie-Zyklus EINMAL aus ---
-    try:
-        strategy_cfg = config['strategy']
-        telegram_config = secrets['telegram']
-        run_strategy_cycle(target, strategy_cfg, exchange, gemini_model, telegram_config, logger)
-
-    except Exception as e:
-        logger.critical(f"FATALER FEHLER im Hauptprozess für {args.symbol}: {e}", exc_info=True)
+        
+    # Gemini Model Mock oder Live initialisieren (Platzhalter)
+    gemini_model = None
+    if GEMINI_AVAILABLE:
         try:
-            if 'telegram_config' not in locals():
-                telegram_config = secrets.get('telegram', {})
-            send_telegram_message(telegram_config.get('bot_token'), telegram_config.get('chat_id'), f"🚨 FATALER FEHLER in utbot2 ({args.symbol})!\n\n`{str(e)}`")
-        except Exception: pass 
+            from utils.gemini_handler import get_gemini_model
+            gemini_model = get_gemini_model() 
+        except Exception:
+            pass
+            
+    if not gemini_model:
+        return
+        
+    telegram_config = secrets.get('telegram', {})
+    
+    for target in config.get('targets', []):
+        if target.get('enabled', False):
+            symbol = target['symbol']
+            timeframe = target['timeframe']
+            logger = setup_logging(symbol, timeframe)
+            
+            try:
+                run_strategy_cycle(target, config['strategy'], exchange_handler, gemini_model, telegram_config, logger)
+            except Exception as e:
+                logger.error(f"Unbehandelter Fehler im Hauptzyklus für {symbol}: {e}", exc_info=True)
+                
+    
 
-    logger.info(f">>> Lauf für {args.symbol} ({args.timeframe}) abgeschlossen <<<")
-
-if __name__ == "__main__":
-    main()
+if __name__ == '__main__':
+    if os.environ.get('UTBOT_TEST_MODE') != 'true':
+        main()
