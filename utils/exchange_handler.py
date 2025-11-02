@@ -1,9 +1,9 @@
-# utbot2/utils/exchange_handler.py (Version 3.9 - Final)
+# utbot2/utils/exchange_handler.py (Version 3.9 - Korrigiert für Fehler 40774)
 import ccxt
 import logging
 import pandas as pd
 import time
-from datetime import datetime, timezone 
+from datetime import datetime, timezone
 
 logger = logging.getLogger('utbot2')
 
@@ -71,17 +71,17 @@ class ExchangeHandler:
                             usdt_balance = float(asset_info['available'])
                             break
                         elif 'equity' in asset_info and asset_info['equity'] is not None and usdt_balance == 0.0:
-                             logger.warning("Verwende 'equity' als Fallback für Guthaben.")
-                             usdt_balance = float(asset_info['equity'])
+                                logger.warning("Verwende 'equity' als Fallback für Guthaben.")
+                                usdt_balance = float(asset_info['equity'])
             elif 'free' in balance and 'USDT' in balance['free']:
                  usdt_balance = float(balance['free']['USDT'])
-            elif 'total' in balance and 'USDT' in balance['total'] and usdt_balance == 0.0: 
+            elif 'total' in balance and 'USDT' in balance['total'] and usdt_balance == 0.0:
                 logger.warning("Konnte 'free' USDT-Balance nicht finden, verwende 'total' als Fallback.")
                 usdt_balance = float(balance['total']['USDT'])
-            
+
             if usdt_balance == 0.0:
                 logger.warning(f"Kein USDT-Guthaben in der Balance-Antwort gefunden.")
-                
+
             return usdt_balance
         except Exception as e:
             logger.error(f"Fehler beim Abrufen des USDT-Guthabens: {e}", exc_info=True)
@@ -92,7 +92,7 @@ class ExchangeHandler:
         try:
             params = {'productType': 'USDT-FUTURES'}
             positions = self.session.fetch_positions([symbol], params=params)
-            
+
             open_positions = []
             for p in positions:
                 try:
@@ -103,7 +103,7 @@ class ExchangeHandler:
                     logger.warning(f"[{symbol}] Ungültiger 'contracts'-Wert in Positionsdaten: {contracts_str}. Fehler: {e}")
                     continue
             return open_positions
-            
+
         except Exception as e:
             logger.error(f"[{symbol}] Fehler beim Abrufen offener Positionen: {e}", exc_info=True)
             raise
@@ -115,24 +115,24 @@ class ExchangeHandler:
             return self.session.fetch_open_orders(symbol, params=params)
         except Exception as e:
             logger.error(f"[{symbol}] Fehler beim Abrufen offener Trigger-Orders: {e}", exc_info=True)
-            return [] 
+            return []
 
     def cleanup_all_open_orders(self, symbol: str):
         """Storniert ALLE offenen Orders (Trigger und Normal) für ein Symbol."""
         cancelled_count = 0
-        
+
         # 1. Normale Orders stornieren (stop: False)
         try:
             params_normal = {'productType': 'USDT-FUTURES', 'stop': False}
             self.session.cancel_all_orders(symbol, params=params_normal)
             cancelled_count += 1
             logger.info(f"[{symbol}] Housekeeper: 'cancel_all_orders' (Normal) gesendet.")
-            time.sleep(0.5) 
+            time.sleep(0.5)
         except ccxt.ExchangeError as e:
             if 'Order not found' in str(e) or 'no order to cancel' in str(e).lower() or '22001' in str(e):
-                 logger.info(f"[{symbol}] Housekeeper: Keine normalen Orders zum Stornieren gefunden.")
+                logger.info(f"[{symbol}] Housekeeper: Keine normalen Orders zum Stornieren gefunden.")
             else:
-                 logger.error(f"[{symbol}] Housekeeper: Fehler beim Stornieren normaler Orders: {e}")
+                logger.error(f"[{symbol}] Housekeeper: Fehler beim Stornieren normaler Orders: {e}")
         except Exception as e:
             logger.error(f"[{symbol}] Housekeeper: Unerwarteter Fehler (Normal): {e}")
 
@@ -145,9 +145,9 @@ class ExchangeHandler:
             time.sleep(0.5)
         except ccxt.ExchangeError as e:
             if 'Order not found' in str(e) or 'no order to cancel' in str(e).lower() or '22001' in str(e):
-                 logger.info(f"[{symbol}] Housekeeper: Keine Trigger-Orders zum Stornieren gefunden.")
+                logger.info(f"[{symbol}] Housekeeper: Keine Trigger-Orders zum Stornieren gefunden.")
             else:
-                 logger.error(f"[{symbol}] Housekeeper: Fehler beim Stornieren von Trigger-Orders: {e}")
+                logger.error(f"[{symbol}] Housekeeper: Fehler beim Stornieren von Trigger-Orders: {e}")
         except Exception as e:
             logger.error(f"[{symbol}] Housekeeper: Unerwarteter Fehler (Trigger): {e}")
 
@@ -159,7 +159,7 @@ class ExchangeHandler:
     def set_leverage(self, symbol: str, leverage: int, margin_mode: str = 'isolated'):
         """Setzt Hebel und Margin-Modus."""
         leverage = int(round(leverage))
-        if leverage < 1: leverage = 1 
+        if leverage < 1: leverage = 1
         try:
             try:
                 params_margin = {'productType': 'USDT-FUTURES', 'marginCoin': 'USDT'}
@@ -169,7 +169,7 @@ class ExchangeHandler:
                 if 'Margin mode is the same' not in str(e_margin) and 'margin mode is not changed' not in str(e_margin).lower():
                     logger.warning(f"[{symbol}] Setzen des Margin-Modus fehlgeschlagen (ignoriert wenn bereits korrekt): {e_margin}")
             except ccxt.NotSupported:
-                 logger.warning(f"[{symbol}] Exchange unterstützt set_margin_mode nicht explizit.")
+                logger.warning(f"[{symbol}] Exchange unterstützt set_margin_mode nicht explizit.")
 
             params = {'productType': 'USDT-FUTURES', 'marginCoin': 'USDT'}
             if margin_mode.lower() == 'isolated':
@@ -177,7 +177,7 @@ class ExchangeHandler:
                 params_short = {**params, 'holdSide': 'short', 'posSide': 'net'}
                 try:
                     self.session.set_leverage(leverage, symbol, params=params_long)
-                    time.sleep(0.2) 
+                    time.sleep(0.2)
                     self.session.set_leverage(leverage, symbol, params=params_short)
                     logger.info(f"[{symbol}] Hebel erfolgreich auf {leverage}x für Long & Short (Isolated) gesetzt.")
                 except ccxt.ExchangeError as e_lev_iso:
@@ -203,7 +203,7 @@ class ExchangeHandler:
     # --- START KORREKTUR (create_market_order) ---
     # -----------------------------------------------------------------
     def create_market_order(self, symbol: str, side: str, amount: float, params: dict = {}):
-        """ 
+        """
         Erstellt eine reine Market-Order (MIT TITANBOT/STBOT-LOGIK).
         Fügt 'productType' hinzu und rundet den Betrag.
         ENTFERNT 'posSide', 'tradeSide' UND 'marginMode', wenn 'reduceOnly' verwendet wird.
@@ -211,13 +211,13 @@ class ExchangeHandler:
         try:
             order_params = {**params}
             if 'productType' not in order_params:
-                order_params['productType'] = 'USDT-FUTURES' 
-            
+                order_params['productType'] = 'USDT-FUTURES'
+
             # --- KORREKTUR (stbot-Logik / Deine Analyse) ---
             # Wenn 'reduceOnly' True ist, dürfen 'posSide', 'tradeSide' und 'marginMode'
             # NICHT im Request enthalten sein, da Bitget sonst 40774 oder 22002 wirft.
             is_reduce_only = str(order_params.get('reduceOnly', 'false')).lower() == 'true'
-            
+
             if is_reduce_only:
                 if 'posSide' in order_params:
                     logger.debug(f"Entferne 'posSide' aus reduceOnly-Order-Params.")
@@ -225,21 +225,25 @@ class ExchangeHandler:
                 if 'tradeSide' in order_params:
                     logger.debug(f"Entferne 'tradeSide' aus reduceOnly-Order-Params.")
                     del order_params['tradeSide']
-                if 'marginMode' in order_params:
-                    logger.debug(f"Entferne 'marginMode' aus reduceOnly-Order-Params.")
-                    del order_params['marginMode']
+                
+                # --- START KORREKTUR (Fehler 40774) ---
+                # Setze marginMode auf None, um ccxt-Standard ('crossed') zu überschreiben,
+                # was im "One-Way Mode" (unilateral) zu Fehler 40774 führt.
+                order_params['marginMode'] = None
+                # --- ENDE KORREKTUR ---
+                
             # --- ENDE KORREKTUR ---
-            
+
             rounded_amount = float(self.session.amount_to_precision(symbol, amount))
             if rounded_amount <= 0:
-                 logger.error(f"FEHLER: Berechneter Order-Betrag ist Null oder negativ ({rounded_amount}).")
-                 return None
-                 
+                  logger.error(f"FEHLER: Berechneter Order-Betrag ist Null oder negativ ({rounded_amount}).")
+                  return None
+
             logger.info(f"[{symbol}] Sende Market-Order: Seite={side}, Menge={rounded_amount}, Params={order_params}")
-            order = self.session.create_order(symbol, 'market', side, rounded_amount, params=order_params) 
+            order = self.session.create_order(symbol, 'market', side, rounded_amount, params=order_params)
             logger.info(f"[{symbol}] Market-Order erfolgreich platziert. ID: {order.get('id')}")
             return order
-            
+
         except ccxt.InsufficientFunds as e:
             logger.error(f"[{symbol}] Nicht genügend Guthaben für Market-Order: {e}")
             raise
@@ -247,7 +251,7 @@ class ExchangeHandler:
             # Fange "No position to close" ab
             if '22002' in str(e) or 'No position to close' in str(e).lower():
                 logger.warning(f"[{symbol}] Keine Position zum Schließen (reduceOnly).")
-                return None 
+                return None
             logger.error(f"[{symbol}] Exchange-Fehler bei Market-Order: {e}")
             raise
         except Exception as e:
@@ -258,7 +262,7 @@ class ExchangeHandler:
     # -----------------------------------------------------------------
 
     def place_trigger_market_order(self, symbol: str, side: str, amount: float, trigger_price: float, params: dict = {}):
-        """ 
+        """
         Platziert eine SL- oder TP-Order als Trigger-Market-Order (TitanBot/JaegerBot-Logik).
         """
         try:
@@ -267,9 +271,9 @@ class ExchangeHandler:
 
             order_params = {
                 'triggerPrice': rounded_price,
-                'reduceOnly': True, 
-                'productType': 'USDT-FUTURES', 
-                **params 
+                'reduceOnly': True,
+                'productType': 'USDT-FUTURES',
+                **params
             }
 
             logger.info(f"[{symbol}] Sende Trigger-Market-Order: Seite={side}, Menge={rounded_amount}, Trigger@{rounded_price}, Params={order_params}")
@@ -303,16 +307,20 @@ class ExchangeHandler:
                 **params,
                 'planType': 'trailing_stop',
                 'triggerPrice': rounded_activation,
-                'callbackRate': callback_rate_str, 
+                'callbackRate': callback_rate_str,
                 'triggerPriceType': 'market_price',
                 'productType': 'USDT-FUTURES',
-                'reduceOnly': True 
+                'reduceOnly': True
             }
-            
+
             # KORREKTUR: Entferne posSide/tradeSide/marginMode falls reduceOnly True ist
             if 'posSide' in order_params: del order_params['posSide']
             if 'tradeSide' in order_params: del order_params['tradeSide']
-            if 'marginMode' in order_params: del order_params['marginMode']
+            
+            # --- START KORREKTUR (Fehler 40774) ---
+            # Verhindere auch hier den ccxt-Standard 'marginMode' bei reduceOnly.
+            order_params['marginMode'] = None
+            # --- ENDE KORREKTUR ---
 
             logger.info(f"[{symbol}] Sende Trailing-Stop-Order: Seite={side}, Menge={rounded_amount}, Params={order_params}")
             order = self.session.create_order(symbol, 'market', side, rounded_amount, params=order_params)
@@ -321,10 +329,10 @@ class ExchangeHandler:
 
         except Exception as e:
             logger.error(f"[{symbol}] FEHLER beim Platzieren des Trailing Stop: {e} | Params: {order_params}", exc_info=True)
-            raise 
+            raise
 
-    def create_market_order_with_sl_tp(self, symbol: str, side: str, amount: float, sl_price: float, tp_price: float, margin_mode: str, 
-                                     tsl_config: dict = None):
+    def create_market_order_with_sl_tp(self, symbol: str, side: str, amount: float, sl_price: float, tp_price: float, margin_mode: str,
+                                      tsl_config: dict = None):
         """
         Führt den robusten 3-Schritt-Prozess zur Trade-Eröffnung aus (Unverändert).
         """
@@ -343,9 +351,9 @@ class ExchangeHandler:
             logger.info(f"[{symbol}] Schritt 1/3: ✅ Market-Order platziert. ID: {market_order['id']}, Geschätzter Entry: {entry_price}")
         except Exception as e:
             logger.error(f"[{symbol}] ❌ SCHRITT 1 FEHLGESCHLAGEN: Market-Order fehlgeschlagen: {e}. Breche Trade ab.")
-            raise 
+            raise
 
-        time.sleep(3) 
+        time.sleep(3)
 
         # Hole die tatsächliche Positionsgröße (wichtig für SL/TP)
         try:
@@ -383,12 +391,12 @@ class ExchangeHandler:
                 # --- A) TRAILING STOP WIRD VERWENDET ---
                 callback_rate_pct_decimal = tsl_config.get('callback_pct', 1.0) / 100.0
                 activation_margin_pct = tsl_config.get('activation_pct', 0.1) / 100.0
-                
+
                 if side == 'buy': # Long
                     activation_price = actual_entry_price * (1 + activation_margin_pct)
                 else: # Short
                     activation_price = actual_entry_price * (1 - activation_margin_pct)
-                
+
                 if side == 'buy' and sl_price > activation_price:
                     logger.warning(f"[{symbol}] KI-SL ({sl_price}) ist über TSL-Aktivierung ({activation_price}). Verwende KI-SL als Aktivierung.")
                     activation_price = sl_price
@@ -398,14 +406,14 @@ class ExchangeHandler:
 
                 logger.info(f"[{symbol}] Schritt 2/3: Platziere TRAILING Stop-Loss ({close_side})...")
                 logger.info(f"[{symbol}] (Aktivierung: {activation_price:.4f}, Callback: {callback_rate_pct_decimal * 100.0}%)")
-                
+
                 self.place_trailing_stop_order(
                     symbol=symbol,
                     side=close_side,
                     amount=final_amount,
                     activation_price=activation_price,
-                    callback_rate_decimal=callback_rate_pct_decimal, 
-                    params=trigger_params 
+                    callback_rate_decimal=callback_rate_pct_decimal,
+                    params=trigger_params
                 )
                 sl_success = True
                 logger.info(f"[{symbol}] Schritt 2/3: ✅ Trailing Stop-Loss platziert.")
@@ -416,7 +424,7 @@ class ExchangeHandler:
                 self.place_trigger_market_order(symbol, close_side, final_amount, sl_price, params=trigger_params)
                 sl_success = True
                 logger.info(f"[{symbol}] Schritt 2/3: ✅ Fixen Stop-Loss platziert.")
-        
+
         except Exception as e_sl:
             logger.error(f"[{symbol}] ❌ KRITISCH: SL-Order fehlgeschlagen: {e_sl}. Position ist UNGESCHÜTZT!")
 
