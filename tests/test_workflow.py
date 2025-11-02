@@ -60,7 +60,7 @@ def test_setup():
 
         # Verwende den ersten Bitget-Account aus der Liste
         if not secrets.get('bitget'):
-             pytest.skip("Kein 'bitget'-Eintrag in secret.json gefunden.")
+            pytest.skip("Kein 'bitget'-Eintrag in secret.json gefunden.")
 
         bitget_config = secrets['bitget']
         telegram_config = secrets.get('telegram', {}) # Optional
@@ -69,7 +69,7 @@ def test_setup():
         # Nehme das erste aktive Target
         test_target = next((t for t in config.get('targets', []) if t.get('enabled')), None)
         if not test_target:
-             pytest.skip("Kein aktives Target in config.toml für den Test gefunden.")
+            pytest.skip("Kein aktives Target in config.toml für den Test gefunden.")
 
         symbol = test_target['symbol']
         timeframe = test_target['timeframe']
@@ -83,14 +83,15 @@ def test_setup():
         exchange.cleanup_all_open_orders(symbol)
         positions = exchange.fetch_open_positions(symbol)
         if positions:
-             print(f"WARNUNG: Offene Position für {symbol} gefunden. Versuche Not-Schließung...")
-             pos = positions[0]
-             close_side = 'sell' if pos['side'] == 'long' else 'buy'
-             try:
-                 exchange.create_market_order(symbol, close_side, float(pos['contracts']), params={'reduceOnly': True})
-                 time.sleep(3) # Warte auf Schließung
-             except Exception as e_close:
-                 pytest.fail(f"Konnte initiale Position nicht schließen: {e_close}")
+            print(f"WARNUNG: Offene Position für {symbol} gefunden. Versuche Not-Schließung...")
+            pos = positions[0]
+            close_side = 'sell' if pos['side'] == 'long' else 'buy'
+            try:
+                # Nutze 'reduceOnly' um sicherzustellen, dass wir nur schließen
+                exchange.create_market_order(symbol, close_side, float(pos['contracts']), params={'reduceOnly': True, 'posSide': 'net', 'tradeSide': 'close'})
+                time.sleep(3) # Warte auf Schließung
+            except Exception as e_close:
+                pytest.fail(f"Konnte initiale Position nicht schließen: {e_close}")
         print("-> Ausgangszustand ist sauber.")
 
         # Erstelle Mock Gemini Model
@@ -108,7 +109,7 @@ def test_setup():
                 print("WARNUNG: Position nach Test noch offen. Versuche Not-Schließung.")
                 pos = positions[0]
                 close_side = 'sell' if pos['side'] == 'long' else 'buy'
-                exchange.create_market_order(symbol, close_side, float(pos['contracts']), params={'reduceOnly': True})
+                exchange.create_market_order(symbol, close_side, float(pos['contracts']), params={'reduceOnly': True, 'posSide': 'net', 'tradeSide': 'close'})
             print("-> Aufräumen abgeschlossen.")
         except Exception as e:
             print(f"FEHLER beim Aufräumen: {e}")
@@ -148,14 +149,24 @@ def test_full_utbot2_workflow_on_bitget(test_setup):
     print("[Schritt 1/3] Rufe run_strategy_cycle auf...")
     try:
         # Annahme: Kontostand ist für den Test ausreichend
-        dummy_balance = 1000 # Simulierter Kontostand für die Berechnung im Test
+        
+        # -----------------------------------------------------------------
+        # --- START DER KORREKTUR ---
+        # -----------------------------------------------------------------
+        # Erhöhe den Dummy-Kontostand, um den "Insufficient Funds"-Fehler 
+        # zu vermeiden, der durch Berechnungen > 1000 USDT entsteht.
+        dummy_balance = 2000 # <-- VON 1000 AUF 2000 ERHÖHT
+        # -----------------------------------------------------------------
+        # --- ENDE DER KORREKTUR ---
+        # -----------------------------------------------------------------
+
         run_strategy_cycle(test_target, strategy_cfg, exchange, mock_gemini, telegram_config, dummy_balance, logger)
         print("-> run_strategy_cycle ausgeführt.")
         # Wartezeit, damit Orders bei Bitget verarbeitet werden können
         print("-> Warte 10 Sekunden, damit Orders verarbeitet werden...")
         time.sleep(10)
     except Exception as e:
-         pytest.fail(f"Fehler während des Aufrufs von run_strategy_cycle: {e}")
+        pytest.fail(f"Fehler während des Aufrufs von run_strategy_cycle: {e}")
 
     # 3. Position prüfen
     print("\n[Schritt 2/3] Überprüfe, ob die Position korrekt erstellt wurde...")
@@ -174,9 +185,20 @@ def test_full_utbot2_workflow_on_bitget(test_setup):
     print("\n[Schritt 3/3] Überprüfe, ob SL/TP-Orders korrekt platziert wurden...")
     try:
         trigger_orders = exchange.fetch_open_trigger_orders(symbol)
-        # Wir erwarten 2 Trigger-Orders (1 SL, 1 TP)
-        assert len(trigger_orders) == 2, f"FEHLER: Erwartete 2 Trigger-Orders, gefunden {len(trigger_orders)}."
-        # Optional: Prüfe Preise und Seiten genauer
+        
+        # --- KORREKTUR FÜR TSL vs. FIX SL ---
+        # Wir prüfen, ob TSL in der Config aktiviert ist
+        tsl_enabled = test_target.get('risk', {}).get('trailing_stop', {}).get('enabled', False)
+        
+        if tsl_enabled:
+            # Wenn TSL aktiv ist, erwarten wir 1 TSL-Order (die SL) und 1 TP-Order
+            logger.info("TSL-Modus aktiv. Erwarte 2 Trigger-Orders (1 TSL, 1 TP).")
+            assert len(trigger_orders) == 2, f"FEHLER (TSL): Erwartete 2 Trigger-Orders, gefunden {len(trigger_orders)}."
+        else:
+            # Wenn TSL nicht aktiv ist, erwarten wir 1 fixen SL und 1 TP
+            logger.info("Fixer SL-Modus aktiv. Erwarte 2 Trigger-Orders (1 SL, 1 TP).")
+            assert len(trigger_orders) == 2, f"FEHLER (Fix SL): Erwartete 2 Trigger-Orders, gefunden {len(trigger_orders)}."
+        
         print("-> ✔ Korrekte Anzahl an SL/TP-Trigger-Orders gefunden.")
     except Exception as e:
         pytest.fail(f"Fehler beim Überprüfen der Trigger-Orders: {e}")
