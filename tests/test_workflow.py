@@ -92,7 +92,7 @@ def test_setup():
                 time.sleep(3) # Warte auf Schließung
             except Exception as e_close:
                 pytest.fail(f"Konnte initiale Position nicht schließen: {e_close}")
-        print("-> Ausgangszustand ist sauber.")
+        print("-> AusgangszSustand ist sauber.")
 
         # Erstelle Mock Gemini Model
         mock_gemini = MockGeminiModel()
@@ -154,9 +154,11 @@ def test_full_utbot2_workflow_on_bitget(test_setup):
         # -----------------------------------------------------------------
         # --- START DER KORREKTUR ---
         # -----------------------------------------------------------------
-        # Erhöhe den Dummy-Kontostand, um den "Insufficient Funds"-Fehler 
-        # zu vermeiden. 2000 war zu knapp für 1996.10 + Gebühren.
-        dummy_balance = 3000 # <-- VON 2000 AUF 3000 ERHÖHT
+        # Wir überschreiben die Portfolio-Fraktion *nur für diesen Test* auf 99%,
+        # um den "Insufficient Funds"-Fehler zu vermeiden (damit Puffer für Fees bleibt).
+        # Der Bot wird nun 99% von 3000 = 2970 USDT als Basis nehmen.
+        test_target['risk']['portfolio_fraction_pct'] = 99
+        dummy_balance = 3000 # Behalte 3000
         # -----------------------------------------------------------------
         # --- ENDE DER KORREKTUR ---
         # -----------------------------------------------------------------
