@@ -1,28 +1,37 @@
+# utils/indicator_handler.py (VOLLSTÄNDIG KORRIGIERT)
 import pandas as pd
 import pandas_ta as ta
 
+
 def calculate_indicators(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Berechnet alle benötigten technischen Indikatoren.
-    Erwartet ein DataFrame mit Spalten: open, high, low, close, volume.
+    Berechnet Stoch, MACD Histogram, Bollinger Band Position (BBP) und OBV.
+    Funktioniert robust mit allen pandas_ta Versionen.
     """
 
-    # Stochastic
+    # --- STOCH ---
     stoch = ta.stoch(df['high'], df['low'], df['close'])
-    df['stochk'] = stoch['STOCHk_14_3_3']
-    df['stochd'] = stoch['STOCHd_14_3_3']
+    df['stochk'] = stoch.iloc[:, 0]
+    df['stochd'] = stoch.iloc[:, 1]
 
-    # MACD Histogramm
+    # --- MACD HIST ---
     macd = ta.macd(df['close'])
-    df['macd_hist'] = macd['MACDh_12_26_9']
+    df['macd_hist'] = macd.iloc[:, 2]
 
-    # Bollinger Band % Position
+    # --- BOLLINGER BANDS ---
     bb = ta.bbands(df['close'], length=20, std=2)
-    df['bbp'] = (df['close'] - bb['BBL_20_2.0']) / (bb['BBU_20_2.0'] - bb['BBL_20_2.0'])
 
-    # On Balance Volume
+    # Spalten dynamisch finden (für volle Kompatibilität)
+    lower = bb.filter(like="BBL").iloc[:, 0]
+    upper = bb.filter(like="BBU").iloc[:, 0]
+
+    # BBP = relative Position innerhalb der Bänder (0 = unteres Band, 1 = oberes Band)
+    df['bbp'] = (df['close'] - lower) / (upper - lower)
+
+    # --- OBV ---
     df['obv'] = ta.obv(df['close'], df['volume'])
 
-    # Fehlende Werte entfernen
+    # NaN entfernen
     df = df.dropna()
+
     return df
