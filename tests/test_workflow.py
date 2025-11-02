@@ -77,8 +77,6 @@ def test_setup():
         
         # --- START GEISTER-POSITION WORKAROUND ---
         uncached_exchange = ExchangeHandler(bitget_config)
-        # Hinweis: Wir müssen fetch_positions mit ccxts originalen Parametern aufrufen,
-        # da der ccxt-Cache nur mit fetch_positions von ccxt ausgelöst wird.
         positions = uncached_exchange.session.fetch_positions([symbol])
         
         open_positions = [p for p in positions if abs(float(p.get('contracts', 0))) > 1e-9]
@@ -91,7 +89,6 @@ def test_setup():
             close_side = 'sell' if pos['side'] == 'long' else 'buy'
             
             try:
-                # Nutze die korrigierte Handler-Funktion zum Schließen
                 exchange.create_market_order(symbol, close_side, pos_amount, params={'reduceOnly': True})
             except Exception:
                 pass
@@ -125,8 +122,8 @@ def test_setup():
     [], 
     # 2. Abfrage in create_market_order_with_sl_tp (sollte eine offene Position zurückgeben)
     [
-        # Die Position muss den tatsächlich gehandelten Betrag widerspiegeln, damit SL/TP passen.
-        # Da wir gleich max_leverage auf 10 setzen, wird der Hebel 10x sein.
+        # Die Mock-Position muss den erwarteten Trade-Wert widerspiegeln.
+        # Bei 100% Kapital (~13 USDT) und 20x Hebel ist der Nominalwert > 13 USD.
         {'symbol': 'XRP/USDT:USDT', 'contracts': 100.0, 'side': 'long', 'entryPrice': 2.50} 
     ] 
 ])
@@ -159,11 +156,10 @@ def test_full_utbot2_workflow_on_bitget(mock_fetch_positions, test_setup):
         if real_balance < 10: 
             pytest.skip(f"Test-Guthaben ist zu gering ({real_balance:.2f} USDT). Benötige mind. 10 USDT für den Test.")
 
-        # --- START KORREKTUR: Erzwinge höheren Hebel und Kapital für Mindestvolumen ---
-        # Begrenze auf 50% und verwende 10x Hebel, um sicherzustellen, dass das Nominalvolumen
-        # > 5 USDT und > Minimum ist.
-        test_target['risk']['portfolio_fraction_pct'] = 50 
-        test_target['risk']['max_leverage'] = 10 # Setze Hebel auf 10x
+        # --- START KORREKTUR: Erzwinge maximalen Hebel und Kapital für Mindestvolumen ---
+        # Setze auf 100% und max Hebel 20x
+        test_target['risk']['portfolio_fraction_pct'] = 100 
+        test_target['risk']['max_leverage'] = 20 
         # --- ENDE KORREKTUR ---
         
         # Rufe den Zyklus auf. Dank Patch wird die erste Abfrage '[]' zurückgeben.
@@ -177,9 +173,8 @@ def test_full_utbot2_workflow_on_bitget(mock_fetch_positions, test_setup):
 
     # 3. Position prüfen
     print("\n[Schritt 2/3] Überprüfe, ob die Position korrekt erstellt wurde...")
-    # Da der Trade aufgrund des Patches erfolgreich sein sollte, prüfen wir nun den Status live
+    # fetch_open_positions wird hier LIVE aufgerufen (Mock ist aufgebraucht)
     try:
-        # fetch_open_positions wird hier LIVE aufgerufen (Mock ist aufgebraucht)
         positions = exchange.fetch_open_positions(symbol)
         assert len(positions) == 1, f"FEHLER: Erwartete 1 offene Position, gefunden {len(positions)}."
         position = positions[0]
