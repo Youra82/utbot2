@@ -115,7 +115,6 @@ class ExchangeHandler:
                 logger.info(f"[{symbol}] Housekeeper: Keine offenen Trigger-Orders gefunden.")
 
             # 2. Normale (Limit-) Orders stornieren (falls vorhanden)
-            # Annahme: utbot2 verwendet nur Market/Trigger, aber sicherheitshalber prüfen.
             normal_orders = self.session.fetch_open_orders(symbol, params={'stop': False})
             if normal_orders:
                 logger.info(f"[{symbol}] Housekeeper: {len(normal_orders)} offene normale Order(s) gefunden. Storniere...")
@@ -143,44 +142,34 @@ class ExchangeHandler:
     # --- Order Platzierung (Kernlogik von JaegerBot) ---
 
     def set_leverage(self, symbol: str, leverage: int, margin_mode: str = 'isolated'):
-        """ Setzt Hebel und Margin-Modus (von utbot2 übernommen, leicht angepasst). """
-        # Stellt sicher, dass der Hebel ein Integer ist
+        """ Setzt Hebel und Margin-Modus (unverändert). """
         leverage = int(round(leverage))
-        if leverage < 1: leverage = 1 # Mindestens 1x Hebel
-
+        if leverage < 1: leverage = 1 
         try:
-            # 1. Margin-Modus setzen (versuchen)
             try:
-                # ccxt Standardmethode
                 self.session.set_margin_mode(margin_mode.lower(), symbol)
                 logger.info(f"[{symbol}] Margin-Modus erfolgreich auf '{margin_mode.lower()}' gesetzt.")
             except ccxt.NotSupported:
                 logger.warning(f"[{symbol}] Exchange unterstützt set_margin_mode nicht explizit. Versuche über Parameter.")
             except Exception as e_margin:
-                # Ignoriere Fehler, wenn Modus schon korrekt ist
                 if 'Margin mode is the same' not in str(e_margin):
                     logger.warning(f"[{symbol}] Setzen des Margin-Modus fehlgeschlagen (ignoriert wenn bereits korrekt): {e_margin}")
 
-            # 2. Hebel setzen
-            # Bitget erfordert oft 'holdSide' für isolated margin
             params = {}
             if margin_mode.lower() == 'isolated':
-                params = {'holdSide': 'long', 'posSide': 'net'} # <--- posSide hier hinzugefügt
+                params = {'holdSide': 'long', 'posSide': 'net'}
                 try:
                     self.session.set_leverage(leverage, symbol, params=params)
-                    params = {'holdSide': 'short', 'posSide': 'net'} # <--- posSide hier hinzugefügt
+                    params = {'holdSide': 'short', 'posSide': 'net'}
                     self.session.set_leverage(leverage, symbol, params=params)
                     logger.info(f"[{symbol}] Hebel erfolgreich auf {leverage}x für Long & Short (Isolated) gesetzt.")
                 except Exception as e_lev_iso:
-                    # Ignoriere 'Leverage not changed' Fehler
                     if 'Leverage not changed' not in str(e_lev_iso) and 'repeat submit' not in str(e_lev_iso):
                         logger.error(f"[{symbol}] Fehler beim Setzen des Isolated Hebels: {e_lev_iso}"); raise
                     else:
                         logger.info(f"[{symbol}] Hebel war bereits auf {leverage}x (Isolated) gesetzt.")
-
             else: # Cross Margin
                 try:
-                    # Für Cross ist holdSide nicht nötig, aber posSide ist sicher
                     self.session.set_leverage(leverage, symbol, params={'posSide': 'net'})
                     logger.info(f"[{symbol}] Hebel erfolgreich auf {leverage}x (Cross) gesetzt.")
                 except Exception as e_lev_cross:
@@ -188,14 +177,13 @@ class ExchangeHandler:
                         logger.error(f"[{symbol}] Fehler beim Setzen des Cross Hebels: {e_lev_cross}"); raise
                     else:
                         logger.info(f"[{symbol}] Hebel war bereits auf {leverage}x (Cross) gesetzt.")
-
         except Exception as e_general:
             logger.error(f"[{symbol}] Unerwarteter Fehler beim Setzen von Hebel/Margin: {e_general}", exc_info=True)
-            raise # Im Zweifel abbrechen
+            raise
 
 
     def create_market_order(self, symbol: str, side: str, amount: float, params: dict = {}):
-        """ Erstellt eine reine Market-Order (von JaegerBot übernommen). """
+        """ Erstellt eine reine Market-Order (unverändert). """
         try:
             logger.info(f"[{symbol}] Sende Market-Order: Seite={side}, Menge={amount}, Params={params}")
             order = self.session.create_order(symbol, 'market', side, amount, params=params)
@@ -211,101 +199,90 @@ class ExchangeHandler:
             logger.error(f"[{symbol}] Unerwarteter Fehler bei Market-Order: {e}", exc_info=True)
             raise
 
-
+    # -----------------------------------------------------------------
+    # --- START KORREKTUR 1 (TP / Fixer SL) ---
+    # -----------------------------------------------------------------
     def place_trigger_market_order(self, symbol: str, side: str, amount: float, trigger_price: float, params: dict = {}):
-        """ Platziert eine SL- oder TP-Order als Trigger-Market-Order (JaegerBot-Methode). """
+        """ 
+        Platziert eine SL- oder TP-Order als Trigger-Market-Order.
+        KORRIGIERT: Verwendet 'triggerPrice' statt 'stopPrice' und 'productType' (wie JaegerBot).
+        """
         try:
-            # Runde den Preis auf die von der Exchange erlaubte Präzision
             rounded_price = float(self.session.price_to_precision(symbol, trigger_price))
+            rounded_amount = float(self.session.amount_to_precision(symbol, amount))
 
-            # Füge 'stopPrice' hinzu (wird von ccxt oft in triggerPrice umgewandelt)
-            # 'reduceOnly' ist entscheidend für SL/TP
+            # Dies ist die exakte JaegerBot/TitanBot Parameterstruktur für SL/TP
             order_params = {
-                'stopPrice': rounded_price,
-                'reduceOnly': True, # WICHTIG: Nur Position schließen, keine neue eröffnen
-                'posSide': 'net',  # Erforderlich für Bitget One-Way-Modus
-                **params # Übernimmt zusätzliche Parameter
+                'triggerPrice': rounded_price,
+                'reduceOnly': True, # WICHTIG
+                'productType': 'USDT-FUTURES', # WICHTIG für Bitget
+                **params # Übernimmt zusätzliche Parameter, falls vorhanden
             }
 
-            logger.info(f"[{symbol}] Sende Trigger-Market-Order: Seite={side}, Menge={amount}, Trigger@{rounded_price}, Params={order_params}")
+            logger.info(f"[{symbol}] Sende Trigger-Market-Order: Seite={side}, Menge={rounded_amount}, Trigger@{rounded_price}, Params={order_params}")
 
-            # Verwende 'market' als Typ, da es eine Market-Order ist, die durch stopPrice ausgelöst wird
-            order = self.session.create_order(symbol, 'market', side, amount, params=order_params)
+            order = self.session.create_order(symbol, 'market', side, rounded_amount, params=order_params)
 
             logger.info(f"[{symbol}] Trigger-Market-Order erfolgreich platziert. ID: {order.get('id')}")
             return order
 
         except ccxt.ExchangeError as e:
-            logger.error(f"[{symbol}] Exchange-Fehler bei Trigger-Order: {e}")
+            logger.error(f"[{symbol}] Exchange-Fehler bei Trigger-Order (TP/FixSL): {e}")
             raise
         except Exception as e:
-            logger.error(f"[{symbol}] Unerwarteter Fehler bei Trigger-Order: {e}", exc_info=True)
+            logger.error(f"[{symbol}] Unerwarteter Fehler bei Trigger-Order (TP/FixSL): {e}", exc_info=True)
             raise
+    # -----------------------------------------------------------------
+    # --- ENDE KORREKTUR 1 ---
+    # -----------------------------------------------------------------
+
 
     # -----------------------------------------------------------------
-    # --- NEU: Trailing Stop Loss Funktion (von JaegerBot) ---
+    # --- START KORREKTUR 2 (Trailing Stop Loss) ---
     # -----------------------------------------------------------------
-    def place_trailing_stop_order(self, symbol, side, amount, activation_price, callback_rate_pct, params={}):
+    def place_trailing_stop_order(self, symbol, side, amount, activation_price, callback_rate_decimal, params={}):
         """
-        Platziert eine Trailing Stop Market Order über die implizite API-Methode von Bitget.
-        
-        :param callback_rate_pct: Die Callback-Rate als Dezimalzahl (z.B. 0.015 für 1.5%)
+        Platziert eine Trailing Stop Market Order (Stop-Loss) über ccxt für Bitget.
+        Verwendet die Parameter-Struktur von JaegerBot/TitanBot.
+        :param callback_rate_decimal: Die Callback-Rate als Dezimalzahl (z.B. 0.01 für 1%)
         """
-        
+        if not self.markets: return None
         try:
-            # 1. Parameter für die Bitget-API vorbereiten
-            market_id = self.session.market(symbol)['id']
-            margin_coin = 'USDT' # Wir handeln :USDT-Paare
+            rounded_activation = float(self.session.price_to_precision(symbol, activation_price))
+            rounded_amount = float(self.session.amount_to_precision(symbol, amount))
+            if rounded_amount <= 0:
+                logger.error(f"FEHLER: Berechneter TSL-Betrag ist Null ({rounded_amount}).")
+                return None
 
-            # 2. 'side' umwandeln. Da dies ein SL (reduceOnly) ist, ist es immer ein "close".
-            if side == 'sell':
-                api_side = 'close_long'
-            elif side == 'buy':
-                api_side = 'close_short'
-            else:
-                raise ValueError(f"Ungültiger TSL-Side: {side}")
+            # Umwandlung von 0.015 (1.5%) -> "1.5" (String-Prozentwert für API)
+            callback_rate_str = str(callback_rate_decimal * 100)
 
-            # 3. Callback-Rate umwandeln (Dezimal 0.015 -> API-Prozent "1.5")
-            # Die API erwartet die Prozentzahl als String.
-            api_callback_rate_str = str(callback_rate_pct * 100.0)
-
-            # 4. Den API-Request-Body (die 'params') zusammenstellen
-            api_params = {
-                'symbol': market_id,
-                'marginCoin': margin_coin,
-                'planType': 'trailing_stop', # Bitget-Spezifikation für TSL
-                'side': api_side,
-                'size': str(amount),  # Größe muss als String übergeben werden
-                'triggerPrice': str(self.session.price_to_precision(symbol, activation_price)),
-                'rangeRate': api_callback_rate_str # 'rangeRate' ist Bitgets API-Name für die Callback-Rate
-                
-                # WICHTIG: posSide 'net' wird für plan/place_plan nicht benötigt,
-                # da 'close_long'/'close_short' bereits den One-Way-Modus impliziert.
+            # Exakte Parameterstruktur von JaegerBot/TitanBot
+            order_params = {
+                **params,
+                'planType': 'trailing_stop',
+                'triggerPrice': rounded_activation,  # Aktivierungspreis
+                'callbackRate': callback_rate_str, # Callback-Rate in %
+                'triggerPriceType': 'market_price',  # Löst TSL aus, wenn Marktpreis Aktivierung erreicht
+                'productType': 'USDT-FUTURES',
+                'reduceOnly': True # WICHTIG
             }
 
-            logger.info(f"Sende impliziten TSL-Aufruf: privateMixPostV2MixOrderPlaceTriggerOrder mit Params: {api_params}")
+            logger.info(f"[{symbol}] Sende Trailing-Stop-Order: Seite={side}, Menge={rounded_amount}, Params={order_params}")
             
-            # 5. Die korrekte implizite Methode aufrufen
-            # HINWEIS: JaegerBot verwendete 'place_plan', aber die v2-API (die ccxt nutzt) 
-            # heißt 'placeTriggerOrder' für alle planTypes.
-            response = self.session.privateMixPostV2MixOrderPlaceTriggerOrder(api_params)
+            # Wir verwenden die Standard create_order Funktion, KEINE implizite Methode
+            order = self.session.create_order(symbol, 'market', side, rounded_amount, params=order_params)
             
-            logger.info(f"TSL-Antwort von Bitget API: {response}")
-            
-            # Die Antwort von 'placeTriggerOrder' enthält 'data' -> 'triggerOrderId'
-            if 'data' in response and 'triggerOrderId' in response['data']:
-                # Wir geben ein ccxt-ähnliches Order-Objekt zurück
-                return {
-                    'id': response['data']['triggerOrderId'],
-                    'info': response
-                }
-            else:
-                raise Exception(f"TSL-Order platziert, aber 'triggerOrderId' nicht in Antwort gefunden: {response}")
+            logger.info(f"[{symbol}] Trailing-Stop-Order erfolgreich platziert. ID: {order.get('id')}")
+            return order
 
         except Exception as e:
-            logger.error(f"Kritischer Fehler beim Aufruf von placeTriggerOrder (TSL): {e}", exc_info=True)
-            # Fehler weitergeben, damit der trade_manager ihn fangen und den Fallback (fixen SL) ausführen kann
-            raise e
+            logger.error(f"[{symbol}] FEHLER beim Platzieren des Trailing Stop: {e} | Params: {order_params}", exc_info=True)
+            raise # Fehler weiterleiten
+    # -----------------------------------------------------------------
+    # --- ENDE KORREKTUR 2 ---
+    # -----------------------------------------------------------------
+
 
     # -----------------------------------------------------------------
     # --- ANGEPASSTE Haupt-Order-Funktion ---
@@ -322,8 +299,7 @@ class ExchangeHandler:
 
         # 1. Market-Order (Einstieg)
         try:
-            # --- KORREKTUR FÜR FEHLER 40774 ---
-            # Wir müssen Bitget explizit sagen, dass dies eine 'open'-Order im One-Way-Modus ('net') ist.
+            # KORREKTUR FÜR FEHLER 40774 (Unverändert)
             market_params = {
                 'posSide': 'net',
                 'tradeSide': 'open' # <--- DER WICHTIGE FIX
@@ -334,31 +310,27 @@ class ExchangeHandler:
             logger.info(f"[{symbol}] Schritt 1/3: ✅ Market-Order platziert. ID: {market_order['id']}, Geschätzter Entry: {entry_price}")
         except Exception as e:
             logger.error(f"[{symbol}] ❌ SCHRITT 1 FEHLGESCHLAGEN: Market-Order fehlgeschlagen: {e}. Breche Trade ab.")
-            # Kein Housekeeping nötig, da keine Position eröffnet wurde
-            raise # Fehler weiterleiten, um den Trade-Versuch zu stoppen
+            raise 
 
-        # Kurze Pause, damit die Position bei der Exchange registriert wird
-        time.sleep(3) # 3 Sekunden sollten sicher sein
+        time.sleep(3) # Pause für Positionsbestätigung
 
         # Hole die tatsächliche Positionsgröße (wichtig für SL/TP)
         try:
             final_position = self.fetch_open_positions(symbol)
             if not final_position:
-                # Manchmal dauert es länger oder die Order wurde nur teilweise gefüllt
                 logger.warning(f"[{symbol}] Position nach Market-Order nicht sofort gefunden. Versuche erneut in 5s...")
                 time.sleep(5)
                 final_position = self.fetch_open_positions(symbol)
                 if not final_position:
                     raise Exception(f"Position konnte nach Market-Order ID {market_order['id']} nicht bestätigt werden. Manuelle Prüfung erforderlich!")
 
-            # Nehme die erste gefundene Position (sollte nur eine sein)
             final_amount = float(final_position[0]['contracts'])
             actual_entry_price = float(final_position[0]['entryPrice'])
             logger.info(f"[{symbol}] Position bestätigt: Menge={final_amount}, Exakter Entry={actual_entry_price}")
 
         except Exception as e:
             logger.error(f"[{symbol}] ❌ KRITISCH: Konnte Position nach Market-Order nicht bestätigen: {e}. Position ist offen aber UNGESCHÜTZT! Versuche Housekeeping.")
-            self.cleanup_all_open_orders(symbol) # Versuche SL/TP zu löschen, falls welche platziert wurden
+            self.cleanup_all_open_orders(symbol)
             raise Exception(f"Positionsbestätigung fehlgeschlagen, SL/TP nicht platziert! Manuelle Prüfung für {symbol} nötig.") from e
 
 
@@ -367,26 +339,25 @@ class ExchangeHandler:
         sl_success = False
         tp_success = False
 
+        # --- KORREKTUR: Params für Trigger-Orders (TitanBot-Stil) ---
+        # Diese Params werden sowohl für TSL als auch für TP verwendet
+        trigger_params = {
+            'reduceOnly': True,
+            'productType': 'USDT-FUTURES'
+        }
+
         # 3. Stop-Loss (Trigger-Order ODER TSL)
         try:
-            # --- NEUE IF/ELSE LOGIK FÜR TSL ---
             if tsl_config and tsl_config.get('enabled', False):
                 # --- A) TRAILING STOP WIRD VERWENDET ---
-                
-                # Hole TSL-Parameter aus der Config (mit Fallbacks)
-                callback_rate_pct_decimal = tsl_config.get('callback_pct', 1.0) / 100.0  # (z.B. config 1.5 -> 0.015)
-                activation_margin_pct = tsl_config.get('activation_pct', 0.1) / 100.0 # (z.B. config 2.0 -> 0.02, fallback 0.1%)
+                callback_rate_pct_decimal = tsl_config.get('callback_pct', 1.0) / 100.0
+                activation_margin_pct = tsl_config.get('activation_pct', 0.1) / 100.0
                 
                 if side == 'buy': # Long
-                    # TSL Aktivierungspreis (z.B. 2% über dem Einstieg)
                     activation_price = actual_entry_price * (1 + activation_margin_pct)
                 else: # Short
-                    # TSL Aktivierungspreis (z.B. 2% unter dem Einstieg)
                     activation_price = actual_entry_price * (1 - activation_margin_pct)
                 
-                # Der von der KI berechnete fixe SL wird zum "Notstopp" (failsafe)
-                # Wir prüfen, ob der KI-SL *näher* am Preis ist als der TSL-Aktivierungspreis.
-                # Wenn ja, nutzen wir den KI-SL als Aktivierungspreis, um das Risiko zu minimieren.
                 if side == 'buy' and sl_price > activation_price:
                     logger.warning(f"[{symbol}] KI-SL ({sl_price}) ist über TSL-Aktivierung ({activation_price}). Verwende KI-SL als Aktivierung.")
                     activation_price = sl_price
@@ -402,7 +373,8 @@ class ExchangeHandler:
                     side=close_side,
                     amount=final_amount,
                     activation_price=activation_price,
-                    callback_rate_pct=callback_rate_pct_decimal # (Hier als Dezimal übergeben, z.B. 0.015)
+                    callback_rate_decimal=callback_rate_pct_decimal, # KORRIGIERTER PARAMETERNAME
+                    params=trigger_params # KORREKTUR: Params übergeben
                 )
                 sl_success = True
                 logger.info(f"[{symbol}] Schritt 2/3: ✅ Trailing Stop-Loss platziert.")
@@ -410,26 +382,23 @@ class ExchangeHandler:
             else:
                 # --- B) FIXER STOP-LOSS WIRD VERWENDET (Alte Logik) ---
                 logger.info(f"[{symbol}] Schritt 2/3: Platziere fixen Stop-Loss ({close_side}) bei {sl_price} für Menge {final_amount}...")
-                self.place_trigger_market_order(symbol, close_side, final_amount, sl_price) # reduceOnly & posSide ist in place_trigger_market_order Standard
+                self.place_trigger_market_order(symbol, close_side, final_amount, sl_price, params=trigger_params) # KORREKTUR: Params übergeben
                 sl_success = True
                 logger.info(f"[{symbol}] Schritt 2/3: ✅ Fixen Stop-Loss platziert.")
         
         except Exception as e_sl:
             logger.error(f"[{symbol}] ❌ KRITISCH: SL-Order fehlgeschlagen: {e_sl}. Position ist UNGESCHÜTZT!")
-            # Nicht abbrechen, TP trotzdem versuchen
 
         # 4. Take-Profit (Trigger-Order mit reduceOnly)
         try:
             logger.info(f"[{symbol}] Schritt 3/3: Platziere Take-Profit ({close_side}) bei {tp_price} für Menge {final_amount}...")
-            self.place_trigger_market_order(symbol, close_side, final_amount, tp_price)
+            self.place_trigger_market_order(symbol, close_side, final_amount, tp_price, params=trigger_params) # KORREKTUR: Params übergeben
             tp_success = True
             logger.info(f"[{symbol}] Schritt 3/3: ✅ Take-Profit platziert.")
         except Exception as e_tp:
             logger.error(f"[{symbol}] ❌ WARNUNG: TP-Order fehlgeschlagen: {e_tp}.")
-            # Wenn SL erfolgreich war, ist die Position zumindest geschützt.
 
-        # 5. Gebe die ursprüngliche Market-Order zurück (enthält ID und Timestamp)
-        # Füge den tatsächlichen Einstiegspreis hinzu, falls verfügbar
+        # 5. Gebe die ursprüngliche Market-Order zurück
         market_order['average'] = actual_entry_price
-        market_order['filled'] = final_amount # Füge die tatsächliche Menge hinzu
+        market_order['filled'] = final_amount
         return market_order
