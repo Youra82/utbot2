@@ -83,23 +83,42 @@ def test_setup():
         print(f"-> Führe initiales Aufräumen für {symbol} durch...")
         exchange.cleanup_all_open_orders(symbol)
         positions = exchange.fetch_open_positions(symbol)
-        
+
         # -----------------------------------------------------------------
-        # --- START DER KORREKTUR (Test-Setup / Variante A+B) ---
+        # --- START DER KORREKTUR (Test-Setup / Fehler 40774) ---
         # -----------------------------------------------------------------
         if positions:
             pos = positions[0]
             pos_amount = float(pos.get('contracts', 0))
 
+            # --- START NEUE KORREKTUR (Fehler 40774) ---
+            # Lese den Margin-Modus aus der bestehenden Position
+            # 'marginMode' ist der ccxt-Standard ('cross' oder 'isolated')
+            # 'pos' ist die rohe ccxt-Antwort, daher 'marginMode'
+            pos_margin_mode = pos.get('marginMode') 
+            if not pos_margin_mode:
+                # Fallback, falls 'marginMode' nicht im Hauptobjekt ist
+                pos_margin_mode = pos.get('info', {}).get('marginMode', 'crossed') # Standard-Fallback
+            
+            logger.info(f"Position hat Margin-Modus: {pos_margin_mode}")
+            
+            # Baue die Parameter für den Schließ-Befehl
+            close_params = {
+                'reduceOnly': True,
+                'marginMode': pos_margin_mode # Explizit den Modus der Position senden
+            }
+            # --- ENDE NEUE KORREKTUR ---
+
+
             # Variante A: Prüfe, ob die Position tatsächlich eine Größe hat
             if abs(pos_amount) > 1e-9: # Robuste Prüfung statt > 0
                 print(f"WARNUNG: Offene Position ({pos_amount} {symbol}) gefunden. Versuche Not-Schließung...")
                 close_side = 'sell' if pos['side'] == 'long' else 'buy'
-                
+
                 # Variante B: Fange den Fehler "22002" (No position to close) ab
                 try:
-                    # Verwende die korrekten Parameter (NUR reduceOnly)
-                    exchange.create_market_order(symbol, close_side, pos_amount, params={'reduceOnly': True})
+                    # Verwende die korrekten Parameter (NUR reduceOnly + marginMode)
+                    exchange.create_market_order(symbol, close_side, pos_amount, params=close_params)
                     time.sleep(3) # Warte auf Schließung
                 except ccxt.ExchangeError as e_close:
                     if '22002' in str(e_close) or 'No position to close' in str(e_close):
@@ -108,7 +127,7 @@ def test_setup():
                         # Ein anderer Fehler (z.B. API-Keys) ist aufgetreten
                         pytest.fail(f"Konnte initiale Position nicht schließen (Unerwarteter ExchangeError): {e_close}")
                 except Exception as e_generic:
-                     pytest.fail(f"Konnte initiale Position nicht schließen (Allg. Fehler): {e_generic}")
+                    pytest.fail(f"Konnte initiale Position nicht schließen (Allg. Fehler): {e_generic}")
             else:
                 print("INFO: Positionsobjekt gefunden, aber Menge ist 0. Nichts zu schließen.")
         # -----------------------------------------------------------------
@@ -128,19 +147,30 @@ def test_setup():
         try:
             exchange.cleanup_all_open_orders(symbol)
             positions = exchange.fetch_open_positions(symbol)
-            
+
             # -----------------------------------------------------------------
-            # --- START DER KORREKTUR (Test-Teardown / Variante A+B) ---
+            # --- START DER KORREKTUR (Test-Teardown / Fehler 40774) ---
             # -----------------------------------------------------------------
             if positions:
                 pos = positions[0]
                 pos_amount = float(pos.get('contracts', 0))
+
+                # --- START NEUE KORREKTUR (Teardown) ---
+                pos_margin_mode = pos.get('marginMode') 
+                if not pos_margin_mode:
+                    pos_margin_mode = pos.get('info', {}).get('marginMode', 'crossed')
                 
+                close_params_teardown = {
+                    'reduceOnly': True,
+                    'marginMode': pos_margin_mode
+                }
+                # --- ENDE NEUE KORREKTUR (Teardown) ---
+
                 if abs(pos_amount) > 1e-9:
                     print(f"WARNUNG: Position nach Test noch offen ({pos_amount} {symbol}). Versuche Not-Schließung.")
                     close_side = 'sell' if pos['side'] == 'long' else 'buy'
                     try:
-                        exchange.create_market_order(symbol, close_side, pos_amount, params={'reduceOnly': True})
+                        exchange.create_market_order(symbol, close_side, pos_amount, params=close_params_teardown)
                         time.sleep(3)
                     except ccxt.ExchangeError as e_teardown:
                         # Im Teardown wollen wir den Test nicht fehlschlagen lassen, nur loggen.
@@ -193,11 +223,11 @@ def test_full_utbot2_workflow_on_bitget(test_setup):
     # 2. Hauptzyklus aufrufen
     print("[Schritt 1/3] Rufe run_strategy_cycle auf...")
     try:
-        
+
         # --- KORREKTUR (TitanBot-Stil) ---
         # 1. Wir verwenden KEIN dummy_balance mehr.
         # 2. Wir holen das ECHTE Guthaben, um sicherzustellen, dass der Test laufen KANN.
-        
+
         try:
             real_balance = exchange.fetch_balance_usdt()
             logger.info(f"[Test Workflow] Aktuelles Test-Guthaben: {real_balance:.2f} USDT")
@@ -209,15 +239,15 @@ def test_full_utbot2_workflow_on_bitget(test_setup):
         # 3. Wir setzen die portfolio_fraction_pct zurück auf den Wert aus der config
         original_target_config = next((t for t in config.get('targets', []) if t.get('symbol') == symbol), None)
         if original_target_config:
-             test_target['risk']['portfolio_fraction_pct'] = original_target_config['risk']['portfolio_fraction_pct']
+                test_target['risk']['portfolio_fraction_pct'] = original_target_config['risk']['portfolio_fraction_pct']
         else:
-             logger.warning("Konnte Original-Config nicht finden, fahre mit potenziell altem Wert fort.")
+                logger.warning("Konnte Original-Config nicht finden, fahre mit potenziell altem Wert fort.")
 
 
         # 4. Rufe den Zyklus OHNE balance-Argument auf.
         run_strategy_cycle(test_target, strategy_cfg, exchange, mock_gemini, telegram_config, logger)
         # --- ENDE KORREKTUR ---
-        
+
         print("-> run_strategy_cycle ausgeführt.")
         # Wartezeit, damit Orders bei Bitget verarbeitet werden können
         print("-> Warte 10 Sekunden, damit Orders verarbeitet werden...")
@@ -240,10 +270,10 @@ def test_full_utbot2_workflow_on_bitget(test_setup):
     print("\n[Schritt 3/3] Überprüfe, ob SL/TP-Orders korrekt platziert wurden...")
     try:
         trigger_orders = exchange.fetch_open_trigger_orders(symbol)
-        
+
         # Wir prüfen, ob TSL in der Config aktiviert ist
         tsl_enabled = test_target.get('risk', {}).get('trailing_stop', {}).get('enabled', False)
-        
+
         if tsl_enabled:
             # Wenn TSL aktiv ist, erwarten wir 1 TSL-Order (die SL) und 1 TP-Order
             logger.info("TSL-Modus aktiv. Erwarte 2 Trigger-Orders (1 TSL, 1 TP).")
@@ -252,7 +282,7 @@ def test_full_utbot2_workflow_on_bitget(test_setup):
             # Wenn TSL nicht aktiv ist, erwarten wir 1 fixen SL und 1 TP
             logger.info("Fixer SL-Modus aktiv. Erwarte 2 Trigger-Orders (1 SL, 1 TP).")
             assert len(trigger_orders) == 2, f"FEHLER (Fix SL): Erwartete 2 Trigger-Orders, gefunden {len(trigger_orders)}."
-        
+
         print("-> ✔ Korrekte Anzahl an SL/TP-Trigger-Orders gefunden.")
     except Exception as e:
         pytest.fail(f"Fehler beim Überprüfen der Trigger-Orders: {e}")
