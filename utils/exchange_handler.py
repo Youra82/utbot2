@@ -1,4 +1,4 @@
-# utbot2/utils/exchange_handler.py (Version 3.9 - Korrigiert für Fehler 40774)
+# utbot2/utils/exchange_handler.py (Version 3.9 - Korrigiert für 40774 & 400172)
 import ccxt
 import logging
 import pandas as pd
@@ -213,25 +213,25 @@ class ExchangeHandler:
             if 'productType' not in order_params:
                 order_params['productType'] = 'USDT-FUTURES'
 
-            # --- KORREKTUR (stbot-Logik / Deine Analyse) ---
-            # Wenn 'reduceOnly' True ist, dürfen 'posSide', 'tradeSide' und 'marginMode'
-            # NICHT im Request enthalten sein, da Bitget sonst 40774 oder 22002 wirft.
+            # --- START KORREKTUR (Fehler 40774 / 400172) ---
+            # Für "One-Way Mode" (unilateral) Konten MUSS posSide='net' IMMER
+            # gesendet werden, sowohl beim Öffnen als auch beim Schließen.
+            if 'posSide' not in order_params:
+                order_params['posSide'] = 'net'
+            
             is_reduce_only = str(order_params.get('reduceOnly', 'false')).lower() == 'true'
 
             if is_reduce_only:
-                if 'posSide' in order_params:
-                    logger.debug(f"Entferne 'posSide' aus reduceOnly-Order-Params.")
-                    del order_params['posSide']
+                # 'tradeSide' (z.B. 'open') darf NICHT mit 'reduceOnly' gesendet werden.
                 if 'tradeSide' in order_params:
                     logger.debug(f"Entferne 'tradeSide' aus reduceOnly-Order-Params.")
                     del order_params['tradeSide']
                 
-                # --- START KORREKTUR (Fehler 40774) ---
-                # Setze marginMode auf None, um ccxt-Standard ('crossed') zu überschreiben,
-                # was im "One-Way Mode" (unilateral) zu Fehler 40774 führt.
-                order_params['marginMode'] = None
-                # --- ENDE KORREKTUR ---
+                # 'posSide' NICHT löschen, wird für One-Way Mode benötigt.
                 
+                # 'marginMode = None' (mein alter Fix) war FALSCH und verursachte Fehler 400172.
+                # Wir lassen ccxt einfach den Standard-marginMode senden ('crossed'),
+                # was in Kombination mit posSide='net' korrekt ist.
             # --- ENDE KORREKTUR ---
 
             rounded_amount = float(self.session.amount_to_precision(symbol, amount))
@@ -252,6 +252,12 @@ class ExchangeHandler:
             if '22002' in str(e) or 'No position to close' in str(e).lower():
                 logger.warning(f"[{symbol}] Keine Position zum Schließen (reduceOnly).")
                 return None
+            
+            # --- NEU: Fange Fehler 40774 (One-Way-Mode-Konflikt) explizit ab, falls er erneut auftritt
+            if '40774' in str(e) or 'unilateral position' in str(e):
+                 logger.error(f"[{symbol}] Kritischer API-Konflikt (40774) im One-Way-Mode: {e}")
+                 raise
+
             logger.error(f"[{symbol}] Exchange-Fehler bei Market-Order: {e}")
             raise
         except Exception as e:
@@ -275,6 +281,17 @@ class ExchangeHandler:
                 'productType': 'USDT-FUTURES',
                 **params
             }
+            
+            # --- START KORREKTUR (Fehler 40774 / 400172) ---
+            # Auch Trigger-Orders (SL/TP) benötigen posSide='net' im One-Way-Mode.
+            if 'posSide' not in order_params:
+                order_params['posSide'] = 'net'
+                
+            # 'tradeSide' (z.B. 'open') darf NICHT mit 'reduceOnly' gesendet werden.
+            if 'tradeSide' in order_params:
+                del order_params['tradeSide']
+            # --- ENDE KORREKTUR ---
+
 
             logger.info(f"[{symbol}] Sende Trigger-Market-Order: Seite={side}, Menge={rounded_amount}, Trigger@{rounded_price}, Params={order_params}")
             order = self.session.create_order(symbol, 'market', side, rounded_amount, params=order_params)
@@ -313,13 +330,16 @@ class ExchangeHandler:
                 'reduceOnly': True
             }
 
-            # KORREKTUR: Entferne posSide/tradeSide/marginMode falls reduceOnly True ist
-            if 'posSide' in order_params: del order_params['posSide']
-            if 'tradeSide' in order_params: del order_params['tradeSide']
+            # --- START KORREKTUR (Fehler 40774 / 400172) ---
+            # Auch TSL-Orders benötigen posSide='net' im One-Way-Mode.
+            if 'posSide' not in order_params:
+                order_params['posSide'] = 'net'
+
+            # 'tradeSide' (z.B. 'open') darf NICHT mit 'reduceOnly' gesendet werden.
+            if 'tradeSide' in order_params:
+                del order_params['tradeSide']
             
-            # --- START KORREKTUR (Fehler 40774) ---
-            # Verhindere auch hier den ccxt-Standard 'marginMode' bei reduceOnly.
-            order_params['marginMode'] = None
+            # 'marginMode' nicht auf None setzen.
             # --- ENDE KORREKTUR ---
 
             logger.info(f"[{symbol}] Sende Trailing-Stop-Order: Seite={side}, Menge={rounded_amount}, Params={order_params}")
@@ -341,7 +361,7 @@ class ExchangeHandler:
         # 1. Market-Order (Einstieg)
         try:
             market_params = {
-                'posSide': 'net',
+                'posSide': 'net', # 'net' ist korrekt für One-Way-Mode
                 'tradeSide': 'open'
                 # productType wird von create_market_order automatisch hinzugefügt
             }
@@ -383,6 +403,7 @@ class ExchangeHandler:
         trigger_params = {
             'reduceOnly': True,
             'productType': 'USDT-FUTURES'
+            # posSide: 'net' wird von den place_... Funktionen hinzugefügt
         }
 
         # 3. Stop-Loss (Trigger-Order ODER TSL)
