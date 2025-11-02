@@ -1,4 +1,4 @@
-# tests/test_workflow.py (KORRIGIERT: OHLCV Mocking-Daten)
+# tests/test_workflow.py (FINALER FIX: Korrigierte side_effect Kette)
 import pytest 
 import os
 import sys
@@ -7,7 +7,7 @@ import logging
 import time
 from unittest.mock import MagicMock, patch 
 import ccxt 
-import pandas as pd # Importieren, um NameError zu vermeiden
+import pandas as pd 
 
 # Füge das Projekt-Hauptverzeichnis zum Python-Pfad hinzu
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
@@ -31,7 +31,6 @@ class MockGeminiModel:
         self.response_json = {"aktion": "HALTEN", "stop_loss": 0, "take_profit": 0}
 
     def set_next_response(self, action="KAUFEN", sl=10000, tp=12000):
-        """ Legt die nächste JSON-Antwort fest, die simuliert werden soll. """
         self.response_json = {"aktion": action, "stop_loss": sl, "take_profit": tp}
 
     def generate_content(self, prompt, generation_config=None, safety_settings=None):
@@ -138,6 +137,7 @@ def test_setup():
         exchange.cleanup_all_open_orders(symbol)
         
         # --- START GEISTER-POSITION WORKAROUND ---
+        # Die Positionsabfrage MUSS über die echte Session laufen, um den Cache zu erwischen.
         positions = exchange.session.fetch_positions([symbol])
         
         open_positions = [p for p in positions if abs(float(p.get('contracts', 0))) > 1e-9]
@@ -184,7 +184,7 @@ def mock_exchange_methods(request):
     if request.node.name == 'test_full_utbot2_workflow_on_bitget':
         exchange_handler_path = 'utils.exchange_handler.ExchangeHandler'
         
-        # Patch cleanup_all_open_orders
+        # Patch cleanup_all_open_orders (stellt sicher, dass der Aufruf im Bot-Code nicht fehlschlägt)
         with patch(f'{exchange_handler_path}.cleanup_all_open_orders', MagicMock(return_value=0), create=True):
             # Patch create_market_order
             with patch(f'{exchange_handler_path}.create_market_order', MagicMock(return_value={'id': 'mock_market_id', 'average': 2.50, 'filled': 100.0}), create=True):
@@ -193,11 +193,13 @@ def mock_exchange_methods(request):
                     # Patch create_market_order_with_sl_tp
                     with patch(f'{exchange_handler_path}.create_market_order_with_sl_tp', MagicMock(return_value={'id': 'mock_id_sl_tp', 'average': 2.50, 'filled': 100.0}), create=True):
                         
-                        # Patch fetch_open_positions mit side_effect
+                        # --- KORRIGIERTE side_effect KETTE (3 Aufrufe) ---
                         with patch(f'{exchange_handler_path}.fetch_open_positions', side_effect=[
-                            # 1. Abfrage in run_strategy_cycle (sollte leer sein)
-                            [], 
-                            # 2. Abfrage in create_market_order_with_sl_tp (sollte eine offene Position zurückgeben)
+                            # 1. Aufruf im SETUP (Geister-Check)
+                            [{'symbol': 'XRP/USDT:USDT', 'contracts': 19.0, 'side': 'long', 'entryPrice': 2.50}], 
+                            # 2. Aufruf in run_strategy_cycle (sollte leer sein, damit Trade startet)
+                            [],
+                            # 3. Aufruf in create_market_order_with_sl_tp (soll die neue Position bestätigen)
                             [
                                 {'symbol': 'XRP/USDT:USDT', 'contracts': 100.0, 'side': 'long', 'entryPrice': 2.50} 
                             ] 
@@ -211,9 +213,9 @@ def mock_exchange_methods(request):
                                 with patch(f'{exchange_handler_path}.fetch_ticker', MagicMock(return_value={'last': 2.50}), create=True):
                                     # Patch fetch_balance_usdt
                                     with patch(f'{exchange_handler_path}.fetch_balance_usdt', MagicMock(return_value=100.0), create=True):
-                                         # Patch fetch_ohlcv (KORRIGIERT: Muss 60+ Zeilen haben)
+                                         # Patch fetch_ohlcv 
                                          with patch(f'{exchange_handler_path}.fetch_ohlcv', MagicMock(return_value=pd.DataFrame(
-                                             # Erstellen Sie 100 Zeilen, um die 60er-Prüfung in main.py zu bestehen
+                                             # 100 Zeilen, um die 60er-Prüfung in main.py zu bestehen
                                              {'open': 2.4, 'high': 2.6, 'low': 2.3, 'close': 2.5, 'volume': 1000}, 
                                              index=pd.to_datetime(pd.RangeIndex(start=1, stop=101), unit='s', utc=True)
                                          ).iloc[:100]), create=True):
