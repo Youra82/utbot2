@@ -5,7 +5,7 @@ import sys
 import json
 import logging
 import time
-from unittest.mock import MagicMock, patch # <--- NEU: 'patch' für Mocking der Exchange
+from unittest.mock import MagicMock, patch 
 import ccxt 
 
 # Füge das Projekt-Hauptverzeichnis zum Python-Pfad hinzu
@@ -76,12 +76,9 @@ def test_setup():
         exchange.cleanup_all_open_orders(symbol)
         
         # --- START GEISTER-POSITION WORKAROUND ---
-        # 1. Prüfen, ob die Geisterposition existiert (ohne Cache-Buster, da der fehlschlagen könnte)
-        # Wir verwenden eine neue, unsaubere Instanz, um die rohen Caches nicht zu stören.
         uncached_exchange = ExchangeHandler(bitget_config)
         positions = uncached_exchange.session.fetch_positions([symbol])
         
-        # Geisterpositionen sind oft einfach Einträge ohne tatsächlichen Kontraktbetrag
         open_positions = [p for p in positions if abs(float(p.get('contracts', 0))) > 1e-9]
 
         if open_positions:
@@ -91,16 +88,12 @@ def test_setup():
             print(f"WARNUNG: Geister-Position ({pos_amount} {symbol}) im CCXT-Cache gefunden. Versuche zu löschen...")
             close_side = 'sell' if pos['side'] == 'long' else 'buy'
             
-            # Wir versuchen den Schließbefehl erneut mit dem Wissen, dass es fehlschlagen wird.
-            # Dies ist nur ein Versuch, die Daten bei Bitget zu "aktualisieren".
             try:
                 exchange.create_market_order(symbol, close_side, pos_amount, params={'reduceOnly': True})
             except Exception:
-                pass # Ignoriere, wir wissen, dass die echte Position nicht da ist.
+                pass
             
             print("-> Geister-Position Workaround durchgeführt. Ignoriere verbleibende Caches.")
-
-
         # --- ENDE GEISTER-POSITION WORKAROUND ---
 
         print("-> Ausgangszustand ist sauber.")
@@ -115,9 +108,6 @@ def test_setup():
         print("\n--- [Teardown] Räume nach dem Test auf... ---")
         try:
             exchange.cleanup_all_open_orders(symbol)
-            
-            # Im Teardown prüfen wir nicht auf den Geister-Cache, da wir ihn im Test absichtlich füllen.
-            
             print("-> Aufräumen abgeschlossen.")
         except Exception as e:
             print(f"FEHLER beim Aufräumen: {e}")
@@ -127,7 +117,6 @@ def test_setup():
 
 
 # --- Der eigentliche Test ---
-# Wir patchen fetch_open_positions, um den fehlerhaften Cache zu umgehen.
 @patch('utils.exchange_handler.ExchangeHandler.fetch_open_positions', side_effect=[
     # 1. Abfrage in run_strategy_cycle (sollte leer sein)
     [], 
@@ -139,7 +128,7 @@ def test_setup():
 def test_full_utbot2_workflow_on_bitget(mock_fetch_positions, test_setup):
     """
     Testet den vereinfachten Handelsablauf von utbot2 auf Bitget.
-    Wir fassen die Positionsabfragen im Hauptzyklus ab, um den Geister-Cache zu umgehen
+    Wir patchen die Positionsabfragen im Hauptzyklus ab, um den Geister-Cache zu umgehen
     und den Trade-Prozess zu erzwingen.
     """
     exchange, mock_gemini, config, test_target, telegram_config, logger = test_setup
@@ -165,12 +154,11 @@ def test_full_utbot2_workflow_on_bitget(mock_fetch_positions, test_setup):
         if real_balance < 10: 
             pytest.skip(f"Test-Guthaben ist zu gering ({real_balance:.2f} USDT). Benötige mind. 10 USDT für den Test.")
 
-        original_target_config = next((t for t in config.get('targets', []) if t.get('symbol') == symbol), None)
-        if original_target_config:
-                test_target['risk']['portfolio_fraction_pct'] = original_target_config['risk']['portfolio_fraction_pct']
-        else:
-                logger.warning("Konnte Original-Config nicht finden, fahre mit potenziell altem Wert fort.")
-
+        # --- START KORREKTUR: Erzwinge geringeren Kapitalanteil im Test ---
+        # Begrenze auf 50% um Insufficient Funds durch Rundungsdifferenzen zu vermeiden.
+        test_target['risk']['portfolio_fraction_pct'] = 50 
+        # --- ENDE KORREKTUR ---
+        
         # Rufe den Zyklus auf. Dank Patch wird die erste Abfrage '[]' zurückgeben.
         run_strategy_cycle(test_target, strategy_cfg, exchange, mock_gemini, telegram_config, logger)
 
@@ -182,9 +170,9 @@ def test_full_utbot2_workflow_on_bitget(mock_fetch_positions, test_setup):
 
     # 3. Position prüfen
     print("\n[Schritt 2/3] Überprüfe, ob die Position korrekt erstellt wurde...")
-    # Da der zweite Aufruf von fetch_open_positions gemockt ist, prüfen wir den Live-Status
+    # Dies wird fehlschlagen, wenn der Trade zuvor mit InsufficientFunds abgebrochen wurde
     try:
-        positions = exchange.fetch_open_positions(symbol) # Dies ist jetzt die LIVE-Antwort
+        positions = exchange.fetch_open_positions(symbol)
         assert len(positions) == 1, f"FEHLER: Erwartete 1 offene Position, gefunden {len(positions)}."
         position = positions[0]
         assert position['side'] == 'long', f"FEHLER: Erwartete 'long' Position, gefunden '{position['side']}'."
