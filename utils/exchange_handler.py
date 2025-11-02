@@ -71,18 +71,35 @@ class ExchangeHandler:
             # Im Fehlerfall 0 zurückgeben, um riskante Trades zu verhindern
             return 0.0
 
-    # --- Positions- und Order-Management (unverändert) ---
-
+    # -----------------------------------------------------------------
+    # --- START KORREKTUR (fetch_open_positions) ---
+    # -----------------------------------------------------------------
     def fetch_open_positions(self, symbol: str):
-        """ Holt alle offenen Positionen für ein Symbol. """
+        """ Holt alle offenen Positionen für ein Symbol (TitanBot-Logik). """
         try:
-            positions = self.session.fetch_positions([symbol])
-            # Filtert nach Positionen, die tatsächlich eine Größe haben
-            open_positions = [p for p in positions if p.get('contracts') is not None and float(p['contracts']) > 0]
+            # WICHTIG: Spezifiziere 'USDT-FUTURES'
+            params = {'productType': 'USDT-FUTURES'}
+            positions = self.session.fetch_positions([symbol], params=params)
+            
+            # Filtert nach Positionen, die tatsächlich eine Größe haben (robuste Prüfung)
+            open_positions = []
+            for p in positions:
+                try:
+                    contracts_str = p.get('contracts')
+                    # Verwende abs() > 1e-9 für eine robuste Prüfung statt > 0
+                    if contracts_str is not None and abs(float(contracts_str)) > 1e-9:
+                        open_positions.append(p)
+                except (ValueError, TypeError) as e:
+                    logger.warning(f"[{symbol}] Ungültiger 'contracts'-Wert in Positionsdaten: {contracts_str}. Fehler: {e}")
+                    continue
             return open_positions
+            
         except Exception as e:
             logger.error(f"[{symbol}] Fehler beim Abrufen offener Positionen: {e}", exc_info=True)
             raise # Wichtig, dass der Bot im Fehlerfall stoppt
+    # -----------------------------------------------------------------
+    # --- ENDE KORREKTUR ---
+    # -----------------------------------------------------------------
 
     def fetch_open_trigger_orders(self, symbol: str):
         """ Ruft alle offenen Trigger-Orders (SL/TP) für ein Symbol ab (JaegerBot-Methode). """
@@ -181,31 +198,23 @@ class ExchangeHandler:
             logger.error(f"[{symbol}] Unerwarteter Fehler beim Setzen von Hebel/Margin: {e_general}", exc_info=True)
             raise
 
-    # -----------------------------------------------------------------
-    # --- START KORREKTUR (create_market_order) ---
-    # -----------------------------------------------------------------
     def create_market_order(self, symbol: str, side: str, amount: float, params: dict = {}):
         """ 
-        Erstellt eine reine Market-Order (JETZT MIT TITANBOT-LOGIK).
+        Erstellt eine reine Market-Order (MIT TITANBOT-LOGIK).
         Fügt 'productType' hinzu und rundet den Betrag.
         """
         try:
-            # --- START KORREKTUR (TitanBot-Logik) ---
             order_params = {**params}
             if 'productType' not in order_params:
-                # Füge productType hinzu, wenn es nicht vom Aufrufer 
-                # bereits hinzugefügt wurde.
                 order_params['productType'] = 'USDT-FUTURES' 
             
-            # Runde den Betrag, um Präzisionsfehler zu vermeiden
             rounded_amount = float(self.session.amount_to_precision(symbol, amount))
             if rounded_amount <= 0:
                  logger.error(f"FEHLER: Berechneter Order-Betrag ist Null oder negativ ({rounded_amount}).")
-                 return None # Verhindere API-Fehler
-            # --- ENDE KORREKTUR ---
-
+                 return None
+                 
             logger.info(f"[{symbol}] Sende Market-Order: Seite={side}, Menge={rounded_amount}, Params={order_params}")
-            order = self.session.create_order(symbol, 'market', side, rounded_amount, params=order_params) # Verwende rounded_amount und order_params
+            order = self.session.create_order(symbol, 'market', side, rounded_amount, params=order_params) 
             logger.info(f"[{symbol}] Market-Order erfolgreich platziert. ID: {order.get('id')}")
             return order
             
@@ -218,31 +227,24 @@ class ExchangeHandler:
         except Exception as e:
             logger.error(f"[{symbol}] Unerwarteter Fehler bei Market-Order: {e}", exc_info=True)
             raise
-    # -----------------------------------------------------------------
-    # --- ENDE KORREKTUR (create_market_order) ---
-    # -----------------------------------------------------------------
 
     def place_trigger_market_order(self, symbol: str, side: str, amount: float, trigger_price: float, params: dict = {}):
         """ 
-        Platziert eine SL- oder TP-Order als Trigger-Market-Order.
-        KORRIGIERT: Verwendet 'triggerPrice' statt 'stopPrice' und 'productType' (wie JaegerBot).
+        Platziert eine SL- oder TP-Order als Trigger-Market-Order (TitanBot/JaegerBot-Logik).
         """
         try:
             rounded_price = float(self.session.price_to_precision(symbol, trigger_price))
             rounded_amount = float(self.session.amount_to_precision(symbol, amount))
 
-            # Dies ist die exakte JaegerBot/TitanBot Parameterstruktur für SL/TP
             order_params = {
                 'triggerPrice': rounded_price,
-                'reduceOnly': True, # WICHTIG
-                'productType': 'USDT-FUTURES', # WICHTIG für Bitget
-                **params # Übernimmt zusätzliche Parameter, falls vorhanden
+                'reduceOnly': True, 
+                'productType': 'USDT-FUTURES', 
+                **params 
             }
 
             logger.info(f"[{symbol}] Sende Trigger-Market-Order: Seite={side}, Menge={rounded_amount}, Trigger@{rounded_price}, Params={order_params}")
-
             order = self.session.create_order(symbol, 'market', side, rounded_amount, params=order_params)
-
             logger.info(f"[{symbol}] Trigger-Market-Order erfolgreich platziert. ID: {order.get('id')}")
             return order
 
@@ -255,8 +257,7 @@ class ExchangeHandler:
 
     def place_trailing_stop_order(self, symbol, side, amount, activation_price, callback_rate_decimal, params={}):
         """
-        Platziert eine Trailing Stop Market Order (Stop-Loss) über ccxt für Bitget.
-        Verwendet die Parameter-Struktur von JaegerBot/TitanBot.
+        Platziert eine Trailing Stop Market Order (Stop-Loss) (TitanBot/JaegerBot-Logik).
         :param callback_rate_decimal: Die Callback-Rate als Dezimalzahl (z.B. 0.01 für 1%)
         """
         if not self.markets: return None
@@ -267,49 +268,36 @@ class ExchangeHandler:
                 logger.error(f"FEHLER: Berechneter TSL-Betrag ist Null ({rounded_amount}).")
                 return None
 
-            # Umwandlung von 0.015 (1.5%) -> "1.5" (String-Prozentwert für API)
             callback_rate_str = str(callback_rate_decimal * 100)
 
-            # Exakte Parameterstruktur von JaegerBot/TitanBot
             order_params = {
                 **params,
                 'planType': 'trailing_stop',
-                'triggerPrice': rounded_activation,  # Aktivierungspreis
-                'callbackRate': callback_rate_str, # Callback-Rate in %
-                'triggerPriceType': 'market_price',  # Löst TSL aus, wenn Marktpreis Aktivierung erreicht
+                'triggerPrice': rounded_activation,
+                'callbackRate': callback_rate_str, 
+                'triggerPriceType': 'market_price',
                 'productType': 'USDT-FUTURES',
-                'reduceOnly': True # WICHTIG
+                'reduceOnly': True 
             }
 
             logger.info(f"[{symbol}] Sende Trailing-Stop-Order: Seite={side}, Menge={rounded_amount}, Params={order_params}")
-            
-            # Wir verwenden die Standard create_order Funktion, KEINE implizite Methode
             order = self.session.create_order(symbol, 'market', side, rounded_amount, params=order_params)
-            
             logger.info(f"[{symbol}] Trailing-Stop-Order erfolgreich platziert. ID: {order.get('id')}")
             return order
 
         except Exception as e:
             logger.error(f"[{symbol}] FEHLER beim Platzieren des Trailing Stop: {e} | Params: {order_params}", exc_info=True)
-            raise # Fehler weiterleiten
+            raise 
 
-
-    # -----------------------------------------------------------------
-    # --- ANGEPASSTE Haupt-Order-Funktion ---
-    # -----------------------------------------------------------------
     def create_market_order_with_sl_tp(self, symbol: str, side: str, amount: float, sl_price: float, tp_price: float, margin_mode: str, 
                                      tsl_config: dict = None):
         """
-        Führt den robusten 3-Schritt-Prozess zur Trade-Eröffnung aus (JaegerBot-Logik).
-        1. Market-Order (Einstieg)
-        2. Trigger-Order (Stop-Loss ODER Trailing Stop-Loss) mit reduceOnly
-        3. Trigger-Order (Take-Profit) mit reduceOnly
+        Führt den robusten 3-Schritt-Prozess zur Trade-Eröffnung aus (Unverändert).
         """
         logger.info(f"[{symbol}] Starte 3-Schritt Order-Platzierung: {side}, Menge={amount}, SL={sl_price}, TP={tp_price}")
 
         # 1. Market-Order (Einstieg)
         try:
-            # KORREKTUR FÜR FEHLER 40774 (Unverändert)
             market_params = {
                 'posSide': 'net',
                 'tradeSide': 'open'
@@ -317,13 +305,13 @@ class ExchangeHandler:
             }
             market_order = self.create_market_order(symbol, side, amount, params=market_params)
 
-            entry_price = market_order.get('price') or market_order.get('average') or self.fetch_ticker(symbol)['last'] # Bestimme den Einstiegspreis
+            entry_price = market_order.get('price') or market_order.get('average') or self.fetch_ticker(symbol)['last']
             logger.info(f"[{symbol}] Schritt 1/3: ✅ Market-Order platziert. ID: {market_order['id']}, Geschätzter Entry: {entry_price}")
         except Exception as e:
             logger.error(f"[{symbol}] ❌ SCHRITT 1 FEHLGESCHLAGEN: Market-Order fehlgeschlagen: {e}. Breche Trade ab.")
             raise 
 
-        time.sleep(3) # Pause für Positionsbestätigung
+        time.sleep(3) 
 
         # Hole die tatsächliche Positionsgröße (wichtig für SL/TP)
         try:
@@ -350,12 +338,9 @@ class ExchangeHandler:
         sl_success = False
         tp_success = False
 
-        # --- KORREKTUR: Params für Trigger-Orders (TitanBot-Stil) ---
-        # Diese Params werden sowohl für TSL als auch für TP verwendet
         trigger_params = {
             'reduceOnly': True,
             'productType': 'USDT-FUTURES'
-            # 'posSide': 'net' wird für create_order nicht benötigt, wenn productType gesetzt ist
         }
 
         # 3. Stop-Loss (Trigger-Order ODER TSL)
@@ -385,7 +370,7 @@ class ExchangeHandler:
                     side=close_side,
                     amount=final_amount,
                     activation_price=activation_price,
-                    callback_rate_decimal=callback_rate_pct_decimal,
+                    callback_rate_decimal=callback_rate_pct_decimal, 
                     params=trigger_params 
                 )
                 sl_success = True
