@@ -1,4 +1,4 @@
-# tests/test_workflow.py (FINALER FIX: Korrigierte side_effect Kette)
+# tests/test_workflow.py (FINALER FIX: Korrigierte side_effect Kette (4 Aufrufe))
 import pytest 
 import os
 import sys
@@ -137,7 +137,6 @@ def test_setup():
         exchange.cleanup_all_open_orders(symbol)
         
         # --- START GEISTER-POSITION WORKAROUND ---
-        # Die Positionsabfrage MUSS über die echte Session laufen, um den Cache zu erwischen.
         positions = exchange.session.fetch_positions([symbol])
         
         open_positions = [p for p in positions if abs(float(p.get('contracts', 0))) > 1e-9]
@@ -184,7 +183,7 @@ def mock_exchange_methods(request):
     if request.node.name == 'test_full_utbot2_workflow_on_bitget':
         exchange_handler_path = 'utils.exchange_handler.ExchangeHandler'
         
-        # Patch cleanup_all_open_orders (stellt sicher, dass der Aufruf im Bot-Code nicht fehlschlägt)
+        # Patch cleanup_all_open_orders
         with patch(f'{exchange_handler_path}.cleanup_all_open_orders', MagicMock(return_value=0), create=True):
             # Patch create_market_order
             with patch(f'{exchange_handler_path}.create_market_order', MagicMock(return_value={'id': 'mock_market_id', 'average': 2.50, 'filled': 100.0}), create=True):
@@ -193,16 +192,20 @@ def mock_exchange_methods(request):
                     # Patch create_market_order_with_sl_tp
                     with patch(f'{exchange_handler_path}.create_market_order_with_sl_tp', MagicMock(return_value={'id': 'mock_id_sl_tp', 'average': 2.50, 'filled': 100.0}), create=True):
                         
-                        # --- KORRIGIERTE side_effect KETTE (3 Aufrufe) ---
+                        # --- KORRIGIERTE side_effect KETTE (4 Aufrufe) ---
                         with patch(f'{exchange_handler_path}.fetch_open_positions', side_effect=[
-                            # 1. Aufruf im SETUP (Geister-Check)
+                            # 1. Aufruf im SETUP (Geister-Check) - WICHTIG: Sollte die Geisterposition sehen
                             [{'symbol': 'XRP/USDT:USDT', 'contracts': 19.0, 'side': 'long', 'entryPrice': 2.50}], 
                             # 2. Aufruf in run_strategy_cycle (sollte leer sein, damit Trade startet)
                             [],
-                            # 3. Aufruf in create_market_order_with_sl_tp (soll die neue Position bestätigen)
+                            # 3. Aufruf in create_market_order_with_sl_tp (Position Bestätigung)
                             [
                                 {'symbol': 'XRP/USDT:USDT', 'contracts': 100.0, 'side': 'long', 'entryPrice': 2.50} 
-                            ] 
+                            ],
+                            # 4. Aufruf in test_full_utbot2_workflow_on_bitget (Endprüfung)
+                            [
+                                {'symbol': 'XRP/USDT:USDT', 'contracts': 100.0, 'side': 'long', 'entryPrice': 2.50} 
+                            ]
                         ], create=True):
                             # Patch fetch_open_trigger_orders (WICHTIG: Muss 2 zurückgeben, damit Assertion passt)
                             with patch(f'{exchange_handler_path}.fetch_open_trigger_orders', MagicMock(return_value=[
