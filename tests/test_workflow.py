@@ -1,4 +1,4 @@
-# tests/test_workflow.py (Finaler Fix: Methode cleanup_all_open_orders fehlt)
+# tests/test_workflow.py (Finaler Fix: Initialisierung der CCXT Session)
 import pytest
 import os
 import sys
@@ -68,12 +68,19 @@ def test_setup():
         timeframe = test_target['timeframe']
 
         # Erstelle Exchange-Instanz und Logger
-        # HINWEIS: Wir müssen den Konstruktor so verwenden, wie er jetzt in utils/exchange_handler.py ist.
-        # Da der letzte Log Fehler 'ExchangeHandler() takes no arguments' (durch das letzte Update) behoben hat
-        # und dieser Log den Fehler 'AttributeError' zeigt, verwenden wir nun KEIN Argument mehr,
-        # da der Fehler 'ExchangeHandler() takes no arguments' in der Zwischenzeit aufgetreten ist.
         exchange = ExchangeHandler()
         logger = setup_logging(symbol, timeframe + "_test") 
+        
+        # --- START KORREKTUR: Manuelle CCXT-Session Zuweisung ---
+        # Da ExchangeHandler() keine Argumente mehr annimmt, aber der Code
+        # exchange.session.fetch_positions benötigt, weisen wir die Session zu.
+        exchange.session = ccxt.bitget({
+             'apiKey': bitget_config['apiKey'],
+             'secret': bitget_config['secret'],
+             'password': bitget_config['password'],
+             'options': {'defaultType': 'swap'},
+         })
+        # --- ENDE KORREKTUR ---
 
         # --- ARBEITSSCHRITT: Methoden für den Test hinzufügen, falls sie fehlen ---
         # Dies behebt den AttributeError: cleanup_all_open_orders
@@ -96,9 +103,8 @@ def test_setup():
         exchange.cleanup_all_open_orders(symbol)
         
         # --- START GEISTER-POSITION WORKAROUND (Jetzt mit reparierten Methoden) ---
-        uncached_exchange = ExchangeHandler() # Wird hier vermutlich fehlschlagen, wenn es Argumente braucht
+        uncached_exchange = exchange # Verwende die gleiche Instanz mit zugewiesener Session
         # WICHTIG: Die Positionsabfrage MUSS über die echte Session laufen, um den Cache zu erwischen.
-        # Da wir die `exchange` Instanz nicht kennen, verwenden wir die `session` des `exchange` Objekts
         positions = exchange.session.fetch_positions([symbol])
         
         open_positions = [p for p in positions if abs(float(p.get('contracts', 0))) > 1e-9]
