@@ -1,4 +1,4 @@
-# tests/test_workflow.py (VOLLSTÄNDIG KORRIGIERT)
+# tests/test_workflow.py (FINAL FUNKTIONIERENDE VERSION)
 import pytest
 import os
 import sys
@@ -18,8 +18,8 @@ from utils.exchange_handler import ExchangeHandler
 from main import run_strategy_cycle
 
 
-def load_config(file_path):
-    p = Path(file_path)
+def load_config(path):
+    p = Path(path)
     if p.suffix == '.toml':
         import toml
         return toml.load(open(p, 'r', encoding='utf-8'))
@@ -30,9 +30,9 @@ def setup_logging(symbol, timeframe):
     logger = logging.getLogger(f'utbot2_{symbol}_{timeframe}')
     logger.setLevel(logging.INFO)
     if not logger.handlers:
-        handler = logging.StreamHandler(sys.stdout)
-        handler.setFormatter(logging.Formatter('%(asctime)s UTC - %(levelname)s: %(message)s'))
-        logger.addHandler(handler)
+        h = logging.StreamHandler(sys.stdout)
+        h.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+        logger.addHandler(h)
     return logger
 
 
@@ -50,61 +50,60 @@ class MockGeminiModel:
         return MockGeminiResponse(self.response)
 
 
-# ✅ Richtige Reihenfolge: Fixture außen, Patch innen
 @pytest.fixture(scope="module")
-@patch('utils.exchange_handler.ExchangeHandler.fetch_ohlcv', MagicMock(return_value=pd.DataFrame(
-    {'open': 2.4, 'high': 2.6, 'low': 2.3, 'close': 2.5, 'volume': 1000},
-    index=pd.to_datetime(pd.RangeIndex(start=1, stop=101), unit='s', utc=True)
-)))
 def workflow_context():
 
-    secret_path = os.path.join(PROJECT_ROOT, 'secret.json')
-    config_path = os.path.join(PROJECT_ROOT, 'config.toml')
+    # --- Patch fetch_ohlcv KORREKT: INNERHALB DES FIXTURES ---
+    with patch('utils.exchange_handler.ExchangeHandler.fetch_ohlcv', MagicMock(return_value=pd.DataFrame(
+        {'open': 2.4, 'high': 2.6, 'low': 2.3, 'close': 2.5, 'volume': 1000},
+        index=pd.to_datetime(pd.RangeIndex(start=1, stop=101), unit='s', utc=True)
+    ))):
 
-    if not os.path.exists(secret_path):
-        pytest.skip("secret.json fehlt → Test übersprungen")
+        secret_path = os.path.join(PROJECT_ROOT, 'secret.json')
+        config_path = os.path.join(PROJECT_ROOT, 'config.toml')
 
-    secrets = load_config(secret_path)
-    config = load_config(config_path)
+        if not os.path.exists(secret_path):
+            pytest.skip("secret.json fehlt → Live-Test wird übersprungen.")
 
-    bitget = secrets.get('bitget')
-    if not bitget:
-        pytest.skip("Bitget API Keys fehlen → Test übersprungen")
+        secrets = load_config(secret_path)
+        config = load_config(config_path)
 
-    target = next((t for t in config['targets'] if t['enabled']), None)
-    if not target:
-        pytest.skip("Kein aktives Target in config → Test übersprungen")
+        bitget = secrets.get('bitget')
+        if not bitget:
+            pytest.skip("Bitget API Keys fehlen → Test übersprungen.")
 
-    exchange = ExchangeHandler()
-    exchange.session = ccxt.bitget({
-        'apiKey': bitget['apiKey'],
-        'secret': bitget['secret'],
-        'password': bitget['password'],
-        'options': {'defaultType': 'swap'},
-    })
-    exchange.session.load_markets()
+        target = next((t for t in config['targets'] if t['enabled']), None)
+        if not target:
+            pytest.skip("Kein aktives Symbol → Test übersprungen.")
 
-    logger = setup_logging(target['symbol'], target['timeframe'])
+        symbol = target['symbol']
 
-    gemini = MockGeminiModel()
+        exchange = ExchangeHandler()
+        exchange.session = ccxt.bitget({
+            'apiKey': bitget['apiKey'],
+            'secret': bitget['secret'],
+            'password': bitget['password'],
+            'options': {'defaultType': 'swap'},
+        })
+        exchange.session.load_markets()
 
-    yield exchange, gemini, config, target, secrets.get('telegram', {}), logger
+        logger = setup_logging(symbol, target['timeframe'])
+        gemini = MockGeminiModel()
 
-    exchange.cleanup_all_open_orders(target['symbol'])
+        yield exchange, gemini, config, target, secrets.get('telegram', {}), logger
+
+        exchange.cleanup_all_open_orders(symbol)
 
 
 def test_full_utbot2_workflow_on_bitget(workflow_context):
     exchange, gemini, config, target, telegram_cfg, logger = workflow_context
     symbol = target['symbol']
 
-    ticker = exchange.fetch_ticker(symbol)
-    price = ticker['last']
-
+    price = exchange.fetch_ticker(symbol)['last']
     gemini.set_next_response("KAUFEN", price * 0.98, price * 1.04)
 
-    balance = exchange.fetch_balance_usdt()
-    if balance < 1.0:
-        pytest.skip("Zu wenig Balance für Test")
+    if exchange.fetch_balance_usdt() < 1.0:
+        pytest.skip("Zu wenig Testguthaben")
 
     target['risk']['portfolio_fraction_pct'] = 100
     target['risk']['max_leverage'] = 100
@@ -113,9 +112,7 @@ def test_full_utbot2_workflow_on_bitget(workflow_context):
     time.sleep(4)
 
     positions = exchange.fetch_open_positions(symbol)
-    assert len(positions) == 1
-    assert positions[0]['side'] == "long"
+    assert len(positions) == 1 and positions[0]['side'] == "long"
 
     triggers = exchange.fetch_open_trigger_orders(symbol)
     assert len(triggers) == 2
-
