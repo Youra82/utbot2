@@ -1,4 +1,4 @@
-# utbot2/utils/exchange_handler.py (Version 3.9 - Finaler Fix TSL planType)
+# utbot2/utils/exchange_handler.py (Version 3.9 - Finaler Fix TSL planType v2)
 import ccxt
 import logging
 import pandas as pd
@@ -84,9 +84,6 @@ class ExchangeHandler:
                 logger.warning("Konnte 'free' USDT-Balance nicht finden, verwende 'total' als Fallback.")
                 usdt_balance = float(balance['total']['USDT'])
 
-            if usdt_balance == 0.0:
-                logger.warning(f"Kein USDT-Guthaben in der Balance-Antwort gefunden.")
-
             return usdt_balance
         except Exception as e:
             logger.error(f"Fehler beim Abrufen des USDT-Guthabens: {e}", exc_info=True)
@@ -96,7 +93,6 @@ class ExchangeHandler:
         """Holt alle offenen Positionen für ein Symbol (TitanBot-Logik)."""
         try:
             # --- START KORREKTUR (Cache-Buster für Geister-Positionen) ---
-            # 'reload': True ist der offizielle ccxt-Befehl, um den Cache zu umgehen.
             params = {
                 'productType': 'USDT-FUTURES',
                 'reload': True # Zwingt ccxt, den Cache zu umgehen
@@ -332,8 +328,9 @@ class ExchangeHandler:
 
             order_params = {
                 **params,
-                # --- START KORREKTUR: planType für Bitget TSL muss MovingPlan sein ---
-                'planType': 'MovingPlan', 
+                # --- START KORREKTUR: planType für TSL muss Plan sein ---
+                # 'MovingPlan' war falsch, der Standardtyp für TSL-Orders ist 'Plan'
+                'planType': 'Plan', 
                 # --- ENDE KORREKTUR ---
                 'triggerPrice': rounded_activation,
                 'callbackRate': callback_rate_str,
