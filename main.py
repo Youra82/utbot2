@@ -5,6 +5,7 @@ import pandas_ta as ta
 import toml
 from google.api_core import exceptions
 from logging.handlers import RotatingFileHandler
+from pathlib import Path # Importiert für Ladefunktionen (in tests/test_basic.py)
 
 # Korrekte Importpfade für utils
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -45,7 +46,7 @@ def setup_logging(symbol, timeframe):
 
     return logger
 
-# --- Globale Konfiguration & Hilfsfunktionen (Entfernt load_config) ---
+# --- Globale Konfiguration & Hilfsfunktionen ---
 PROMPT_TEMPLATES = {
     "swing": (
         "Du bist ein Swing-Trader (Haltedauer: Tage bis Wochen). "
@@ -91,6 +92,10 @@ def attempt_new_trade(target, strategy_cfg, exchange, gemini_model, telegram_api
     symbol, risk_cfg, timeframe = target['symbol'], target['risk'], target['timeframe']
     trading_style_text = PROMPT_TEMPLATES.get(strategy_cfg.get('trading_mode', 'swing'))
     margin_mode = risk_cfg.get('margin_mode', 'isolated')
+
+    # <<< KRITISCHE KORREKTUR >>>
+    decision = None # Initialisiere decision auf None, falls der Gemini-Aufruf fehlschlägt.
+    # <<< ENDE KRITISCHE KORREKTUR >>>
 
     # --- Guthaben wird HIER abgerufen ---
     try:
@@ -149,9 +154,28 @@ def attempt_new_trade(target, strategy_cfg, exchange, gemini_model, telegram_api
         f"{historical_data_string}"
     )
 
-    # ... (Gemini API Call bleibt unverändert) ...
+    try:
+        logger.info("Sende Anfrage an Gemini...")
+        generation_config = genai.types.GenerationConfig(temperature=0.7)
+        safety_settings = [ { "category": c, "threshold": "BLOCK_NONE" } for c in ["HARM_CATEGORY_HARASSMENT", "HARM_CATEGORY_HATE_SPEECH", "HARM_CATEGORY_SEXUALLY_EXPLICIT", "HARM_CATEGORY_DANGEROUS_CONTENT"]]
+        response = gemini_model.generate_content(prompt, generation_config=generation_config, safety_settings=safety_settings)
+        logger.info("Antwort von Gemini erhalten.")
 
-    if decision.get('aktion') in ['KAUFEN', 'VERKAUFEN']:
+        if not response.parts:
+            try: feedback = response.prompt_feedback; logger.warning(f"Leere Antwort von Gemini (Blockiert?). Feedback: {feedback}")
+            except Exception: logger.warning(f"Leere Antwort von Gemini (Grund unbekannt).")
+            return
+
+        cleaned_response_text = response.text.replace('```json', '').replace('```', '').strip()
+        decision = json.loads(cleaned_response_text)
+        logger.info(f"KI-Entscheidung: {decision}")
+
+    except exceptions.ResourceExhausted as e: logger.warning(f"Gemini API-Ratenlimit erreicht. Pausiere 60s. Fehler: {e}"); time.sleep(60); return
+    except Exception as e: logger.error(f"Kritischer Fehler bei Gemini API-Anfrage: {e}", exc_info=True); return
+
+    # decision wird hier nun IMMER definiert sein, außer im Falle eines Gemini API-Fehlers, 
+    # wo es auf None initialisiert ist.
+    if decision and decision.get('aktion') in ['KAUFEN', 'VERKAUFEN']:
         side = 'buy' if decision['aktion'] == 'KAUFEN' else 'sell'
         sl_price = decision.get('stop_loss')
         tp_price = decision.get('take_profit')
@@ -209,7 +233,7 @@ def attempt_new_trade(target, strategy_cfg, exchange, gemini_model, telegram_api
             except Exception as ce:
                 logger.warning(f"Housekeeping (Cancel All) fehlgeschlagen: {ce}")
 
-    else: logger.info(f"Keine Handelsaktion ({decision.get('aktion', 'unbekannt')}).")
+    else: logger.info(f"Keine Handelsaktion ({decision.get('aktion', 'unbekannt') if decision else 'unbekannt'}).")
 
 
 # --- Strategie-Zyklus (Angepasst) ---
@@ -254,7 +278,6 @@ def main():
         with open('config.toml', 'r', encoding='utf-8') as f: config = toml.load(f)
         with open('secret.json', 'r', encoding='utf-8') as f: secrets = json.load(f)
     except Exception as e:
-        # Fehlerbehandlung beibehalten
         sys.exit(1)
 
     # --- Logger für diese spezifische Strategie einrichten ---
@@ -263,8 +286,6 @@ def main():
     logger.info(f"=  Starte utbot2 v4.0 (TitanBot-Logik) für {args.symbol} ({args.timeframe}) =")
     logger.info("==============================================")
 
-
-    # ... (Rest der main() Funktion bleibt unverändert) ...
 
     # --- Finde das spezifische Target ---
     target = None
@@ -279,12 +300,11 @@ def main():
 
     # --- Initialisiere Gemini ---
     try:
-        # ... (Gemini Init bleibt unverändert) ...
-        # ...
-        pass
-    except Exception:
-        # ... (Fehlerbehandlung) ...
-        pass
+        genai.configure(api_key=secrets['google']['api_key'])
+        gemini_model = genai.GenerativeModel('gemini-1.5-flash')
+        logger.info("Gemini-Client initialisiert.")
+    except KeyError: logger.critical("FATAL: Google API Key nicht in secret.json!"); return
+    except Exception as e: logger.critical(f"FATAL: Gemini Init Fehler: {e}"); return
 
     # --- Initialisiere Exchange ---
     try:
@@ -304,7 +324,11 @@ def main():
 
     except Exception as e:
         logger.critical(f"FATALER FEHLER im Hauptprozess für {args.symbol}: {e}", exc_info=True)
-        # ... (Telegramm-Fehlerbehandlung bleibt unverändert) ...
+        try:
+            if 'telegram_config' not in locals():
+                telegram_config = secrets.get('telegram', {})
+            send_telegram_message(telegram_config.get('bot_token'), telegram_config.get('chat_id'), f"🚨 FATALER FEHLER in utbot2 ({args.symbol})!\n\n`{str(e)}`")
+        except Exception: pass 
 
     logger.info(f">>> Lauf für {args.symbol} ({args.timeframe}) abgeschlossen <<<")
 
