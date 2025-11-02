@@ -85,29 +85,19 @@ def test_setup():
         positions = exchange.fetch_open_positions(symbol)
 
         # -----------------------------------------------------------------
-        # --- START DER KORREKTUR (Test-Setup / Fehler 40774) ---
+        # --- START DER KORREKTUR (Test-Setup / tradeSide Fix) ---
         # -----------------------------------------------------------------
         if positions:
             pos = positions[0]
             pos_amount = float(pos.get('contracts', 0))
 
-            # --- START NEUE KORREKTUR (Fehler 40774) ---
-            # Lese den Margin-Modus aus der bestehenden Position
-            # 'marginMode' ist der ccxt-Standard ('cross' oder 'isolated')
-            # 'pos' ist die rohe ccxt-Antwort, daher 'marginMode'
-            pos_margin_mode = pos.get('marginMode') 
-            if not pos_margin_mode:
-                # Fallback, falls 'marginMode' nicht im Hauptobjekt ist
-                pos_margin_mode = pos.get('info', {}).get('marginMode', 'crossed') # Standard-Fallback
-            
-            logger.info(f"Position hat Margin-Modus: {pos_margin_mode}")
-            
+            # --- START BEREINIGUNG (Entferne marginMode-Logik) ---
             # Baue die Parameter für den Schließ-Befehl
+            # Der exchange_handler fügt jetzt 'posSide:net' und 'tradeSide:close' hinzu.
             close_params = {
-                'reduceOnly': True,
-                'marginMode': pos_margin_mode # Explizit den Modus der Position senden
+                'reduceOnly': True
             }
-            # --- ENDE NEUE KORREKTUR ---
+            # --- ENDE BEREINIGUNG ---
 
 
             # Variante A: Prüfe, ob die Position tatsächlich eine Größe hat
@@ -117,7 +107,7 @@ def test_setup():
 
                 # Variante B: Fange den Fehler "22002" (No position to close) ab
                 try:
-                    # Verwende die korrekten Parameter (NUR reduceOnly + marginMode)
+                    # Verwende die korrekten Parameter
                     exchange.create_market_order(symbol, close_side, pos_amount, params=close_params)
                     time.sleep(3) # Warte auf Schließung
                 except ccxt.ExchangeError as e_close:
@@ -149,22 +139,17 @@ def test_setup():
             positions = exchange.fetch_open_positions(symbol)
 
             # -----------------------------------------------------------------
-            # --- START DER KORREKTUR (Test-Teardown / Fehler 40774) ---
+            # --- START DER KORREKTUR (Test-Teardown / tradeSide Fix) ---
             # -----------------------------------------------------------------
             if positions:
                 pos = positions[0]
                 pos_amount = float(pos.get('contracts', 0))
 
-                # --- START NEUE KORREKTUR (Teardown) ---
-                pos_margin_mode = pos.get('marginMode') 
-                if not pos_margin_mode:
-                    pos_margin_mode = pos.get('info', {}).get('marginMode', 'crossed')
-                
+                # --- START BEREINIGUNG (Teardown) ---
                 close_params_teardown = {
-                    'reduceOnly': True,
-                    'marginMode': pos_margin_mode
+                    'reduceOnly': True
                 }
-                # --- ENDE NEUE KORREKTUR (Teardown) ---
+                # --- ENDE BEREINIGUNG (Teardown) ---
 
                 if abs(pos_amount) > 1e-9:
                     print(f"WARNUNG: Position nach Test noch offen ({pos_amount} {symbol}). Versuche Not-Schließung.")
