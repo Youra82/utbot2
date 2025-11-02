@@ -53,22 +53,37 @@ class ExchangeHandler:
     def fetch_balance_usdt(self):
         """ Holt das verfügbare USDT-Guthaben (robuste Version von JaegerBot). """
         try:
-            balance = self.session.fetch_balance()
+            # --- KORREKTUR: 'productType' hinzufügen, um nur Futures-Guthaben abzurufen ---
+            params = {'productType': 'USDT-FUTURES'}
+            balance = self.session.fetch_balance(params=params)
+            # --- ENDE KORREKTUR ---
+
             # Prüft verschiedene mögliche Strukturen der Balance-Antwort
             if 'USDT' in balance and 'free' in balance['USDT']:
                 return float(balance['USDT']['free'])
             elif 'free' in balance and 'USDT' in balance['free']: # Alternative Struktur
                 return float(balance['free']['USDT'])
-            elif 'total' in balance and 'USDT' in balance['total']: # Manchmal ist nur 'total' verfügbar
-                # Hier nehmen wir 'total' als Annäherung, wenn 'free' nicht da ist
+            
+            # --- KORREKTUR: TitanBot-Logik für Unified/Classic Account Fallback ---
+            elif 'info' in balance and 'data' in balance['info'] and isinstance(balance['info']['data'], list):
+                for asset_info in balance['info']['data']:
+                    if asset_info.get('marginCoin') == 'USDT':
+                        if 'available' in asset_info and asset_info['available'] is not None:
+                            return float(asset_info['available'])
+                        elif 'equity' in asset_info and asset_info['equity'] is not None:
+                             # Equity ist das Gesamtkapital, 'available' (free) ist besser
+                            logger.warning("Verwende 'equity' als Fallback für Guthaben.")
+                            return float(asset_info['equity'])
+            # --- ENDE KORREKTUR ---
+            
+            elif 'total' in balance and 'USDT' in balance['total']: # Letzter Fallback
                 logger.warning("Konnte 'free' USDT-Balance nicht finden, verwende 'total' als Fallback.")
                 return float(balance['total']['USDT'])
             else:
-                logger.warning("Kein USDT-Guthaben in der Balance-Antwort gefunden.")
+                logger.warning(f"Kein USDT-Guthaben in der Balance-Antwort gefunden. Struktur: {balance}")
                 return 0.0
         except Exception as e:
             logger.error(f"Fehler beim Abrufen des USDT-Guthabens: {e}", exc_info=True)
-            # Im Fehlerfall 0 zurückgeben, um riskante Trades zu verhindern
             return 0.0
 
     # -----------------------------------------------------------------
@@ -104,11 +119,12 @@ class ExchangeHandler:
     def fetch_open_trigger_orders(self, symbol: str):
         """ Ruft alle offenen Trigger-Orders (SL/TP) für ein Symbol ab (JaegerBot-Methode). """
         try:
-            # Verwendet den 'stop'-Parameter, der oft für Trigger-Orders steht
-            return self.session.fetch_open_orders(symbol, params={'stop': True})
+            # --- KORREKTUR: 'productType' hinzufügen ---
+            params = {'stop': True, 'productType': 'USDT-FUTURES'}
+            return self.session.fetch_open_orders(symbol, params=params)
         except Exception as e:
             logger.error(f"[{symbol}] Fehler beim Abrufen offener Trigger-Orders: {e}", exc_info=True)
-            return [] # Im Fehlerfall leere Liste zurückgeben, um Abbruch zu vermeiden
+            return [] 
 
     def cleanup_all_open_orders(self, symbol: str):
         """ Storniert ALLE offenen Orders (Trigger und Normal) für ein Symbol (JaegerBot's Housekeeper). """
@@ -120,8 +136,8 @@ class ExchangeHandler:
                 logger.info(f"[{symbol}] Housekeeper: {len(trigger_orders)} offene Trigger-Order(s) gefunden. Storniere...")
                 for order in trigger_orders:
                     try:
-                        # Wichtig: Explizit 'stop: True' mitgeben, falls die API es braucht
-                        self.session.cancel_order(order['id'], symbol, params={'stop': True})
+                        # --- KORREKTUR: 'productType' hinzufügen ---
+                        self.session.cancel_order(order['id'], symbol, params={'stop': True, 'productType': 'USDT-FUTURES'})
                         cancelled_count += 1
                         logger.info(f"[{symbol}] Trigger-Order {order['id']} storniert.")
                     except ccxt.OrderNotFound:
@@ -132,12 +148,13 @@ class ExchangeHandler:
                 logger.info(f"[{symbol}] Housekeeper: Keine offenen Trigger-Orders gefunden.")
 
             # 2. Normale (Limit-) Orders stornieren (falls vorhanden)
-            normal_orders = self.session.fetch_open_orders(symbol, params={'stop': False})
+            # --- KORREKTUR: 'productType' hinzufügen ---
+            normal_orders = self.session.fetch_open_orders(symbol, params={'stop': False, 'productType': 'USDT-FUTURES'})
             if normal_orders:
                 logger.info(f"[{symbol}] Housekeeper: {len(normal_orders)} offene normale Order(s) gefunden. Storniere...")
                 for order in normal_orders:
                     try:
-                        self.session.cancel_order(order['id'], symbol)
+                        self.session.cancel_order(order['id'], symbol, params={'productType': 'USDT-FUTURES'})
                         cancelled_count += 1
                         logger.info(f"[{symbol}] Normale Order {order['id']} storniert.")
                     except ccxt.OrderNotFound:
