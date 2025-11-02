@@ -1,5 +1,5 @@
 # utbot2/main.py (Version 3.7 - Crontab-fähig)
-import os, sys, json, logging, pandas as pd, traceback, time, argparse # argparse hinzugefügt
+import os, sys, json, logging, pandas as pd, traceback, time, argparse, ccxt # <--- KORREKTUR 1: ccxt hinzugefügt
 import google.generativeai as genai
 import pandas_ta as ta
 import toml
@@ -54,9 +54,9 @@ def load_config(file_path):
     # ... (Code wie in Version 3.6) ...
     try:
         with open(file_path, 'r', encoding='utf-8') as f:
-             if file_path.endswith('.toml'): return toml.load(f)
-             elif file_path.endswith('.json'): return json.load(f)
-             else: raise ValueError(f"Unbekanntes Konfigurationsformat: {file_path}")
+            if file_path.endswith('.toml'): return toml.load(f)
+            elif file_path.endswith('.json'): return json.load(f)
+            else: raise ValueError(f"Unbekanntes Konfigurationsformat: {file_path}")
     except FileNotFoundError:
         # Verwende den Root-Logger für kritische Startfehler
         logging.getLogger().critical(f"FATAL: Konfigurationsdatei nicht gefunden: {file_path}")
@@ -70,26 +70,26 @@ def calculate_candle_limit(timeframe, lookback_days, logger): # Logger hinzugef�
     # ... (Code wie in Version 3.6, verwendet jetzt den übergebenen Logger) ...
     try:
         if 'm' in timeframe:
-             minutes = int(timeframe.replace('m', ''))
-             if minutes == 0: raise ValueError("Minuten dürfen nicht 0 sein")
-             return int((60 / minutes) * 24 * lookback_days)
+            minutes = int(timeframe.replace('m', ''))
+            if minutes == 0: raise ValueError("Minuten dürfen nicht 0 sein")
+            return int((60 / minutes) * 24 * lookback_days)
         elif 'h' in timeframe:
-             hours = int(timeframe.replace('h', ''))
-             if hours == 0: raise ValueError("Stunden dürfen nicht 0 sein")
-             return int((24 / hours) * lookback_days)
+            hours = int(timeframe.replace('h', ''))
+            if hours == 0: raise ValueError("Stunden dürfen nicht 0 sein")
+            return int((24 / hours) * lookback_days)
         elif 'd' in timeframe:
-             days = int(timeframe.replace('d', ''))
-             if days == 0: raise ValueError("Tage dürfen nicht 0 sein")
-             return int(lookback_days / days)
+            days = int(timeframe.replace('d', ''))
+            if days == 0: raise ValueError("Tage dürfen nicht 0 sein")
+            return int(lookback_days / days)
         else:
-             logger.warning(f"Unbekanntes Timeframe-Format: {timeframe}. Verwende Fallback-Limit 1000.")
-             return 1000
+            logger.warning(f"Unbekanntes Timeframe-Format: {timeframe}. Verwende Fallback-Limit 1000.")
+            return 1000
     except ValueError as e:
         logger.error(f"Ungültiges Timeframe-Format '{timeframe}': {e}. Verwende Fallback-Limit 1000.")
         return 1000
     except ZeroDivisionError:
-         logger.error(f"Ungültiger Timeframe führt zu Division durch Null: {timeframe}. Verwende Fallback-Limit 1000.")
-         return 1000
+        logger.error(f"Ungültiger Timeframe führt zu Division durch Null: {timeframe}. Verwende Fallback-Limit 1000.")
+        return 1000
 
 # --- Trade-Eröffnung (unverändert gegenüber v3.6) ---
 def attempt_new_trade(target, strategy_cfg, exchange, gemini_model, telegram_api, total_usdt_balance, logger):
@@ -119,15 +119,17 @@ def attempt_new_trade(target, strategy_cfg, exchange, gemini_model, telegram_api
         return
 
     cols_to_send = ['open', 'high', 'low', 'close', 'volume'] + [col for col in data_to_send.columns if col not in ['open', 'high', 'low', 'close', 'volume', 'timestamp']]
-    historical_data_string = data_to_send[cols_to_send].round(5).to_csv(index=False, line_terminator='\n')
+    
+    # <--- KORREKTUR 2: 'line_terminator' zu 'lineterminator' geändert
+    historical_data_string = data_to_send[cols_to_send].round(5).to_csv(index=False, lineterminator='\n')
 
     latest = data_to_send.iloc[-1]; current_price = latest['close']
 
     bbp_column_name = next((col for col in latest.index if col.startswith('BBP_')), None)
     if bbp_column_name:
-         indicator_summary = f"P={current_price:.4f}, StochK={latest['STOCHRSIk_14_14_3_3']:.1f}, StochD={latest['STOCHRSId_14_14_3_3']:.1f}, MACD_H={latest['MACDh_12_26_9']:.4f}, BBP={latest[bbp_column_name]:.2f}, OBV={latest['OBV']:.0f}"
+        indicator_summary = f"P={current_price:.4f}, StochK={latest['STOCHRSIk_14_14_3_3']:.1f}, StochD={latest['STOCHRSId_14_14_3_3']:.1f}, MACD_H={latest['MACDh_12_26_9']:.4f}, BBP={latest[bbp_column_name]:.2f}, OBV={latest['OBV']:.0f}"
     else:
-         indicator_summary = f"P={current_price:.4f}, StochK={latest['STOCHRSIk_14_14_3_3']:.1f}, StochD={latest['STOCHRSId_14_14_3_3']:.1f}, MACD_H={latest['MACDh_12_26_9']:.4f}, OBV={latest['OBV']:.0f} (BBP Fehler)"
+        indicator_summary = f"P={current_price:.4f}, StochK={latest['STOCHRSIk_14_14_3_3']:.1f}, StochD={latest['STOCHRSId_14_14_3_3']:.1f}, MACD_H={latest['MACDh_12_26_9']:.4f}, OBV={latest['OBV']:.0f} (BBP Fehler)"
     logger.info(f"Aktuelle Indikatoren (letzte Kerze): {indicator_summary}")
 
     prompt = (
@@ -292,7 +294,7 @@ def main():
         # Fange unerwartete Fehler im Hauptteil ab (sollte eigentlich der Guardian tun)
         logger.critical(f"FATALER FEHLER im Hauptprozess für {args.symbol}: {e}", exc_info=True)
         try:
-             send_telegram_message(telegram_config['bot_token'], telegram_config['chat_id'], f"🚨 FATALER FEHLER in utbot2 ({args.symbol})!\n\n`{str(e)}`")
+            send_telegram_message(telegram_config['bot_token'], telegram_config['chat_id'], f"🚨 FATALER FEHLER in utbot2 ({args.symbol})!\n\n`{str(e)}`")
         except Exception: pass # Ignoriere Fehler beim Senden
 
     logger.info(f">>> Lauf für {args.symbol} ({args.timeframe}) abgeschlossen <<<")
