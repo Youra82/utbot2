@@ -122,8 +122,7 @@ def test_setup():
     [], 
     # 2. Abfrage in create_market_order_with_sl_tp (sollte eine offene Position zurückgeben)
     [
-        # Die Mock-Position muss den erwarteten Trade-Wert widerspiegeln.
-        # Bei 100% Kapital (~13 USDT) und 20x Hebel ist der Nominalwert > 13 USD.
+        # Mock-Position, die nach dem Trade erwartet wird.
         {'symbol': 'XRP/USDT:USDT', 'contracts': 100.0, 'side': 'long', 'entryPrice': 2.50} 
     ] 
 ])
@@ -153,14 +152,15 @@ def test_full_utbot2_workflow_on_bitget(mock_fetch_positions, test_setup):
     try:
         real_balance = exchange.fetch_balance_usdt()
         logger.info(f"[Test Workflow] Aktuelles Test-Guthaben: {real_balance:.2f} USDT")
-        if real_balance < 10: 
-            pytest.skip(f"Test-Guthaben ist zu gering ({real_balance:.2f} USDT). Benötige mind. 10 USDT für den Test.")
+        
+        # --- START KORREKTUR: Mindestguthaben auf 1 USDT senken ---
+        if real_balance < 1.0: 
+            pytest.skip(f"Test-Guthaben ist zu gering ({real_balance:.2f} USDT). Benötige mind. 1.0 USDT für den Test.")
+        # --- ENDE KORREKTUR ---
 
-        # --- START KORREKTUR: Erzwinge maximalen Hebel und Kapital für Mindestvolumen ---
-        # Setze auf 100% und max Hebel 20x
+        # Erzwinge maximalen Hebel und Kapital für Mindestvolumen
         test_target['risk']['portfolio_fraction_pct'] = 100 
         test_target['risk']['max_leverage'] = 20 
-        # --- ENDE KORREKTUR ---
         
         # Rufe den Zyklus auf. Dank Patch wird die erste Abfrage '[]' zurückgeben.
         run_strategy_cycle(test_target, strategy_cfg, exchange, mock_gemini, telegram_config, logger)
