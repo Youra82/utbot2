@@ -1,5 +1,5 @@
-# utbot2/main.py (Version 3.7 - Crontab-fähig)
-import os, sys, json, logging, pandas as pd, traceback, time, argparse, ccxt # <--- KORREKTUR 1: ccxt hinzugefügt
+# utbot2/main.py (Version 3.8 - TitanBot-Logik)
+import os, sys, json, logging, pandas as pd, traceback, time, argparse, ccxt
 import google.generativeai as genai
 import pandas_ta as ta
 import toml
@@ -68,7 +68,6 @@ PROMPT_TEMPLATES = {
 
 
 def load_config(file_path):
-    # ... (Code wie in Version 3.6) ...
     try:
         with open(file_path, 'r', encoding='utf-8') as f:
             if file_path.endswith('.toml'): return toml.load(f)
@@ -84,7 +83,6 @@ def load_config(file_path):
 
 
 def calculate_candle_limit(timeframe, lookback_days, logger): # Logger hinzugefügt
-    # ... (Code wie in Version 3.6, verwendet jetzt den übergebenen Logger) ...
     try:
         if 'm' in timeframe:
             minutes = int(timeframe.replace('m', ''))
@@ -109,11 +107,24 @@ def calculate_candle_limit(timeframe, lookback_days, logger): # Logger hinzugef�
         return 1000
 
 # --- Trade-Eröffnung (Angepasst) ---
-def attempt_new_trade(target, strategy_cfg, exchange, gemini_model, telegram_api, total_usdt_balance, logger):
-    # ... (Kompletter Code aus Version 3.6 hier einfügen) ...
+# --- KORREKTUR: total_usdt_balance als Argument entfernt ---
+def attempt_new_trade(target, strategy_cfg, exchange, gemini_model, telegram_api, logger):
+    
     symbol, risk_cfg, timeframe = target['symbol'], target['risk'], target['timeframe']
     trading_style_text = PROMPT_TEMPLATES.get(strategy_cfg.get('trading_mode', 'swing'))
     margin_mode = risk_cfg.get('margin_mode', 'isolated')
+
+    # --- KORREKTUR: Guthaben wird JETZT HIER abgerufen (TitanBot-Stil) ---
+    try:
+        total_usdt_balance = exchange.fetch_balance_usdt()
+        if total_usdt_balance <= 0:
+            logger.error("Kontoguthaben ist 0 oder konnte nicht abgerufen werden. Abbruch.")
+            return
+        logger.info(f"Verwende aktuelles Guthaben: {total_usdt_balance:.2f} USDT")
+    except Exception as e:
+        logger.error(f"Fehler beim Abrufen des Kontostands: {e}", exc_info=True)
+        return
+    # --- ENDE KORREKTUR ---
 
     limit = calculate_candle_limit(timeframe, strategy_cfg['lookback_period_days'], logger)
     logger.info(f"Lade {limit} Kerzen für {symbol} ({timeframe})...")
@@ -137,7 +148,6 @@ def attempt_new_trade(target, strategy_cfg, exchange, gemini_model, telegram_api
 
     cols_to_send = ['open', 'high', 'low', 'close', 'volume'] + [col for col in data_to_send.columns if col not in ['open', 'high', 'low', 'close', 'volume', 'timestamp']]
 
-    # <--- KORREKTUR 2: 'line_terminator' zu 'lineterminator' geändert
     historical_data_string = data_to_send[cols_to_send].round(5).to_csv(index=False, lineterminator='\n')
 
     latest = data_to_send.iloc[-1]; current_price = latest['close']
@@ -192,14 +202,38 @@ def attempt_new_trade(target, strategy_cfg, exchange, gemini_model, telegram_api
         if side == 'buy' and (sl_price >= current_price or tp_price <= current_price): logger.error(f"Logikfehler BUY: SL({sl_price}) < P({current_price}) < TP({tp_price}) nicht erfüllt."); return
         if side == 'sell' and (sl_price <= current_price or tp_price >= current_price): logger.error(f"Logikfehler SELL: TP({tp_price}) < P({current_price}) < SL({sl_price}) nicht erfüllt."); return
 
+        # -----------------------------------------------------------------
+        # --- START DER ANPASSUNG (main.py - Puffer) ---
+        # -----------------------------------------------------------------
+        
+        # 1. Berechne das zugewiesene Kapital
         allocated_capital = total_usdt_balance * (risk_cfg['portfolio_fraction_pct'] / 100)
-        capital_at_risk = allocated_capital * (risk_cfg['risk_per_trade_pct'] / 100)
+        
+        # 2. Wende einen Sicherheits-Puffer von 1% an (verwende 99% des Kapitals)
+        # Dies vermeidet "Insufficient Funds" Fehler durch Gebühren/Slippage.
+        allocated_capital_with_buffer = allocated_capital * 0.99 
+        
+        # 3. Prüfe, ob das Kapital nach dem Puffer noch ausreicht
+        if allocated_capital_with_buffer < 5: # Mindestwert für Bitget
+             logger.warning(f"Zugewiesenes Kapital ({allocated_capital_with_buffer:.2f}) nach Puffer zu gering. Abbruch.")
+             return
+        
+        # 4. Verwende das gepufferte Kapital für alle weiteren Berechnungen
+        capital_at_risk = allocated_capital_with_buffer * (risk_cfg['risk_per_trade_pct'] / 100)
+        
+        # -----------------------------------------------------------------
+        # --- ENDE DER ANPASSUNG (main.py - Puffer) ---
+        # -----------------------------------------------------------------
+
         sl_distance_pct = abs(current_price - sl_price) / current_price
         if sl_distance_pct < 0.001: logger.error(f"SL zu nah (<0.1%). SL={sl_price}, P={current_price}. Abbruch."); return
 
         position_size_usdt = capital_at_risk / sl_distance_pct
         max_leverage = risk_cfg.get('max_leverage', 1)
-        final_leverage = round(max(1, min(position_size_usdt / allocated_capital, max_leverage)))
+        
+        # --- KORREKTUR: Hier auch das gepufferte Kapital verwenden ---
+        final_leverage = round(max(1, min(position_size_usdt / allocated_capital_with_buffer, max_leverage)))
+        
         amount_in_asset = position_size_usdt / current_price
 
         try:
@@ -214,22 +248,13 @@ def attempt_new_trade(target, strategy_cfg, exchange, gemini_model, telegram_api
             logger.info(f"Versuche Trade: {side} {amount_in_asset:.4f} {symbol.split('/')[0]} ({position_size_usdt:.2f} USDT) mit {final_leverage}x Hebel...")
             exchange.set_leverage(symbol, final_leverage, margin_mode)
 
-            # -----------------------------------------------------------------
-            # --- START DER ANPASSUNG (main.py) ---
-            # -----------------------------------------------------------------
-            
-            # --- NEU: TSL-Konfiguration holen ---
-            # Holt das 'trailing_stop'-Dict aus der risk_cfg (ist leer, falls nicht vorhanden)
+            # --- TSL-Konfiguration holen ---
             tsl_config = risk_cfg.get('trailing_stop', {}) 
             
             order_result = exchange.create_market_order_with_sl_tp(
                 symbol, side, amount_in_asset, sl_price, tp_price, margin_mode,
-                tsl_config=tsl_config  # <-- NEUER PARAMETER
+                tsl_config=tsl_config
             )
-
-            # -----------------------------------------------------------------
-            # --- ENDE DER ANPASSUNG (main.py) ---
-            # -----------------------------------------------------------------
 
             actual_entry_price = order_result.get('average') or current_price
             filled_amount = order_result.get('filled') or amount_in_asset
@@ -253,11 +278,11 @@ def attempt_new_trade(target, strategy_cfg, exchange, gemini_model, telegram_api
     else: logger.info(f"Keine Handelsaktion ({decision.get('aktion', 'unbekannt')}).")
 
 
-# --- Strategie-Zyklus (unverändert gegenüber v3.6) ---
+# --- Strategie-Zyklus (Angepasst) ---
+# --- KORREKTUR: total_usdt_balance als Argument entfernt ---
 @guardian_decorator
-def run_strategy_cycle(target, strategy_cfg, exchange, gemini_model, telegram_config, total_usdt_balance, logger):
+def run_strategy_cycle(target, strategy_cfg, exchange, gemini_model, telegram_config, logger):
     """ Führt einen kompletten Prüf- und Handelszyklus für EINE Strategie aus. """
-    # ... (Kompletter Code aus Version 3.6 hier einfügen) ...
     symbol = target['symbol']
     logger.info(f"--- Starte Zyklus für {symbol} ({target['timeframe']}) ---")
     try:
@@ -271,14 +296,15 @@ def run_strategy_cycle(target, strategy_cfg, exchange, gemini_model, telegram_co
             logger.info("Starte Housekeeping (storniere alte Orders)...")
             exchange.cleanup_all_open_orders(symbol)
             logger.info("Housekeeping abgeschlossen.")
-            attempt_new_trade(target, strategy_cfg, exchange, gemini_model, telegram_config, total_usdt_balance, logger)
+            # --- KORREKTUR: total_usdt_balance aus Aufruf entfernt ---
+            attempt_new_trade(target, strategy_cfg, exchange, gemini_model, telegram_config, logger)
     except ccxt.RateLimitExceeded as e: logger.warning(f"Exchange Rate Limit: {e}. Pausiere 30s."); time.sleep(30)
     except ccxt.NetworkError as e: logger.warning(f"Netzwerkfehler: {e}. Pausiere 15s."); time.sleep(15)
     # Allgemeine Exceptions werden vom Guardian gefangen
     logger.info(f"--- Zyklus für {symbol} abgeschlossen ---")
 
 
-# --- NEUE Hauptfunktion (wird vom Master Runner aufgerufen) ---
+# --- Hauptfunktion (Angepasst) ---
 def main():
     # --- Argumente parsen ---
     parser = argparse.ArgumentParser(description="utbot2 Einzelstrategie-Runner")
@@ -289,7 +315,7 @@ def main():
     # --- Logger für diese spezifische Strategie einrichten ---
     logger = setup_logging(args.symbol, args.timeframe)
     logger.info("==============================================")
-    logger.info(f"=  Starte utbot2 v3.7 für {args.symbol} ({args.timeframe}) =")
+    logger.info(f"=  Starte utbot2 v3.8 für {args.symbol} ({args.timeframe}) =")
     logger.info("==============================================")
 
     # --- Lade Konfigurationen ---
@@ -328,23 +354,22 @@ def main():
 
     # --- Führe den Strategie-Zyklus EINMAL aus ---
     try:
-        total_usdt_balance = exchange.fetch_balance_usdt()
-        if total_usdt_balance <= 0:
-            logger.error("Kontoguthaben ist 0 oder konnte nicht abgerufen werden. Überspringe diesen Lauf.")
-            return
-
-        logger.info(f"Verfügbares Guthaben: {total_usdt_balance:.2f} USDT")
+        # --- KORREKTUR: Balance-Check hier entfernt. Wird jetzt in attempt_new_trade gemacht. ---
         strategy_cfg = config['strategy']
         telegram_config = secrets['telegram']
 
         # Rufe den dekorierten Zyklus auf
-        run_strategy_cycle(target, strategy_cfg, exchange, gemini_model, telegram_config, total_usdt_balance, logger)
+        # --- KORREKTUR: total_usdt_balance als Argument entfernt ---
+        run_strategy_cycle(target, strategy_cfg, exchange, gemini_model, telegram_config, logger)
 
     except Exception as e:
         # Fange unerwartete Fehler im Hauptteil ab (sollte eigentlich der Guardian tun)
         logger.critical(f"FATALER FEHLER im Hauptprozess für {args.symbol}: {e}", exc_info=True)
         try:
-            send_telegram_message(telegram_config['bot_token'], telegram_config['chat_id'], f"🚨 FATALER FEHLER in utbot2 ({args.symbol})!\n\n`{str(e)}`")
+            # Stelle sicher, dass telegram_config definiert ist, bevor es verwendet wird
+            if 'telegram_config' not in locals():
+                 telegram_config = secrets.get('telegram', {})
+            send_telegram_message(telegram_config.get('bot_token'), telegram_config.get('chat_id'), f"🚨 FATALER FEHLER in utbot2 ({args.symbol})!\n\n`{str(e)}`")
         except Exception: pass # Ignoriere Fehler beim Senden
 
     logger.info(f">>> Lauf für {args.symbol} ({args.timeframe}) abgeschlossen <<<")
