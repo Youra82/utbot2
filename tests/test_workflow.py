@@ -57,7 +57,7 @@ def test_setup():
         if not secrets.get('bitget'):
             pytest.skip("Kein 'bitget'-Eintrag in secret.json gefunden.")
 
-        bitget_config = secrets['bitget']
+        # bitget_config = secrets['bitget'] # Nicht mehr benötigt, da ExchangeHandler() es intern lädt
         telegram_config = secrets.get('telegram', {}) 
 
         test_target = next((t for t in config.get('targets', []) if t.get('enabled')), None)
@@ -68,7 +68,8 @@ def test_setup():
         timeframe = test_target['timeframe']
 
         # Erstelle Exchange-Instanz und Logger
-        exchange = ExchangeHandler(bitget_config)
+        # KORREKTUR: Entferne bitget_config
+        exchange = ExchangeHandler() 
         logger = setup_logging(symbol, timeframe + "_test") 
 
         # Initiales Aufräumen auf der Börse
@@ -76,7 +77,10 @@ def test_setup():
         exchange.cleanup_all_open_orders(symbol)
         
         # --- START GEISTER-POSITION WORKAROUND ---
-        uncached_exchange = ExchangeHandler(bitget_config)
+        # KORREKTUR: Entferne bitget_config
+        uncached_exchange = ExchangeHandler() 
+        # Da wir die Session nicht neu instanziieren können, müssen wir die rohe ccxt-Session verwenden,
+        # was ccxt intern macht, um die "echte" Liste abzurufen.
         positions = uncached_exchange.session.fetch_positions([symbol])
         
         open_positions = [p for p in positions if abs(float(p.get('contracts', 0))) > 1e-9]
@@ -117,6 +121,8 @@ def test_setup():
 
 
 # --- Der eigentliche Test ---
+# HINWEIS: Wir behalten den Patch bei, um sicherzustellen, dass der Bot in main.py
+# NICHT die Geisterposition sieht und in den Trade-Block geht, falls der Workaround im Setup fehlschlägt.
 @patch('utils.exchange_handler.ExchangeHandler.fetch_open_positions', side_effect=[
     # 1. Abfrage in run_strategy_cycle (sollte leer sein)
     [], 
@@ -153,16 +159,13 @@ def test_full_utbot2_workflow_on_bitget(mock_fetch_positions, test_setup):
         real_balance = exchange.fetch_balance_usdt()
         logger.info(f"[Test Workflow] Aktuelles Test-Guthaben: {real_balance:.2f} USDT")
         
-        # --- START KORREKTUR: Mindestguthaben auf 1 USDT senken ---
+        # Mindestguthaben auf 1 USDT senken
         if real_balance < 1.0: 
             pytest.skip(f"Test-Guthaben ist zu gering ({real_balance:.2f} USDT). Benötige mind. 1.0 USDT für den Test.")
-        # --- ENDE KORREKTUR ---
 
-        # --- START KORREKTUR: Erzwinge maximalen Hebel und Kapital für Mindestvolumen ---
-        # Dies ist nötig, um die 5 USDT Mindestposition zu überschreiten, wenn das verfügbare Kapital nur 1.15 USDT ist.
+        # Erzwinge maximalen Hebel und Kapital für Mindestvolumen
         test_target['risk']['portfolio_fraction_pct'] = 100 
         test_target['risk']['max_leverage'] = 100 # Setze Hebel auf 100x
-        # --- ENDE KORREKTUR ---
         
         # Rufe den Zyklus auf. Dank Patch wird die erste Abfrage '[]' zurückgeben.
         run_strategy_cycle(test_target, strategy_cfg, exchange, mock_gemini, telegram_config, logger)
