@@ -109,6 +109,7 @@ def test_setup():
                 print("WARNUNG: Position nach Test noch offen. Versuche Not-Schließung.")
                 pos = positions[0]
                 close_side = 'sell' if pos['side'] == 'long' else 'buy'
+                # --- KORREKTUR: 'tradeSide': 'close' hinzugefügt für Konsistenz ---
                 exchange.create_market_order(symbol, close_side, float(pos['contracts']), params={'reduceOnly': True, 'posSide': 'net', 'tradeSide': 'close'})
             print("-> Aufräumen abgeschlossen.")
         except Exception as e:
@@ -154,8 +155,8 @@ def test_full_utbot2_workflow_on_bitget(test_setup):
         # --- START DER KORREKTUR ---
         # -----------------------------------------------------------------
         # Erhöhe den Dummy-Kontostand, um den "Insufficient Funds"-Fehler 
-        # zu vermeiden, der durch Berechnungen > 1000 USDT entsteht.
-        dummy_balance = 2000 # <-- VON 1000 AUF 2000 ERHÖHT
+        # zu vermeiden. 2000 war zu knapp für 1996.10 + Gebühren.
+        dummy_balance = 3000 # <-- VON 2000 AUF 3000 ERHÖHT
         # -----------------------------------------------------------------
         # --- ENDE DER KORREKTUR ---
         # -----------------------------------------------------------------
