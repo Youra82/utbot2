@@ -158,9 +158,11 @@ def test_full_utbot2_workflow_on_bitget(mock_fetch_positions, test_setup):
             pytest.skip(f"Test-Guthaben ist zu gering ({real_balance:.2f} USDT). Benötige mind. 1.0 USDT für den Test.")
         # --- ENDE KORREKTUR ---
 
-        # Erzwinge maximalen Hebel und Kapital für Mindestvolumen
+        # --- START KORREKTUR: Erzwinge maximalen Hebel und Kapital für Mindestvolumen ---
+        # Dies ist nötig, um die 5 USDT Mindestposition zu überschreiten, wenn das verfügbare Kapital nur 1.15 USDT ist.
         test_target['risk']['portfolio_fraction_pct'] = 100 
-        test_target['risk']['max_leverage'] = 20 
+        test_target['risk']['max_leverage'] = 100 # Setze Hebel auf 100x
+        # --- ENDE KORREKTUR ---
         
         # Rufe den Zyklus auf. Dank Patch wird die erste Abfrage '[]' zurückgeben.
         run_strategy_cycle(test_target, strategy_cfg, exchange, mock_gemini, telegram_config, logger)
@@ -175,7 +177,8 @@ def test_full_utbot2_workflow_on_bitget(mock_fetch_positions, test_setup):
     print("\n[Schritt 2/3] Überprüfe, ob die Position korrekt erstellt wurde...")
     # fetch_open_positions wird hier LIVE aufgerufen (Mock ist aufgebraucht)
     try:
-        positions = exchange.fetch_open_positions(symbol)
+        # Hier wird der nächste Aufruf von fetch_open_positions im Patch verwendet.
+        positions = exchange.fetch_open_positions(symbol) 
         assert len(positions) == 1, f"FEHLER: Erwartete 1 offene Position, gefunden {len(positions)}."
         position = positions[0]
         assert position['side'] == 'long', f"FEHLER: Erwartete 'long' Position, gefunden '{position['side']}'."
