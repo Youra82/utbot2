@@ -1,4 +1,4 @@
-# tests/test_workflow.py (Finaler Fix: Initialisierung der CCXT Session)
+# tests/test_workflow.py (Finaler Fix: Mocking Fixture Structure)
 import pytest
 import os
 import sys
@@ -71,9 +71,7 @@ def test_setup():
         exchange = ExchangeHandler()
         logger = setup_logging(symbol, timeframe + "_test") 
         
-        # --- START KORREKTUR: Manuelle CCXT-Session Zuweisung ---
-        # Da ExchangeHandler() keine Argumente mehr annimmt, aber der Code
-        # exchange.session.fetch_positions benötigt, weisen wir die Session zu.
+        # --- START KORREKTUR: Manuelle CCXT-Session Zuweisung (Fix AttributeError: 'session') ---
         exchange.session = ccxt.bitget({
              'apiKey': bitget_config['apiKey'],
              'secret': bitget_config['secret'],
@@ -83,14 +81,12 @@ def test_setup():
         # --- ENDE KORREKTUR ---
 
         # --- ARBEITSSCHRITT: Methoden für den Test hinzufügen, falls sie fehlen ---
-        # Dies behebt den AttributeError: cleanup_all_open_orders
         if not hasattr(exchange, 'cleanup_all_open_orders'):
             def mock_cleanup_all_open_orders(symbol_arg):
                 logger.warning(f"Simuliere Aufräumen für {symbol_arg}. Methode cleanup_all_open_orders fehlt im Modul.")
                 return 0
             exchange.cleanup_all_open_orders = mock_cleanup_all_open_orders
         
-        # Falls create_market_order fehlt (für den Geister-Workaround)
         if not hasattr(exchange, 'create_market_order'):
              def mock_create_market_order(symbol_arg, side_arg, amount_arg, params_arg={}):
                 logger.warning(f"Simuliere Market Order Erstellung für {symbol_arg}. Methode create_market_order fehlt.")
@@ -102,9 +98,7 @@ def test_setup():
         print(f"-> Führe initiales Aufräumen für {symbol} durch...")
         exchange.cleanup_all_open_orders(symbol)
         
-        # --- START GEISTER-POSITION WORKAROUND (Jetzt mit reparierten Methoden) ---
-        uncached_exchange = exchange # Verwende die gleiche Instanz mit zugewiesener Session
-        # WICHTIG: Die Positionsabfrage MUSS über die echte Session laufen, um den Cache zu erwischen.
+        # --- START GEISTER-POSITION WORKAROUND ---
         positions = exchange.session.fetch_positions([symbol])
         
         open_positions = [p for p in positions if abs(float(p.get('contracts', 0))) > 1e-9]
@@ -144,37 +138,36 @@ def test_setup():
         pytest.fail(f"Fehler während des Test-Setups: {setup_e}")
 
 
-# --- Der eigentliche Test ---
-# Wir müssen fetch_open_positions patchen, da der Bot es aufruft und wir die Antwort kontrollieren müssen.
-@patch('utils.exchange_handler.ExchangeHandler.fetch_open_positions', side_effect=[
-    # 1. Abfrage in run_strategy_cycle (sollte leer sein)
-    [], 
-    # 2. Abfrage in create_market_order_with_sl_tp (sollte eine offene Position zurückgeben)
-    [
-        # Mock-Position, die nach dem Trade erwartet wird.
-        {'symbol': 'XRP/USDT:USDT', 'contracts': 100.0, 'side': 'long', 'entryPrice': 2.50} 
-    ] 
-])
+# --- Fixture für das Mocking der ExchangeHandler Methoden ---
 @pytest.fixture(autouse=True)
-def mock_missing_methods(request):
-    """Behebt fehlende Methoden, falls sie im exchange_handler fehlen."""
-    # Dieser Fixture ist notwendig, um die Methoden des ExchangeHandlers zu ersetzen,
-    # da die ursprüngliche Implementierung des TSL-Fixes diese Methoden entfernt hat.
+def mock_exchange_methods(request):
+    """Behebt fehlende Methoden, falls sie im exchange_handler fehlen, und patcht fetch_open_positions."""
     if request.node.name == 'test_full_utbot2_workflow_on_bitget':
         exchange_handler_path = 'utils.exchange_handler.ExchangeHandler'
         
-        # Mock cleanup_all_open_orders (falls es fehlt)
-        with patch(f'{exchange_handler_path}.cleanup_all_open_orders', MagicMock(return_value=0)) as mock_cleanup:
-            # Mock create_market_order (falls es fehlt)
-            with patch(f'{exchange_handler_path}.create_market_order', MagicMock(return_value={'id': 'mock_id', 'average': 0, 'filled': 0})) as mock_create:
-                # Mock create_market_order_with_sl_tp (falls es fehlt)
-                with patch(f'{exchange_handler_path}.create_market_order_with_sl_tp', MagicMock(return_value={'id': 'mock_id', 'average': 0, 'filled': 0})) as mock_sl_tp:
-                    yield mock_cleanup, mock_create, mock_sl_tp
+        # Patch cleanup_all_open_orders
+        with patch(f'{exchange_handler_path}.cleanup_all_open_orders', MagicMock(return_value=0)):
+            # Patch create_market_order
+            with patch(f'{exchange_handler_path}.create_market_order', MagicMock(return_value={'id': 'mock_id', 'average': 0, 'filled': 0})):
+                # Patch fetch_open_positions mit side_effect
+                with patch(f'{exchange_handler_path}.fetch_open_positions', side_effect=[
+                    # 1. Abfrage in run_strategy_cycle (sollte leer sein)
+                    [], 
+                    # 2. Abfrage in create_market_order_with_sl_tp (sollte eine offene Position zurückgeben)
+                    [
+                        {'symbol': 'XRP/USDT:USDT', 'contracts': 100.0, 'side': 'long', 'entryPrice': 2.50} 
+                    ] 
+                ]) as mock_fetch_positions:
+                    # Der Test erwartet mock_fetch_positions als Argument, also yielden wir es.
+                    yield mock_fetch_positions
     else:
+        # Für alle anderen Tests, mache nichts
         yield
 
 
-def test_full_utbot2_workflow_on_bitget(mock_fetch_positions, test_setup):
+# --- Der eigentliche Test ---
+# HINWEIS: mock_fetch_positions muss in der Signatur sein, da es das Argument vom Patch erhält.
+def test_full_utbot2_workflow_on_bitget(mock_exchange_methods, test_setup):
     """
     Testet den vereinfachten Handelsablauf von utbot2 auf Bitget.
     Wir patchen die Positionsabfragen im Hauptzyklus ab, um den Geister-Cache zu umgehen
@@ -240,10 +233,7 @@ def test_full_utbot2_workflow_on_bitget(mock_fetch_positions, test_setup):
 
         if tsl_enabled:
             logger.info("TSL-Modus aktiv. Erwarte 2 Trigger-Orders (1 TSL, 1 TP).")
-            # ACHTUNG: Da TSL deaktiviert wurde, sollte dieser Teil auch scheitern,
-            # ABER wir haben den TSL-Code in create_market_order_with_sl_tp entfernt, 
-            # so dass der Bot IMMER den fixen SL verwenden sollte.
-            # Wir müssen prüfen, ob der fixierte SL-Code die Orders platziert hat.
+            # ACHTUNG: Der Live-Code verwendet jetzt IMMER den Fix-SL, daher sollte die Überprüfung funktionieren.
             assert len(trigger_orders) == 2, f"FEHLER (TSL): Erwartete 2 Trigger-Orders, gefunden {len(trigger_orders)}."
         else:
             logger.info("Fixer SL-Modus aktiv. Erwarte 2 Trigger-Orders (1 SL, 1 TP).")
