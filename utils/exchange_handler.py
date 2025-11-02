@@ -228,7 +228,7 @@ class ExchangeHandler:
             order_params = {
                 'stopPrice': rounded_price,
                 'reduceOnly': True, # WICHTIG: Nur Position schließen, keine neue eröffnen
-                'posSide': 'net',  # <--- KORREKTUR 1: Erforderlich für Bitget One-Way-Modus
+                'posSide': 'net',  # Erforderlich für Bitget One-Way-Modus
                 **params # Übernimmt zusätzliche Parameter
             }
 
@@ -264,10 +264,9 @@ class ExchangeHandler:
 
         # 1. Market-Order (Einstieg)
         try:
-            # Wichtig: Margin-Modus als Parameter übergeben
-            # <--- KORREKTUR 2: posSide: 'net' für Market-Order hinzugefügt
+            # Wichtig: Margin-Modus wurde bereits in main.py via set_leverage() gesetzt.
+            # <--- KORREKTUR: 'marginMode' entfernt, da es den Bitget-Fehler 40774 verursacht hat
             market_params = {
-                'marginMode': margin_mode.lower(),
                 'posSide': 'net' 
             }
             market_order = self.create_market_order(symbol, side, amount, params=market_params)
