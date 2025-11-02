@@ -1,4 +1,4 @@
-# utbot2/utils/exchange_handler.py (Inspiriert von JaegerBot)
+# utbot2/utils/exchange_handler.py (Inspiriert von JaegerBot/TitanBot/LtbBot)
 import ccxt
 import logging
 import pandas as pd
@@ -20,7 +20,7 @@ class ExchangeHandler:
         self.markets = self.session.load_markets()
         logger.info("ExchangeHandler initialisiert und Märkte geladen.")
 
-    # --- Standard-Funktionen (unverändert) ---
+    # --- Standard-Funktionen ---
     def fetch_ohlcv(self, symbol, timeframe, limit):
         """ Lädt die letzten 'limit' Kerzen. """
         try:
@@ -50,45 +50,45 @@ class ExchangeHandler:
             logger.error(f"[{symbol}] Fehler beim Abrufen des Tickers: {e}", exc_info=True)
             raise
 
+    # --- KORRIGIERT (ltbbot-Logik) ---
     def fetch_balance_usdt(self):
-        """ Holt das verfügbare USDT-Guthaben (robuste Version von JaegerBot). """
+        """ Holt das verfügbare USDT-Guthaben (robuste Version). """
         try:
-            # --- KORREKTUR: 'productType' hinzufügen, um nur Futures-Guthaben abzurufen ---
-            params = {'productType': 'USDT-FUTURES'}
+            # Spezifiziere productType, um nur Futures-Guthaben abzurufen
+            params = {'productType': 'USDT-FUTURES', 'marginCoin': 'USDT'}
             balance = self.session.fetch_balance(params=params)
-            # --- ENDE KORREKTUR ---
+            usdt_balance = 0.0
 
-            # Prüft verschiedene mögliche Strukturen der Balance-Antwort
-            if 'USDT' in balance and 'free' in balance['USDT']:
-                return float(balance['USDT']['free'])
-            elif 'free' in balance and 'USDT' in balance['free']: # Alternative Struktur
-                return float(balance['free']['USDT'])
-            
-            # --- KORREKTUR: TitanBot-Logik für Unified/Classic Account Fallback ---
+            # 1. Standard ccxt 'free'
+            if 'USDT' in balance and 'free' in balance['USDT'] and balance['USDT']['free'] is not None:
+                usdt_balance = float(balance['USDT']['free'])
+            # 2. 'info'-Struktur (Liste, oft bei Unified Accounts)
             elif 'info' in balance and 'data' in balance['info'] and isinstance(balance['info']['data'], list):
                 for asset_info in balance['info']['data']:
                     if asset_info.get('marginCoin') == 'USDT':
                         if 'available' in asset_info and asset_info['available'] is not None:
-                            return float(asset_info['available'])
-                        elif 'equity' in asset_info and asset_info['equity'] is not None:
-                             # Equity ist das Gesamtkapital, 'available' (free) ist besser
-                            logger.warning("Verwende 'equity' als Fallback für Guthaben.")
-                            return float(asset_info['equity'])
-            # --- ENDE KORREKTUR ---
-            
-            elif 'total' in balance and 'USDT' in balance['total']: # Letzter Fallback
+                            usdt_balance = float(asset_info['available'])
+                            break
+                        elif 'equity' in asset_info and asset_info['equity'] is not None and usdt_balance == 0.0:
+                             logger.warning("Verwende 'equity' als Fallback für Guthaben.")
+                             usdt_balance = float(asset_info['equity'])
+            # 3. 'info'-Struktur (Dict, oft bei Classic Accounts)
+            elif 'free' in balance and 'USDT' in balance['free']:
+                 usdt_balance = float(balance['free']['USDT'])
+            # 4. Fallback auf 'total'
+            elif 'total' in balance and 'USDT' in balance['total'] and usdt_balance == 0.0: 
                 logger.warning("Konnte 'free' USDT-Balance nicht finden, verwende 'total' als Fallback.")
-                return float(balance['total']['USDT'])
-            else:
-                logger.warning(f"Kein USDT-Guthaben in der Balance-Antwort gefunden. Struktur: {balance}")
-                return 0.0
+                usdt_balance = float(balance['total']['USDT'])
+            
+            if usdt_balance == 0.0:
+                logger.warning(f"Kein USDT-Guthaben in der Balance-Antwort gefunden.")
+                
+            return usdt_balance
         except Exception as e:
             logger.error(f"Fehler beim Abrufen des USDT-Guthabens: {e}", exc_info=True)
             return 0.0
 
-    # -----------------------------------------------------------------
-    # --- START KORREKTUR (fetch_open_positions) ---
-    # -----------------------------------------------------------------
+    # --- KORRIGIERT (ltbbot-Logik) ---
     def fetch_open_positions(self, symbol: str):
         """ Holt alle offenen Positionen für ein Symbol (TitanBot-Logik). """
         try:
@@ -96,12 +96,11 @@ class ExchangeHandler:
             params = {'productType': 'USDT-FUTURES'}
             positions = self.session.fetch_positions([symbol], params=params)
             
-            # Filtert nach Positionen, die tatsächlich eine Größe haben (robuste Prüfung)
             open_positions = []
             for p in positions:
                 try:
                     contracts_str = p.get('contracts')
-                    # Verwende abs() > 1e-9 für eine robuste Prüfung statt > 0
+                    # Robuste Prüfung auf > 0
                     if contracts_str is not None and abs(float(contracts_str)) > 1e-9:
                         open_positions.append(p)
                 except (ValueError, TypeError) as e:
@@ -111,103 +110,97 @@ class ExchangeHandler:
             
         except Exception as e:
             logger.error(f"[{symbol}] Fehler beim Abrufen offener Positionen: {e}", exc_info=True)
-            raise # Wichtig, dass der Bot im Fehlerfall stoppt
-    # -----------------------------------------------------------------
-    # --- ENDE KORREKTUR ---
-    # -----------------------------------------------------------------
+            raise
 
+    # --- KORRIGIERT (ltbbot-Logik) ---
     def fetch_open_trigger_orders(self, symbol: str):
-        """ Ruft alle offenen Trigger-Orders (SL/TP) für ein Symbol ab (JaegerBot-Methode). """
+        """ Ruft alle offenen Trigger-Orders (SL/TP) für ein Symbol ab. """
         try:
-            # --- KORREKTUR: 'productType' hinzufügen ---
             params = {'stop': True, 'productType': 'USDT-FUTURES'}
             return self.session.fetch_open_orders(symbol, params=params)
         except Exception as e:
             logger.error(f"[{symbol}] Fehler beim Abrufen offener Trigger-Orders: {e}", exc_info=True)
             return [] 
 
+    # --- KORRIGIERT (ltbbot-Logik) ---
     def cleanup_all_open_orders(self, symbol: str):
-        """ Storniert ALLE offenen Orders (Trigger und Normal) für ein Symbol (JaegerBot's Housekeeper). """
+        """ Storniert ALLE offenen Orders (Trigger und Normal) für ein Symbol. """
         cancelled_count = 0
+        
+        # 1. Normale Orders stornieren (stop: False)
         try:
-            # 1. Trigger-Orders stornieren
-            trigger_orders = self.fetch_open_trigger_orders(symbol)
-            if trigger_orders:
-                logger.info(f"[{symbol}] Housekeeper: {len(trigger_orders)} offene Trigger-Order(s) gefunden. Storniere...")
-                for order in trigger_orders:
-                    try:
-                        # --- KORREKTUR: 'productType' hinzufügen ---
-                        self.session.cancel_order(order['id'], symbol, params={'stop': True, 'productType': 'USDT-FUTURES'})
-                        cancelled_count += 1
-                        logger.info(f"[{symbol}] Trigger-Order {order['id']} storniert.")
-                    except ccxt.OrderNotFound:
-                        logger.info(f"[{symbol}] Trigger-Order {order['id']} war bereits geschlossen/storniert.")
-                    except Exception as e_cancel_trigger:
-                        logger.error(f"[{symbol}] Konnte Trigger-Order {order['id']} nicht stornieren: {e_cancel_trigger}")
+            params_normal = {'productType': 'USDT-FUTURES', 'stop': False}
+            self.session.cancel_all_orders(symbol, params=params_normal)
+            cancelled_count += 1
+            logger.info(f"[{symbol}] Housekeeper: 'cancel_all_orders' (Normal) gesendet.")
+            time.sleep(0.5) # Kurze Pause zwischen den Befehlen
+        except ccxt.ExchangeError as e:
+            if 'Order not found' in str(e) or 'no order to cancel' in str(e).lower() or '22001' in str(e):
+                 logger.info(f"[{symbol}] Housekeeper: Keine normalen Orders zum Stornieren gefunden.")
             else:
-                logger.info(f"[{symbol}] Housekeeper: Keine offenen Trigger-Orders gefunden.")
+                 logger.error(f"[{symbol}] Housekeeper: Fehler beim Stornieren normaler Orders: {e}")
+        except Exception as e:
+            logger.error(f"[{symbol}] Housekeeper: Unerwarteter Fehler (Normal): {e}")
 
-            # 2. Normale (Limit-) Orders stornieren (falls vorhanden)
-            # --- KORREKTUR: 'productType' hinzufügen ---
-            normal_orders = self.session.fetch_open_orders(symbol, params={'stop': False, 'productType': 'USDT-FUTURES'})
-            if normal_orders:
-                logger.info(f"[{symbol}] Housekeeper: {len(normal_orders)} offene normale Order(s) gefunden. Storniere...")
-                for order in normal_orders:
-                    try:
-                        self.session.cancel_order(order['id'], symbol, params={'productType': 'USDT-FUTURES'})
-                        cancelled_count += 1
-                        logger.info(f"[{symbol}] Normale Order {order['id']} storniert.")
-                    except ccxt.OrderNotFound:
-                        logger.info(f"[{symbol}] Normale Order {order['id']} war bereits geschlossen/storniert.")
-                    except Exception as e_cancel_normal:
-                        logger.error(f"[{symbol}] Konnte normale Order {order['id']} nicht stornieren: {e_cancel_normal}")
+        # 2. Trigger Orders stornieren (stop: True)
+        try:
+            params_trigger = {'productType': 'USDT-FUTURES', 'stop': True}
+            self.session.cancel_all_orders(symbol, params=params_trigger)
+            cancelled_count += 1
+            logger.info(f"[{symbol}] Housekeeper: 'cancel_all_orders' (Trigger) gesendet.")
+            time.sleep(0.5)
+        except ccxt.ExchangeError as e:
+            if 'Order not found' in str(e) or 'no order to cancel' in str(e).lower() or '22001' in str(e):
+                 logger.info(f"[{symbol}] Housekeeper: Keine Trigger-Orders zum Stornieren gefunden.")
             else:
-                logger.info(f"[{symbol}] Housekeeper: Keine offenen normalen Orders gefunden.")
+                 logger.error(f"[{symbol}] Housekeeper: Fehler beim Stornieren von Trigger-Orders: {e}")
+        except Exception as e:
+            logger.error(f"[{symbol}] Housekeeper: Unerwarteter Fehler (Trigger): {e}")
 
-        except Exception as e_fetch:
-            logger.error(f"[{symbol}] Kritischer Fehler im Housekeeper beim Abrufen von Orders: {e_fetch}", exc_info=True)
-            return 0
-
-        if cancelled_count > 0:
-            logger.info(f"[{symbol}] Housekeeper: Insgesamt {cancelled_count} Order(s) storniert.")
         return cancelled_count
 
 
     # --- Order Platzierung (Kernlogik von JaegerBot) ---
 
+    # --- KORRIGIERT (ltbbot-Logik) ---
     def set_leverage(self, symbol: str, leverage: int, margin_mode: str = 'isolated'):
-        """ Setzt Hebel und Margin-Modus (unverändert). """
+        """ Setzt Hebel und Margin-Modus. """
         leverage = int(round(leverage))
         if leverage < 1: leverage = 1 
         try:
+            # 1. Margin-Modus setzen
             try:
-                self.session.set_margin_mode(margin_mode.lower(), symbol)
+                params_margin = {'productType': 'USDT-FUTURES', 'marginCoin': 'USDT'}
+                self.session.set_margin_mode(margin_mode.lower(), symbol, params=params_margin)
                 logger.info(f"[{symbol}] Margin-Modus erfolgreich auf '{margin_mode.lower()}' gesetzt.")
-            except ccxt.NotSupported:
-                logger.warning(f"[{symbol}] Exchange unterstützt set_margin_mode nicht explizit. Versuche über Parameter.")
-            except Exception as e_margin:
-                if 'Margin mode is the same' not in str(e_margin):
+            except ccxt.ExchangeError as e_margin:
+                if 'Margin mode is the same' not in str(e_margin) and 'margin mode is not changed' not in str(e_margin).lower():
                     logger.warning(f"[{symbol}] Setzen des Margin-Modus fehlgeschlagen (ignoriert wenn bereits korrekt): {e_margin}")
+            except ccxt.NotSupported:
+                 logger.warning(f"[{symbol}] Exchange unterstützt set_margin_mode nicht explizit.")
 
-            params = {}
+            # 2. Hebel setzen
+            params = {'productType': 'USDT-FUTURES', 'marginCoin': 'USDT'}
             if margin_mode.lower() == 'isolated':
-                params = {'holdSide': 'long', 'posSide': 'net'}
+                params_long = {**params, 'holdSide': 'long', 'posSide': 'net'}
+                params_short = {**params, 'holdSide': 'short', 'posSide': 'net'}
                 try:
-                    self.session.set_leverage(leverage, symbol, params=params)
-                    params = {'holdSide': 'short', 'posSide': 'net'}
-                    self.session.set_leverage(leverage, symbol, params=params)
+                    self.session.set_leverage(leverage, symbol, params=params_long)
+                    time.sleep(0.2) # Kurze Pause
+                    self.session.set_leverage(leverage, symbol, params=params_short)
                     logger.info(f"[{symbol}] Hebel erfolgreich auf {leverage}x für Long & Short (Isolated) gesetzt.")
-                except Exception as e_lev_iso:
-                    if 'Leverage not changed' not in str(e_lev_iso) and 'repeat submit' not in str(e_lev_iso):
+                except ccxt.ExchangeError as e_lev_iso:
+                    if 'Leverage not changed' not in str(e_lev_iso) and 'leverage is not modified' not in str(e_lev_iso).lower():
                         logger.error(f"[{symbol}] Fehler beim Setzen des Isolated Hebels: {e_lev_iso}"); raise
                     else:
                         logger.info(f"[{symbol}] Hebel war bereits auf {leverage}x (Isolated) gesetzt.")
             else: # Cross Margin
                 try:
-                    self.session.set_leverage(leverage, symbol, params={'posSide': 'net'})
+                    params_cross = {**params, 'posSide': 'net'}
+                    self.session.set_leverage(leverage, symbol, params=params_cross)
                     logger.info(f"[{symbol}] Hebel erfolgreich auf {leverage}x (Cross) gesetzt.")
-                except Exception as e_lev_cross:
-                    if 'Leverage not changed' not in str(e_lev_cross) and 'repeat submit' not in str(e_lev_cross):
+                except ccxt.ExchangeError as e_lev_cross:
+                    if 'Leverage not changed' not in str(e_lev_cross) and 'leverage is not modified' not in str(e_lev_cross).lower():
                         logger.error(f"[{symbol}] Fehler beim Setzen des Cross Hebels: {e_lev_cross}"); raise
                     else:
                         logger.info(f"[{symbol}] Hebel war bereits auf {leverage}x (Cross) gesetzt.")
