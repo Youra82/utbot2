@@ -384,6 +384,16 @@ class ExchangeHandler:
                     # TSL Aktivierungspreis (z.B. 2% unter dem Einstieg)
                     activation_price = actual_entry_price * (1 - activation_margin_pct)
                 
+                # Der von der KI berechnete fixe SL wird zum "Notstopp" (failsafe)
+                # Wir prüfen, ob der KI-SL *näher* am Preis ist als der TSL-Aktivierungspreis.
+                # Wenn ja, nutzen wir den KI-SL als Aktivierungspreis, um das Risiko zu minimieren.
+                if side == 'buy' and sl_price > activation_price:
+                    logger.warning(f"[{symbol}] KI-SL ({sl_price}) ist über TSL-Aktivierung ({activation_price}). Verwende KI-SL als Aktivierung.")
+                    activation_price = sl_price
+                elif side == 'sell' and sl_price < activation_price:
+                    logger.warning(f"[{symbol}] KI-SL ({sl_price}) ist unter TSL-Aktivierung ({activation_price}). Verwende KI-SL als Aktivierung.")
+                    activation_price = sl_price
+
                 logger.info(f"[{symbol}] Schritt 2/3: Platziere TRAILING Stop-Loss ({close_side})...")
                 logger.info(f"[{symbol}] (Aktivierung: {activation_price:.4f}, Callback: {callback_rate_pct_decimal * 100.0}%)")
                 
