@@ -18,7 +18,7 @@ trading_mode = "daytrade"
 
 [[targets]]
 enabled = true
-symbol = "XRP/USDT:USDT"
+symbol = "PEPE/USDT:USDT"
 timeframe = "1h"
 
 [targets.risk]
@@ -33,7 +33,7 @@ activation_pct = 2.0            # (2.0%) TSL wird erst aktiv, wenn der Trade 2% 
 
 
 [[targets]]
-enabled = true
+enabled = false
 symbol = "ETH/USDT:USDT"
 timeframe = "1h"
 
