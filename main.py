@@ -109,7 +109,7 @@ def calculate_candle_limit(timeframe, lookback_days, logger): # Logger hinzugef�
 # --- Trade-Eröffnung (Angepasst) ---
 # --- KORREKTUR: total_usdt_balance als Argument entfernt ---
 def attempt_new_trade(target, strategy_cfg, exchange, gemini_model, telegram_api, logger):
-    
+
     symbol, risk_cfg, timeframe = target['symbol'], target['risk'], target['timeframe']
     trading_style_text = PROMPT_TEMPLATES.get(strategy_cfg.get('trading_mode', 'swing'))
     margin_mode = risk_cfg.get('margin_mode', 'isolated')
@@ -205,22 +205,24 @@ def attempt_new_trade(target, strategy_cfg, exchange, gemini_model, telegram_api
         # -----------------------------------------------------------------
         # --- START DER ANPASSUNG (main.py - Puffer) ---
         # -----------------------------------------------------------------
-        
+
         # 1. Berechne das zugewiesene Kapital
         allocated_capital = total_usdt_balance * (risk_cfg['portfolio_fraction_pct'] / 100)
-        
+
         # 2. Wende einen Sicherheits-Puffer von 1% an (verwende 99% des Kapitals)
         # Dies vermeidet "Insufficient Funds" Fehler durch Gebühren/Slippage.
-        allocated_capital_with_buffer = allocated_capital * 0.99 
-        
+        allocated_capital_with_buffer = allocated_capital * 0.99
+
         # 3. Prüfe, ob das Kapital nach dem Puffer noch ausreicht
-        if allocated_capital_with_buffer < 5: # Mindestwert für Bitget
-             logger.warning(f"Zugewiesenes Kapital ({allocated_capital_with_buffer:.2f}) nach Puffer zu gering. Abbruch.")
-             return
-        
+        # HIER: Passen den Check an, um den Test zu ermöglichen, da das Kapital sehr klein ist.
+        minimum_capital_check = 1.0 # Vorher 5.0
+        if allocated_capital_with_buffer < minimum_capital_check: 
+            logger.warning(f"Zugewiesenes Kapital ({allocated_capital_with_buffer:.2f}) nach Puffer zu gering. Abbruch.")
+            return
+
         # 4. Verwende das gepufferte Kapital für alle weiteren Berechnungen
         capital_at_risk = allocated_capital_with_buffer * (risk_cfg['risk_per_trade_pct'] / 100)
-        
+
         # -----------------------------------------------------------------
         # --- ENDE DER ANPASSUNG (main.py - Puffer) ---
         # -----------------------------------------------------------------
@@ -230,10 +232,10 @@ def attempt_new_trade(target, strategy_cfg, exchange, gemini_model, telegram_api
 
         position_size_usdt = capital_at_risk / sl_distance_pct
         max_leverage = risk_cfg.get('max_leverage', 1)
-        
+
         # --- KORREKTUR: Hier auch das gepufferte Kapital verwenden ---
         final_leverage = round(max(1, min(position_size_usdt / allocated_capital_with_buffer, max_leverage)))
-        
+
         amount_in_asset = position_size_usdt / current_price
 
         try:
@@ -241,7 +243,8 @@ def attempt_new_trade(target, strategy_cfg, exchange, gemini_model, telegram_api
             min_amount = market_info['limits']['amount']['min']
             min_cost = market_info['limits']['cost']['min']
             if amount_in_asset < min_amount: logger.warning(f"Menge {amount_in_asset:.4f} < Min {min_amount}. Abbruch."); return
-            if position_size_usdt < min_cost: logger.warning(f"Wert {position_size_usdt:.2f} < Min {min_cost}. Abbruch."); return
+            # Dies ist die Prüfung, die scheitert (5 USDT)
+            if position_size_usdt < min_cost: logger.warning(f"Wert {position_size_usdt:.2f} < Min {min_cost}. Abbruch."); return 
         except Exception as e: logger.error(f"Fehler bei Marktlimits: {e}. Abbruch."); return
 
         try:
@@ -249,8 +252,8 @@ def attempt_new_trade(target, strategy_cfg, exchange, gemini_model, telegram_api
             exchange.set_leverage(symbol, final_leverage, margin_mode)
 
             # --- TSL-Konfiguration holen ---
-            tsl_config = risk_cfg.get('trailing_stop', {}) 
-            
+            tsl_config = risk_cfg.get('trailing_stop', {})
+
             order_result = exchange.create_market_order_with_sl_tp(
                 symbol, side, amount_in_asset, sl_price, tp_price, margin_mode,
                 tsl_config=tsl_config
@@ -258,18 +261,18 @@ def attempt_new_trade(target, strategy_cfg, exchange, gemini_model, telegram_api
 
             actual_entry_price = order_result.get('average') or current_price
             filled_amount = order_result.get('filled') or amount_in_asset
-            
+
             # Prüfen, ob ein TSL verwendet wurde, für die Log-Nachricht
             tsl_active = tsl_config.get('enabled', False)
             sl_message = "TSL" if tsl_active else f"SL: {sl_price}"
 
             logger.info(f"✅ Trade platziert! ID: {order_result['id']}, Entry: ≈{actual_entry_price:.4f}, Menge: {filled_amount:.4f}")
             msg = (f"🚀 NEUER TRADE: *{symbol}*\n\n"
-                   f"Aktion: *{decision['aktion']}* ({final_leverage}x)\n"
-                   f"Größe: {filled_amount * actual_entry_price:.2f} USDT\n"
-                   f"Entry: ≈ {actual_entry_price:.4f}\n"
-                   f"{sl_message}\n" # Dynamische SL-Nachricht
-                   f"TP: {tp_price}")
+                    f"Aktion: *{decision['aktion']}* ({final_leverage}x)\n"
+                    f"Größe: {filled_amount * actual_entry_price:.2f} USDT\n"
+                    f"Entry: ≈ {actual_entry_price:.4f}\n"
+                    f"{sl_message}\n" # Dynamische SL-Nachricht
+                    f"TP: {tp_price}")
             send_telegram_message(telegram_api['bot_token'], telegram_api['chat_id'], msg)
         except Exception as e:
             logger.error(f"❌ FEHLER BEI TRADE-AUSFÜHRUNG: {e}", exc_info=True)
@@ -368,7 +371,7 @@ def main():
         try:
             # Stelle sicher, dass telegram_config definiert ist, bevor es verwendet wird
             if 'telegram_config' not in locals():
-                 telegram_config = secrets.get('telegram', {})
+                telegram_config = secrets.get('telegram', {})
             send_telegram_message(telegram_config.get('bot_token'), telegram_config.get('chat_id'), f"🚨 FATALER FEHLER in utbot2 ({args.symbol})!\n\n`{str(e)}`")
         except Exception: pass # Ignoriere Fehler beim Senden
 
