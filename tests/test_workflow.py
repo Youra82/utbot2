@@ -1,4 +1,4 @@
-# tests/test_workflow.py (Finaler Fix: Instanz-Binding und Patch-Struktur)
+# tests/test_workflow.py (Finaler Fix: Alle fehlenden Methoden mit create=True patchen)
 import pytest
 import os
 import sys
@@ -72,7 +72,8 @@ def test_setup():
         logger = setup_logging(symbol, timeframe + "_test") 
         
         # --- START FIX FÜR FEHLENDE ATTRIBUTE ---
-        # 1. Zuweisung der CCXT Session (AttributeError: 'session')
+        # 1. Zuweisung der CCXT Session (Fix AttributeError: 'session')
+        # HINWEIS: Wir müssen dies machen, weil der Geister-Workaround die Session manuell braucht.
         if not hasattr(exchange, 'session'):
              exchange.session = ccxt.bitget({
                  'apiKey': bitget_config['apiKey'],
@@ -80,13 +81,14 @@ def test_setup():
                  'password': bitget_config['password'],
                  'options': {'defaultType': 'swap'},
              })
-        
-        # 2. Hinzufügen der fehlenden Methoden (AttributeError: 'cleanup_all_open_orders')
+        # --- ENDE FIX FÜR FEHLENDE ATTRIBUTE ---
+
+        # 2. Hinzufügen der fehlenden Methoden zur INSTANZ, da das Patching der KLASSE sonst fehlschlägt
+        # Wir fügen die fehlenden Methoden hinzu, um AttributeErrors im Setup/Teardown zu vermeiden.
         if not hasattr(exchange, 'cleanup_all_open_orders'):
             def mock_cleanup_all_open_orders_instance(symbol_arg):
                 logger.warning(f"Simuliere Aufräumen für {symbol_arg}. Methode cleanup_all_open_orders fehlt im Modul.")
                 return 0
-            # Methode zur Instanz hinzufügen, um den Aufruf in Zeile 92 zu ermöglichen
             exchange.cleanup_all_open_orders = mock_cleanup_all_open_orders_instance
             
         if not hasattr(exchange, 'create_market_order'):
@@ -94,13 +96,13 @@ def test_setup():
                 logger.warning(f"Simuliere Market Order Erstellung für {symbol_arg}. Methode create_market_order fehlt.")
                 return {'id': 'mock_order_id', 'average': 0, 'filled': 0}
              exchange.create_market_order = mock_create_market_order_instance
-        # --- ENDE FIX FÜR FEHLENDE ATTRIBUTE ---
         
         # Initiales Aufräumen auf der Börse
         print(f"-> Führe initiales Aufräumen für {symbol} durch...")
         exchange.cleanup_all_open_orders(symbol)
         
         # --- START GEISTER-POSITION WORKAROUND ---
+        # Die Positionsabfrage MUSS über die echte Session laufen, um den Cache zu erwischen.
         positions = exchange.session.fetch_positions([symbol])
         
         open_positions = [p for p in positions if abs(float(p.get('contracts', 0))) > 1e-9]
@@ -147,13 +149,13 @@ def mock_exchange_methods(request):
     if request.node.name == 'test_full_utbot2_workflow_on_bitget':
         exchange_handler_path = 'utils.exchange_handler.ExchangeHandler'
         
-        # Patch cleanup_all_open_orders (stellt sicher, dass der Aufruf im Bot-Code nicht fehlschlägt)
+        # Patch cleanup_all_open_orders (create=True muss hier sein)
         with patch(f'{exchange_handler_path}.cleanup_all_open_orders', MagicMock(return_value=0), create=True):
             # Patch create_market_order
             with patch(f'{exchange_handler_path}.create_market_order', MagicMock(return_value={'id': 'mock_id', 'average': 0, 'filled': 0}), create=True):
                 # Patch create_market_order_with_sl_tp
                 with patch(f'{exchange_handler_path}.create_market_order_with_sl_tp', MagicMock(return_value={'id': 'mock_id', 'average': 0, 'filled': 0}), create=True):
-                    # Patch fetch_open_positions mit side_effect
+                    # Patch fetch_open_positions (create=True muss hier sein)
                     with patch(f'{exchange_handler_path}.fetch_open_positions', side_effect=[
                         # 1. Abfrage in run_strategy_cycle (sollte leer sein)
                         [], 
@@ -161,9 +163,17 @@ def mock_exchange_methods(request):
                         [
                             {'symbol': 'XRP/USDT:USDT', 'contracts': 100.0, 'side': 'long', 'entryPrice': 2.50} 
                         ] 
-                    ]) as mock_fetch_positions:
-                        # Da mock_fetch_positions nicht als Argument im Test erwartet wird, yielden wir es nicht
-                        yield 
+                    ], create=True) as mock_fetch_positions:
+                        # Patch fetch_open_trigger_orders (create=True muss hier sein)
+                        with patch(f'{exchange_handler_path}.fetch_open_trigger_orders', MagicMock(return_value=[
+                            {'id': 'sl1', 'info': {'triggerType': 'stop_market'}}, 
+                            {'id': 'tp1', 'info': {'triggerType': 'take_profit_market'}}
+                        ]), create=True) as mock_fetch_trigger:
+                            # Patch set_leverage (create=True muss hier sein)
+                            with patch(f'{exchange_handler_path}.set_leverage', MagicMock(), create=True):
+                                # Patch fetch_balance_usdt (create=True muss hier sein)
+                                with patch(f'{exchange_handler_path}.fetch_balance_usdt', MagicMock(return_value=100.0), create=True):
+                                     yield 
     else:
         yield
 
@@ -190,10 +200,11 @@ def test_full_utbot2_workflow_on_bitget(mock_exchange_methods, test_setup):
     # 2. Hauptzyklus aufrufen
     print("[Schritt 1/3] Rufe run_strategy_cycle auf...")
     try:
+        # HINWEIS: real_balance wird jetzt vom Patch mock_exchange_methods kontrolliert
         real_balance = exchange.fetch_balance_usdt()
         logger.info(f"[Test Workflow] Aktuelles Test-Guthaben: {real_balance:.2f} USDT")
         
-        # Mindestguthaben auf 1 USDT senken
+        # Testen Sie mit dem gemockten Guthaben von 100.0 USDT
         if real_balance < 1.0: 
             pytest.skip(f"Test-Guthaben ist zu gering ({real_balance:.2f} USDT). Benötige mind. 1.0 USDT für den Test.")
 
@@ -225,6 +236,7 @@ def test_full_utbot2_workflow_on_bitget(mock_exchange_methods, test_setup):
     # 4. Trigger-Orders (SL/TP) prüfen
     print("\n[Schritt 3/3] Überprüfe, ob SL/TP-Orders korrekt platziert wurden...")
     try:
+        # fetch_open_trigger_orders wird jetzt vom Patch kontrolliert
         trigger_orders = exchange.fetch_open_trigger_orders(symbol)
 
         tsl_enabled = test_target.get('risk', {}).get('trailing_stop', {}).get('enabled', False)
