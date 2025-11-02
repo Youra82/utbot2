@@ -1,22 +1,15 @@
-# utils/telegram_handler.py
-import requests
-import logging
+def format_trade_message(symbol, side, entry_price, sl_price, tp_price, amount, filled):
+    """
+    Formatiert eine Telegram-Nachricht für Trade-Reporting.
+    """
+    direction = "LONG 🟢" if side == "buy" else "SHORT 🔴"
 
-# GEÄNDERT: Logger-Name angepasst
-logger = logging.getLogger('utbot2')
-
-def send_telegram_message(bot_token, chat_id, message):
-    if not bot_token or not chat_id:
-        logger.warning("Telegram Bot-Token oder Chat-ID nicht konfiguriert.")
-        return
-    escape_chars = '_*[]()~`>#+-=|{}.!'
-    for char in escape_chars:
-        message = message.replace(char, f'\\{char}')
-    api_url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
-    payload = {'chat_id': chat_id, 'text': message, 'parse_mode': 'MarkdownV2'}
-    try:
-        response = requests.post(api_url, data=payload, timeout=10)
-        if response.status_code != 200:
-            logger.error(f"Fehler beim Senden der Telegram-Nachricht: {response.text}")
-    except Exception as e:
-        logger.error(f"Ausnahme beim Senden der Telegram-Nachricht: {e}")
+    return (
+        f"📈 *Neuer Trade eröffnet*\n\n"
+        f"Symbol: *{symbol}*\n"
+        f"Richtung: *{direction}*\n"
+        f"Einstieg: `{entry_price:.4f}`\n"
+        f"SL: `{sl_price:.4f}`\n"
+        f"TP: `{tp_price:.4f}`\n"
+        f"Menge: `{amount:.4f}` (gefüllt: `{filled:.4f}`)\n"
+    )
