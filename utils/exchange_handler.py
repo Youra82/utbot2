@@ -1,4 +1,4 @@
-# utbot2/utils/exchange_handler.py (Version 3.9 - Finaler Fix 40774)
+# utbot2/utils/exchange_handler.py (Version 3.9 - Finaler Fix Geister-Positionen)
 import ccxt
 import logging
 import pandas as pd
@@ -90,7 +90,15 @@ class ExchangeHandler:
     def fetch_open_positions(self, symbol: str):
         """Holt alle offenen Positionen für ein Symbol (TitanBot-Logik)."""
         try:
-            params = {'productType': 'USDT-FUTURES'}
+            # --- START KORREKTUR (Cache-Buster für Geister-Positionen) ---
+            # Wir fügen einen Zeitstempel hinzu, um den ccxt-Cache zu umgehen.
+            # Dies zwingt ccxt, JEDES MAL frische Positionsdaten von der API abzurufen.
+            params = {
+                'productType': 'USDT-FUTURES',
+                '_cache_buster': time.time() # Cache-Buster
+            }
+            # --- ENDE KORREKTUR ---
+            
             positions = self.session.fetch_positions([symbol], params=params)
 
             open_positions = []
@@ -111,7 +119,11 @@ class ExchangeHandler:
     def fetch_open_trigger_orders(self, symbol: str):
         """Ruft alle offenen Trigger-Orders (SL/TP) für ein Symbol ab."""
         try:
-            params = {'stop': True, 'productType': 'USDT-FUTURES'}
+            params = {
+                'stop': True, 
+                'productType': 'USDT-FUTURES',
+                '_cache_buster': time.time() # Sicher ist sicher: Cache hier auch umgehen
+            }
             return self.session.fetch_open_orders(symbol, params=params)
         except Exception as e:
             logger.error(f"[{symbol}] Fehler beim Abrufen offener Trigger-Orders: {e}", exc_info=True)
