@@ -6,6 +6,7 @@ import json
 import logging
 import time
 from unittest.mock import MagicMock # Zum Mocken von Gemini
+import ccxt # <--- NEU: Import für Fehlerbehandlung
 
 # Füge das Projekt-Hauptverzeichnis zum Python-Pfad hinzu
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
@@ -82,16 +83,38 @@ def test_setup():
         print(f"-> Führe initiales Aufräumen für {symbol} durch...")
         exchange.cleanup_all_open_orders(symbol)
         positions = exchange.fetch_open_positions(symbol)
+        
+        # -----------------------------------------------------------------
+        # --- START DER KORREKTUR (Test-Setup / Variante A+B) ---
+        # -----------------------------------------------------------------
         if positions:
-            print(f"WARNUNG: Offene Position für {symbol} gefunden. Versuche Not-Schließung...")
             pos = positions[0]
-            close_side = 'sell' if pos['side'] == 'long' else 'buy'
-            try:
-                # Nutze 'reduceOnly' um sicherzustellen, dass wir nur schließen
-                exchange.create_market_order(symbol, close_side, float(pos['contracts']), params={'reduceOnly': True, 'posSide': 'net', 'tradeSide': 'close'})
-                time.sleep(3) # Warte auf Schließung
-            except Exception as e_close:
-                pytest.fail(f"Konnte initiale Position nicht schließen: {e_close}")
+            pos_amount = float(pos.get('contracts', 0))
+
+            # Variante A: Prüfe, ob die Position tatsächlich eine Größe hat
+            if abs(pos_amount) > 1e-9: # Robuste Prüfung statt > 0
+                print(f"WARNUNG: Offene Position ({pos_amount} {symbol}) gefunden. Versuche Not-Schließung...")
+                close_side = 'sell' if pos['side'] == 'long' else 'buy'
+                
+                # Variante B: Fange den Fehler "22002" (No position to close) ab
+                try:
+                    # Verwende die korrekten Parameter (NUR reduceOnly)
+                    exchange.create_market_order(symbol, close_side, pos_amount, params={'reduceOnly': True})
+                    time.sleep(3) # Warte auf Schließung
+                except ccxt.ExchangeError as e_close:
+                    if '22002' in str(e_close) or 'No position to close' in str(e_close):
+                        print(f"INFO: Position war bereits geschlossen (Fehler 22002). Setup ist sauber.")
+                    else:
+                        # Ein anderer Fehler (z.B. API-Keys) ist aufgetreten
+                        pytest.fail(f"Konnte initiale Position nicht schließen (Unerwarteter ExchangeError): {e_close}")
+                except Exception as e_generic:
+                     pytest.fail(f"Konnte initiale Position nicht schließen (Allg. Fehler): {e_generic}")
+            else:
+                print("INFO: Positionsobjekt gefunden, aber Menge ist 0. Nichts zu schließen.")
+        # -----------------------------------------------------------------
+        # --- ENDE DER KORREKTUR (Test-Setup) ---
+        # -----------------------------------------------------------------
+
         print("-> Ausgangszustand ist sauber.")
 
         # Erstelle Mock Gemini Model
@@ -105,12 +128,33 @@ def test_setup():
         try:
             exchange.cleanup_all_open_orders(symbol)
             positions = exchange.fetch_open_positions(symbol)
+            
+            # -----------------------------------------------------------------
+            # --- START DER KORREKTUR (Test-Teardown / Variante A+B) ---
+            # -----------------------------------------------------------------
             if positions:
-                print("WARNUNG: Position nach Test noch offen. Versuche Not-Schließung.")
                 pos = positions[0]
-                close_side = 'sell' if pos['side'] == 'long' else 'buy'
-                # --- KORREKTUR: 'tradeSide': 'close' hinzugefügt für Konsistenz ---
-                exchange.create_market_order(symbol, close_side, float(pos['contracts']), params={'reduceOnly': True, 'posSide': 'net', 'tradeSide': 'close'})
+                pos_amount = float(pos.get('contracts', 0))
+                
+                if abs(pos_amount) > 1e-9:
+                    print(f"WARNUNG: Position nach Test noch offen ({pos_amount} {symbol}). Versuche Not-Schließung.")
+                    close_side = 'sell' if pos['side'] == 'long' else 'buy'
+                    try:
+                        exchange.create_market_order(symbol, close_side, pos_amount, params={'reduceOnly': True})
+                        time.sleep(3)
+                    except ccxt.ExchangeError as e_teardown:
+                        # Im Teardown wollen wir den Test nicht fehlschlagen lassen, nur loggen.
+                        if '22002' in str(e_teardown) or 'No position to close' in str(e_teardown):
+                            print("INFO: Position war beim Teardown bereits geschlossen.")
+                        else:
+                            print(f"FEHLER beim Aufräumen (ExchangeError): {e_teardown}")
+                    except Exception as e_g:
+                        print(f"FEHLER beim Aufräumen (Allg. Fehler): {e_g}")
+                else:
+                    print("INFO: Positionsobjekt beim Teardown gefunden, aber Menge ist 0.")
+            # -----------------------------------------------------------------
+            # --- ENDE DER KORREKTUR (Test-Teardown) ---
+            # -----------------------------------------------------------------
             print("-> Aufräumen abgeschlossen.")
         except Exception as e:
             print(f"FEHLER beim Aufräumen: {e}")
@@ -150,9 +194,7 @@ def test_full_utbot2_workflow_on_bitget(test_setup):
     print("[Schritt 1/3] Rufe run_strategy_cycle auf...")
     try:
         
-        # -----------------------------------------------------------------
-        # --- START DER KORREKTUR (TitanBot-Stil) ---
-        # -----------------------------------------------------------------
+        # --- KORREKTUR (TitanBot-Stil) ---
         # 1. Wir verwenden KEIN dummy_balance mehr.
         # 2. Wir holen das ECHTE Guthaben, um sicherzustellen, dass der Test laufen KANN.
         
@@ -164,9 +206,7 @@ def test_full_utbot2_workflow_on_bitget(test_setup):
         except Exception as e:
             pytest.fail(f"Konnte reales Guthaben für den Test nicht abrufen: {e}")
 
-        # 3. Wir setzen die portfolio_fraction_pct zurück auf den Wert aus der config,
-        #    da der 1%-Puffer jetzt in main.py eingebaut ist.
-        #    (Finde das erste Target in der config, das dem Test-Target entspricht)
+        # 3. Wir setzen die portfolio_fraction_pct zurück auf den Wert aus der config
         original_target_config = next((t for t in config.get('targets', []) if t.get('symbol') == symbol), None)
         if original_target_config:
              test_target['risk']['portfolio_fraction_pct'] = original_target_config['risk']['portfolio_fraction_pct']
@@ -176,10 +216,7 @@ def test_full_utbot2_workflow_on_bitget(test_setup):
 
         # 4. Rufe den Zyklus OHNE balance-Argument auf.
         run_strategy_cycle(test_target, strategy_cfg, exchange, mock_gemini, telegram_config, logger)
-        
-        # -----------------------------------------------------------------
-        # --- ENDE DER KORREKTUR ---
-        # -----------------------------------------------------------------
+        # --- ENDE KORREKTUR ---
         
         print("-> run_strategy_cycle ausgeführt.")
         # Wartezeit, damit Orders bei Bitget verarbeitet werden können
