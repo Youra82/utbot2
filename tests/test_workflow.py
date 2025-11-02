@@ -1,5 +1,5 @@
-# tests/test_workflow.py (Finaler Fix: Importiert pytest)
-import pytest # <-- HINZUGEFÜGT
+# tests/test_workflow.py (Finaler Fix: Pandas Import)
+import pytest 
 import os
 import sys
 import json
@@ -7,6 +7,7 @@ import logging
 import time
 from unittest.mock import MagicMock, patch 
 import ccxt 
+import pandas as pd # <-- HINZUGEFÜGT
 
 # Füge das Projekt-Hauptverzeichnis zum Python-Pfad hinzu
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
@@ -215,7 +216,6 @@ def mock_exchange_methods(request):
                                     with patch(f'{exchange_handler_path}.fetch_balance_usdt', MagicMock(return_value=100.0), create=True):
                                          # Patch fetch_ohlcv (für den Aufruf in main.py)
                                          with patch(f'{exchange_handler_path}.fetch_ohlcv', MagicMock(return_value=pd.DataFrame(
-                                             # Minimale Struktur, um den Test zu bestehen.
                                              {'open': 1.0, 'high': 1.0, 'low': 1.0, 'close': 1.0, 'volume': 1.0}, index=pd.to_datetime([time.time()], unit='s', utc=True)
                                          )), create=True):
                                              yield 
@@ -292,4 +292,3 @@ def test_full_utbot2_workflow_on_bitget(mock_exchange_methods, test_setup):
         pytest.fail(f"Fehler beim Überprüfen der Trigger-Orders: {e}")
 
     print("\n--- ✅ utbot2 WORKFLOW-TEST ERFOLGREICH! ---")
-    # Aufräumen erfolgt automatisch durch die Teardown-Funktion der Fixture
