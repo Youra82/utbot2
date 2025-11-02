@@ -36,7 +36,7 @@ class ExchangeHandler:
             df.sort_index(inplace=True)
             # Stelle sicher, dass die benötigten Spalten numerisch sind
             for col in ['open', 'high', 'low', 'close', 'volume']:
-                 df[col] = pd.to_numeric(df[col], errors='coerce')
+                df[col] = pd.to_numeric(df[col], errors='coerce')
             return df
         except Exception as e:
             logger.error(f"[{symbol}] Fehler beim Laden der Kerzendaten: {e}", exc_info=True)
@@ -58,14 +58,14 @@ class ExchangeHandler:
             if 'USDT' in balance and 'free' in balance['USDT']:
                 return float(balance['USDT']['free'])
             elif 'free' in balance and 'USDT' in balance['free']: # Alternative Struktur
-                 return float(balance['free']['USDT'])
+                return float(balance['free']['USDT'])
             elif 'total' in balance and 'USDT' in balance['total']: # Manchmal ist nur 'total' verfügbar
-                 # Hier nehmen wir 'total' als Annäherung, wenn 'free' nicht da ist
-                 logger.warning("Konnte 'free' USDT-Balance nicht finden, verwende 'total' als Fallback.")
-                 return float(balance['total']['USDT'])
+                # Hier nehmen wir 'total' als Annäherung, wenn 'free' nicht da ist
+                logger.warning("Konnte 'free' USDT-Balance nicht finden, verwende 'total' als Fallback.")
+                return float(balance['total']['USDT'])
             else:
-                 logger.warning("Kein USDT-Guthaben in der Balance-Antwort gefunden.")
-                 return 0.0
+                logger.warning("Kein USDT-Guthaben in der Balance-Antwort gefunden.")
+                return 0.0
         except Exception as e:
             logger.error(f"Fehler beim Abrufen des USDT-Guthabens: {e}", exc_info=True)
             # Im Fehlerfall 0 zurückgeben, um riskante Trades zu verhindern
@@ -112,7 +112,7 @@ class ExchangeHandler:
                     except Exception as e_cancel_trigger:
                         logger.error(f"[{symbol}] Konnte Trigger-Order {order['id']} nicht stornieren: {e_cancel_trigger}")
             else:
-                 logger.info(f"[{symbol}] Housekeeper: Keine offenen Trigger-Orders gefunden.")
+                logger.info(f"[{symbol}] Housekeeper: Keine offenen Trigger-Orders gefunden.")
 
             # 2. Normale (Limit-) Orders stornieren (falls vorhanden)
             # Annahme: utbot2 verwendet nur Market/Trigger, aber sicherheitshalber prüfen.
@@ -120,13 +120,13 @@ class ExchangeHandler:
             if normal_orders:
                 logger.info(f"[{symbol}] Housekeeper: {len(normal_orders)} offene normale Order(s) gefunden. Storniere...")
                 for order in normal_orders:
-                     try:
+                    try:
                         self.session.cancel_order(order['id'], symbol)
                         cancelled_count += 1
                         logger.info(f"[{symbol}] Normale Order {order['id']} storniert.")
-                     except ccxt.OrderNotFound:
+                    except ccxt.OrderNotFound:
                         logger.info(f"[{symbol}] Normale Order {order['id']} war bereits geschlossen/storniert.")
-                     except Exception as e_cancel_normal:
+                    except Exception as e_cancel_normal:
                         logger.error(f"[{symbol}] Konnte normale Order {order['id']} nicht stornieren: {e_cancel_normal}")
             else:
                 logger.info(f"[{symbol}] Housekeeper: Keine offenen normalen Orders gefunden.")
@@ -138,7 +138,7 @@ class ExchangeHandler:
             return 0
 
         if cancelled_count > 0:
-             logger.info(f"[{symbol}] Housekeeper: Insgesamt {cancelled_count} Order(s) storniert.")
+            logger.info(f"[{symbol}] Housekeeper: Insgesamt {cancelled_count} Order(s) storniert.")
         return cancelled_count
 
 
@@ -157,39 +157,40 @@ class ExchangeHandler:
                 self.session.set_margin_mode(margin_mode.lower(), symbol)
                 logger.info(f"[{symbol}] Margin-Modus erfolgreich auf '{margin_mode.lower()}' gesetzt.")
             except ccxt.NotSupported:
-                 logger.warning(f"[{symbol}] Exchange unterstützt set_margin_mode nicht explizit. Versuche über Parameter.")
-                 # Hier könnten spezifische Parameter für Bitget nötig sein, falls set_margin_mode nicht geht
+                logger.warning(f"[{symbol}] Exchange unterstützt set_margin_mode nicht explizit. Versuche über Parameter.")
+                # Hier könnten spezifische Parameter für Bitget nötig sein, falls set_margin_mode nicht geht
             except Exception as e_margin:
-                 # Ignoriere Fehler, wenn Modus schon korrekt ist
-                 if 'Margin mode is the same' not in str(e_margin):
-                     logger.warning(f"[{symbol}] Setzen des Margin-Modus fehlgeschlagen (ignoriert wenn bereits korrekt): {e_margin}")
+                # Ignoriere Fehler, wenn Modus schon korrekt ist
+                if 'Margin mode is the same' not in str(e_margin):
+                    logger.warning(f"[{symbol}] Setzen des Margin-Modus fehlgeschlagen (ignoriert wenn bereits korrekt): {e_margin}")
 
             # 2. Hebel setzen
             # Bitget erfordert oft 'holdSide' für isolated margin
             params = {}
             if margin_mode.lower() == 'isolated':
-                 params = {'holdSide': 'long'} # Wir setzen für beide Seiten
-                 try:
-                     self.session.set_leverage(leverage, symbol, params=params)
-                     params = {'holdSide': 'short'}
-                     self.session.set_leverage(leverage, symbol, params=params)
-                     logger.info(f"[{symbol}] Hebel erfolgreich auf {leverage}x für Long & Short (Isolated) gesetzt.")
-                 except Exception as e_lev_iso:
-                      # Ignoriere 'Leverage not changed' Fehler
-                     if 'Leverage not changed' not in str(e_lev_iso) and 'repeat submit' not in str(e_lev_iso):
-                         logger.error(f"[{symbol}] Fehler beim Setzen des Isolated Hebels: {e_lev_iso}"); raise
-                     else:
-                          logger.info(f"[{symbol}] Hebel war bereits auf {leverage}x (Isolated) gesetzt.")
+                params = {'holdSide': 'long', 'posSide': 'net'} # <--- posSide hier hinzugefügt
+                try:
+                    self.session.set_leverage(leverage, symbol, params=params)
+                    params = {'holdSide': 'short', 'posSide': 'net'} # <--- posSide hier hinzugefügt
+                    self.session.set_leverage(leverage, symbol, params=params)
+                    logger.info(f"[{symbol}] Hebel erfolgreich auf {leverage}x für Long & Short (Isolated) gesetzt.")
+                except Exception as e_lev_iso:
+                    # Ignoriere 'Leverage not changed' Fehler
+                    if 'Leverage not changed' not in str(e_lev_iso) and 'repeat submit' not in str(e_lev_iso):
+                        logger.error(f"[{symbol}] Fehler beim Setzen des Isolated Hebels: {e_lev_iso}"); raise
+                    else:
+                        logger.info(f"[{symbol}] Hebel war bereits auf {leverage}x (Isolated) gesetzt.")
 
             else: # Cross Margin
-                 try:
-                     self.session.set_leverage(leverage, symbol)
-                     logger.info(f"[{symbol}] Hebel erfolgreich auf {leverage}x (Cross) gesetzt.")
-                 except Exception as e_lev_cross:
-                     if 'Leverage not changed' not in str(e_lev_cross) and 'repeat submit' not in str(e_lev_cross):
-                         logger.error(f"[{symbol}] Fehler beim Setzen des Cross Hebels: {e_lev_cross}"); raise
-                     else:
-                          logger.info(f"[{symbol}] Hebel war bereits auf {leverage}x (Cross) gesetzt.")
+                try:
+                    # Für Cross ist holdSide nicht nötig, aber posSide ist sicher
+                    self.session.set_leverage(leverage, symbol, params={'posSide': 'net'})
+                    logger.info(f"[{symbol}] Hebel erfolgreich auf {leverage}x (Cross) gesetzt.")
+                except Exception as e_lev_cross:
+                    if 'Leverage not changed' not in str(e_lev_cross) and 'repeat submit' not in str(e_lev_cross):
+                        logger.error(f"[{symbol}] Fehler beim Setzen des Cross Hebels: {e_lev_cross}"); raise
+                    else:
+                        logger.info(f"[{symbol}] Hebel war bereits auf {leverage}x (Cross) gesetzt.")
 
         except Exception as e_general:
             logger.error(f"[{symbol}] Unerwarteter Fehler beim Setzen von Hebel/Margin: {e_general}", exc_info=True)
@@ -199,12 +200,12 @@ class ExchangeHandler:
     def create_market_order(self, symbol: str, side: str, amount: float, params: dict = {}):
         """ Erstellt eine reine Market-Order (von JaegerBot übernommen). """
         try:
-             # Füge Bitget-spezifischen Order-Typ hinzu, falls nötig (oft 'market' oder spezifischer)
-             # params['type'] = 'market' # redundant, da in create_order spezifiziert
-             logger.info(f"[{symbol}] Sende Market-Order: Seite={side}, Menge={amount}, Params={params}")
-             order = self.session.create_order(symbol, 'market', side, amount, params=params)
-             logger.info(f"[{symbol}] Market-Order erfolgreich platziert. ID: {order.get('id')}")
-             return order
+            # Füge Bitget-spezifischen Order-Typ hinzu, falls nötig (oft 'market' oder spezifischer)
+            # params['type'] = 'market' # redundant, da in create_order spezifiziert
+            logger.info(f"[{symbol}] Sende Market-Order: Seite={side}, Menge={amount}, Params={params}")
+            order = self.session.create_order(symbol, 'market', side, amount, params=params)
+            logger.info(f"[{symbol}] Market-Order erfolgreich platziert. ID: {order.get('id')}")
+            return order
         except ccxt.InsufficientFunds as e:
             logger.error(f"[{symbol}] Nicht genügend Guthaben für Market-Order: {e}")
             raise
@@ -227,6 +228,7 @@ class ExchangeHandler:
             order_params = {
                 'stopPrice': rounded_price,
                 'reduceOnly': True, # WICHTIG: Nur Position schließen, keine neue eröffnen
+                'posSide': 'net',  # <--- KORREKTUR 1: Erforderlich für Bitget One-Way-Modus
                 **params # Übernimmt zusätzliche Parameter
             }
 
@@ -243,12 +245,12 @@ class ExchangeHandler:
             return order
 
         except ccxt.ExchangeError as e:
-             # Spezifische Fehlerbehandlung für Bitget könnte hier nötig sein
-             logger.error(f"[{symbol}] Exchange-Fehler bei Trigger-Order: {e}")
-             raise
+            # Spezifische Fehlerbehandlung für Bitget könnte hier nötig sein
+            logger.error(f"[{symbol}] Exchange-Fehler bei Trigger-Order: {e}")
+            raise
         except Exception as e:
-             logger.error(f"[{symbol}] Unerwarteter Fehler bei Trigger-Order: {e}", exc_info=True)
-             raise
+            logger.error(f"[{symbol}] Unerwarteter Fehler bei Trigger-Order: {e}", exc_info=True)
+            raise
 
 
     def create_market_order_with_sl_tp(self, symbol: str, side: str, amount: float, sl_price: float, tp_price: float, margin_mode: str):
@@ -262,8 +264,14 @@ class ExchangeHandler:
 
         # 1. Market-Order (Einstieg)
         try:
-            # Wichtig: Margin-Modus als Parameter übergeben, falls nötig
-            market_order = self.create_market_order(symbol, side, amount, params={'marginMode': margin_mode.lower()})
+            # Wichtig: Margin-Modus als Parameter übergeben
+            # <--- KORREKTUR 2: posSide: 'net' für Market-Order hinzugefügt
+            market_params = {
+                'marginMode': margin_mode.lower(),
+                'posSide': 'net' 
+            }
+            market_order = self.create_market_order(symbol, side, amount, params=market_params)
+            
             entry_price = market_order.get('price') or market_order.get('average') or self.fetch_ticker(symbol)['last'] # Bestimme den Einstiegspreis
             logger.info(f"[{symbol}] Schritt 1/3: ✅ Market-Order platziert. ID: {market_order['id']}, Geschätzter Entry: {entry_price}")
         except Exception as e:
@@ -276,26 +284,26 @@ class ExchangeHandler:
 
         # Hole die tatsächliche Positionsgröße (wichtig für SL/TP)
         try:
-             final_position = self.fetch_open_positions(symbol)
-             if not final_position:
-                 # Manchmal dauert es länger oder die Order wurde nur teilweise gefüllt
-                 logger.warning(f"[{symbol}] Position nach Market-Order nicht sofort gefunden. Versuche erneut in 5s...")
-                 time.sleep(5)
-                 final_position = self.fetch_open_positions(symbol)
-                 if not final_position:
-                      raise Exception(f"Position konnte nach Market-Order ID {market_order['id']} nicht bestätigt werden. Manuelle Prüfung erforderlich!")
+            final_position = self.fetch_open_positions(symbol)
+            if not final_position:
+                # Manchmal dauert es länger oder die Order wurde nur teilweise gefüllt
+                logger.warning(f"[{symbol}] Position nach Market-Order nicht sofort gefunden. Versuche erneut in 5s...")
+                time.sleep(5)
+                final_position = self.fetch_open_positions(symbol)
+                if not final_position:
+                    raise Exception(f"Position konnte nach Market-Order ID {market_order['id']} nicht bestätigt werden. Manuelle Prüfung erforderlich!")
 
-             # Nehme die erste gefundene Position (sollte nur eine sein)
-             final_amount = float(final_position[0]['contracts'])
-             actual_entry_price = float(final_position[0]['entryPrice'])
-             logger.info(f"[{symbol}] Position bestätigt: Menge={final_amount}, Exakter Entry={actual_entry_price}")
+            # Nehme die erste gefundene Position (sollte nur eine sein)
+            final_amount = float(final_position[0]['contracts'])
+            actual_entry_price = float(final_position[0]['entryPrice'])
+            logger.info(f"[{symbol}] Position bestätigt: Menge={final_amount}, Exakter Entry={actual_entry_price}")
 
         except Exception as e:
-             logger.error(f"[{symbol}] ❌ KRITISCH: Konnte Position nach Market-Order nicht bestätigen: {e}. Position ist offen aber UNGESCHÜTZT! Versuche Housekeeping.")
-             self.cleanup_all_open_orders(symbol) # Versuche SL/TP zu löschen, falls welche platziert wurden
-             # Hier könnte man versuchen, die offene Position per Market-Order zu schließen, ist aber riskant.
-             # Besser: Fehler weiterleiten und manuellen Eingriff erfordern.
-             raise Exception(f"Positionsbestätigung fehlgeschlagen, SL/TP nicht platziert! Manuelle Prüfung für {symbol} nötig.") from e
+            logger.error(f"[{symbol}] ❌ KRITISCH: Konnte Position nach Market-Order nicht bestätigen: {e}. Position ist offen aber UNGESCHÜTZT! Versuche Housekeeping.")
+            self.cleanup_all_open_orders(symbol) # Versuche SL/TP zu löschen, falls welche platziert wurden
+            # Hier könnte man versuchen, die offene Position per Market-Order zu schließen, ist aber riskant.
+            # Besser: Fehler weiterleiten und manuellen Eingriff erfordern.
+            raise Exception(f"Positionsbestätigung fehlgeschlagen, SL/TP nicht platziert! Manuelle Prüfung für {symbol} nötig.") from e
 
 
         # 2. Definiere die Schließungs-Richtung und platziere SL/TP
@@ -306,7 +314,7 @@ class ExchangeHandler:
         # 3. Stop-Loss (Trigger-Order mit reduceOnly)
         try:
             logger.info(f"[{symbol}] Schritt 2/3: Platziere Stop-Loss ({close_side}) bei {sl_price} für Menge {final_amount}...")
-            self.place_trigger_market_order(symbol, close_side, final_amount, sl_price) # reduceOnly ist in place_trigger_market_order Standard
+            self.place_trigger_market_order(symbol, close_side, final_amount, sl_price) # reduceOnly & posSide ist in place_trigger_market_order Standard
             sl_success = True
             logger.info(f"[{symbol}] Schritt 2/3: ✅ Stop-Loss platziert.")
         except Exception as e_sl:
