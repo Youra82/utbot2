@@ -1,3 +1,5 @@
+# config.toml
+
 # ----------------------------------------------------
 # Globale Strategie-Einstellungen für den utbot2
 # ----------------------------------------------------
@@ -23,6 +25,11 @@ timeframe = "1h"
 portfolio_fraction_pct = 100
 risk_per_trade_pct = 2
 max_leverage = 15
+# --- NEU: Trailing Stop Konfiguration ---
+[targets.risk.trailing_stop]
+enabled = true                  # Setze auf 'true', um TSL statt fixem SL zu nutzen
+callback_pct = 1.5              # (1.5%) Wie weit der Preis fallen darf (der "Trail")
+activation_pct = 2.0            # (2.0%) TSL wird erst aktiv, wenn der Trade 2% im Gewinn ist
 
 
 [[targets]]
@@ -34,6 +41,11 @@ timeframe = "1h"
 portfolio_fraction_pct = 100
 risk_per_trade_pct = 2
 max_leverage = 15
+# --- NEU: Füge dies auch hier hinzu, wenn ETH TSL nutzen soll ---
+[targets.risk.trailing_stop]
+enabled = true
+callback_pct = 1.0              # (1.0%)
+activation_pct = 2.0            # (2.0%)
 
 
 [[targets]]
@@ -45,26 +57,6 @@ timeframe = "1h"
 portfolio_fraction_pct = 20
 risk_per_trade_pct = 2
 max_leverage = 20
+# (Hier kein TSL, da 'enabled = false' ist, aber du könntest es hinzufügen)
 
-
-[[targets]]
-enabled = false
-symbol = "ADA/USDT:USDT"
-timeframe = "1h"
-
-[targets.risk]
-portfolio_fraction_pct = 20
-risk_per_trade_pct = 2
-max_leverage = 20
-
-
-[[targets]]
-enabled = false
-symbol = "PEPE/USDT:USDT"
-timeframe = "1h"
-
-
-[targets.risk]
-portfolio_fraction_pct = 20
-risk_per_trade_pct = 2
-max_leverage = 20
+# ... (Rest deiner Targets) ...
