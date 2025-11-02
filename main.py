@@ -48,7 +48,24 @@ def setup_logging(symbol, timeframe):
     return logger
 
 # --- Globale Konfiguration & Hilfsfunktionen (unverändert) ---
-PROMPT_TEMPLATES = { "swing": "...", "daytrade": "...", "scalp": "..." } # Gekürzt zur Übersicht
+PROMPT_TEMPLATES = {
+    "swing": (
+        "Du bist ein Swing-Trader (Haltedauer: Tage bis Wochen). "
+        "Analysiere die Daten und identifiziere übergeordnete Trends. "
+        "Ignoriere kurzfristiges Rauschen. Suche nach starken Ein- und Ausstiegspunkten für einen Swing-Trade."
+    ),
+    "daytrade": (
+        "Du bist ein Day-Trader (Haltedauer: Stunden bis maximal 1 Tag). "
+        "Analysiere die Daten und identifiziere Intraday-Trends und Momentum. "
+        "Suche nach klaren Ein- und Ausstiegspunkten für einen Trade innerhalb des aktuellen oder nächsten Tages."
+    ),
+    "scalp": (
+        "Du bist ein Scalper (Haltedauer: Minuten bis Stunden). "
+        "Analysiere die Daten und identifiziere kurzfristige Umkehrpunkte und Volatilität. "
+        "Suche nach schnellen Ein- und Ausstiegen mit engem Stop-Loss für kleine Gewinne."
+    )
+}
+
 
 def load_config(file_path):
     # ... (Code wie in Version 3.6) ...
@@ -91,7 +108,7 @@ def calculate_candle_limit(timeframe, lookback_days, logger): # Logger hinzugef�
         logger.error(f"Ungültiger Timeframe führt zu Division durch Null: {timeframe}. Verwende Fallback-Limit 1000.")
         return 1000
 
-# --- Trade-Eröffnung (unverändert gegenüber v3.6) ---
+# --- Trade-Eröffnung (Angepasst) ---
 def attempt_new_trade(target, strategy_cfg, exchange, gemini_model, telegram_api, total_usdt_balance, logger):
     # ... (Kompletter Code aus Version 3.6 hier einfügen) ...
     symbol, risk_cfg, timeframe = target['symbol'], target['risk'], target['timeframe']
@@ -119,7 +136,7 @@ def attempt_new_trade(target, strategy_cfg, exchange, gemini_model, telegram_api
         return
 
     cols_to_send = ['open', 'high', 'low', 'close', 'volume'] + [col for col in data_to_send.columns if col not in ['open', 'high', 'low', 'close', 'volume', 'timestamp']]
-    
+
     # <--- KORREKTUR 2: 'line_terminator' zu 'lineterminator' geändert
     historical_data_string = data_to_send[cols_to_send].round(5).to_csv(index=False, lineterminator='\n')
 
@@ -133,7 +150,15 @@ def attempt_new_trade(target, strategy_cfg, exchange, gemini_model, telegram_api
     logger.info(f"Aktuelle Indikatoren (letzte Kerze): {indicator_summary}")
 
     prompt = (
-        "Du bist eine API, die NUR JSON zurückgibt..." # Gekürzt, prompt bleibt gleich
+        "Du bist eine API, die NUR JSON zurückgibt. Gib KEINEN Text oder Erklärungen vor oder nach dem JSON aus. "
+        "Analysiere die folgenden Kerzendaten und technischen Indikatoren für das Handelspaar. "
+        "Basierend auf der 'strategie' und den Daten, triff eine Handelsentscheidung.\n"
+        "Antworte mit einer der folgenden Aktionen: 'KAUFEN', 'VERKAUFEN', oder 'HALTEN'.\n"
+        "Wenn 'KAUFEN' oder 'VERKAUFEN':\n"
+        "1. Setze 'stop_loss': Ein logischer Preis, um Verluste zu begrenzen (z.B. unter einem Tiefpunkt für KAUFEN).\n"
+        "2. Setze 'take_profit': Ein logischer Preis, um Gewinne mitzunehmen (z.B. an einem Widerstand für KAUFEN).\n"
+        "Wenn 'HALTEN': Setze 'stop_loss' und 'take_profit' auf 0.\n"
+        "Format: {\"aktion\": \"...\", \"stop_loss\": ..., \"take_profit\": ...}\n\n"
         f"Input: strategie='{trading_style_text}', symbol='{symbol}', aktueller_preis='{current_price}'.\n\n"
         "HISTORISCHE DATEN (letzte 60 Kerzen):\n"
         f"{historical_data_string}"
@@ -188,13 +213,38 @@ def attempt_new_trade(target, strategy_cfg, exchange, gemini_model, telegram_api
         try:
             logger.info(f"Versuche Trade: {side} {amount_in_asset:.4f} {symbol.split('/')[0]} ({position_size_usdt:.2f} USDT) mit {final_leverage}x Hebel...")
             exchange.set_leverage(symbol, final_leverage, margin_mode)
-            order_result = exchange.create_market_order_with_sl_tp(symbol, side, amount_in_asset, sl_price, tp_price, margin_mode)
+
+            # -----------------------------------------------------------------
+            # --- START DER ANPASSUNG (main.py) ---
+            # -----------------------------------------------------------------
+            
+            # --- NEU: TSL-Konfiguration holen ---
+            # Holt das 'trailing_stop'-Dict aus der risk_cfg (ist leer, falls nicht vorhanden)
+            tsl_config = risk_cfg.get('trailing_stop', {}) 
+            
+            order_result = exchange.create_market_order_with_sl_tp(
+                symbol, side, amount_in_asset, sl_price, tp_price, margin_mode,
+                tsl_config=tsl_config  # <-- NEUER PARAMETER
+            )
+
+            # -----------------------------------------------------------------
+            # --- ENDE DER ANPASSUNG (main.py) ---
+            # -----------------------------------------------------------------
+
             actual_entry_price = order_result.get('average') or current_price
             filled_amount = order_result.get('filled') or amount_in_asset
+            
+            # Prüfen, ob ein TSL verwendet wurde, für die Log-Nachricht
+            tsl_active = tsl_config.get('enabled', False)
+            sl_message = "TSL" if tsl_active else f"SL: {sl_price}"
+
             logger.info(f"✅ Trade platziert! ID: {order_result['id']}, Entry: ≈{actual_entry_price:.4f}, Menge: {filled_amount:.4f}")
-            msg = (f"🚀 NEUER TRADE: *{symbol}*...\n" # Gekürzt
+            msg = (f"🚀 NEUER TRADE: *{symbol}*\n\n"
                    f"Aktion: *{decision['aktion']}* ({final_leverage}x)\n"
-                   f"Größe: {filled_amount * actual_entry_price:.2f} USDT\nEntry: ≈ {actual_entry_price:.4f}\nSL: {sl_price}\nTP: {tp_price}")
+                   f"Größe: {filled_amount * actual_entry_price:.2f} USDT\n"
+                   f"Entry: ≈ {actual_entry_price:.4f}\n"
+                   f"{sl_message}\n" # Dynamische SL-Nachricht
+                   f"TP: {tp_price}")
             send_telegram_message(telegram_api['bot_token'], telegram_api['chat_id'], msg)
         except Exception as e:
             logger.error(f"❌ FEHLER BEI TRADE-AUSFÜHRUNG: {e}", exc_info=True)
