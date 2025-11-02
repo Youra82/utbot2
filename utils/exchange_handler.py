@@ -1,4 +1,4 @@
-# utbot2/utils/exchange_handler.py (Version 3.9 - Korrigiert für 40774 & 400172)
+# utbot2/utils/exchange_handler.py (Version 3.9 - Finaler Fix 40774)
 import ccxt
 import logging
 import pandas as pd
@@ -213,7 +213,7 @@ class ExchangeHandler:
             if 'productType' not in order_params:
                 order_params['productType'] = 'USDT-FUTURES'
 
-            # --- START KORREKTUR (Fehler 40774 / 400172) ---
+            # --- START KORREKTUR (Fehler 40774 / tradeSide) ---
             # Für "One-Way Mode" (unilateral) Konten MUSS posSide='net' IMMER
             # gesendet werden, sowohl beim Öffnen als auch beim Schließen.
             if 'posSide' not in order_params:
@@ -222,16 +222,9 @@ class ExchangeHandler:
             is_reduce_only = str(order_params.get('reduceOnly', 'false')).lower() == 'true'
 
             if is_reduce_only:
-                # 'tradeSide' (z.B. 'open') darf NICHT mit 'reduceOnly' gesendet werden.
-                if 'tradeSide' in order_params:
-                    logger.debug(f"Entferne 'tradeSide' aus reduceOnly-Order-Params.")
-                    del order_params['tradeSide']
-                
-                # 'posSide' NICHT löschen, wird für One-Way Mode benötigt.
-                
-                # 'marginMode = None' (mein alter Fix) war FALSCH und verursachte Fehler 400172.
-                # Wir lassen ccxt einfach den Standard-marginMode senden ('crossed'),
-                # was in Kombination mit posSide='net' korrekt ist.
+                # KORREKTUR: 'tradeSide' MUSS 'close' sein, wenn 'reduceOnly'
+                # True ist, da ccxt sonst 'open' als Standard wählt.
+                order_params['tradeSide'] = 'close'
             # --- ENDE KORREKTUR ---
 
             rounded_amount = float(self.session.amount_to_precision(symbol, amount))
@@ -253,7 +246,7 @@ class ExchangeHandler:
                 logger.warning(f"[{symbol}] Keine Position zum Schließen (reduceOnly).")
                 return None
             
-            # --- NEU: Fange Fehler 40774 (One-Way-Mode-Konflikt) explizit ab, falls er erneut auftritt
+            # Fange Fehler 40774 (One-Way-Mode-Konflikt) explizit ab
             if '40774' in str(e) or 'unilateral position' in str(e):
                  logger.error(f"[{symbol}] Kritischer API-Konflikt (40774) im One-Way-Mode: {e}")
                  raise
@@ -282,14 +275,13 @@ class ExchangeHandler:
                 **params
             }
             
-            # --- START KORREKTUR (Fehler 40774 / 400172) ---
+            # --- START KORREKTUR (Fehler 40774 / tradeSide) ---
             # Auch Trigger-Orders (SL/TP) benötigen posSide='net' im One-Way-Mode.
             if 'posSide' not in order_params:
                 order_params['posSide'] = 'net'
                 
-            # 'tradeSide' (z.B. 'open') darf NICHT mit 'reduceOnly' gesendet werden.
-            if 'tradeSide' in order_params:
-                del order_params['tradeSide']
+            # KORREKTUR: 'tradeSide' MUSS 'close' sein
+            order_params['tradeSide'] = 'close'
             # --- ENDE KORREKTUR ---
 
 
@@ -330,16 +322,13 @@ class ExchangeHandler:
                 'reduceOnly': True
             }
 
-            # --- START KORREKTUR (Fehler 40774 / 400172) ---
+            # --- START KORREKTUR (Fehler 40774 / tradeSide) ---
             # Auch TSL-Orders benötigen posSide='net' im One-Way-Mode.
             if 'posSide' not in order_params:
                 order_params['posSide'] = 'net'
 
-            # 'tradeSide' (z.B. 'open') darf NICHT mit 'reduceOnly' gesendet werden.
-            if 'tradeSide' in order_params:
-                del order_params['tradeSide']
-            
-            # 'marginMode' nicht auf None setzen.
+            # KORREKTUR: 'tradeSide' MUSS 'close' sein
+            order_params['tradeSide'] = 'close'
             # --- ENDE KORREKTUR ---
 
             logger.info(f"[{symbol}] Sende Trailing-Stop-Order: Seite={side}, Menge={rounded_amount}, Params={order_params}")
@@ -403,7 +392,7 @@ class ExchangeHandler:
         trigger_params = {
             'reduceOnly': True,
             'productType': 'USDT-FUTURES'
-            # posSide: 'net' wird von den place_... Funktionen hinzugefügt
+            # posSide: 'net' und tradeSide: 'close' werden von den place_... Funktionen hinzugefügt
         }
 
         # 3. Stop-Loss (Trigger-Order ODER TSL)
