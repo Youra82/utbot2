@@ -1,4 +1,4 @@
-# utbot2/utils/exchange_handler.py (Version 3.9 - Finaler Fix Geister-Positionen v3)
+# utbot2/utils/exchange_handler.py (Version 3.9 - Finaler Fix TSL planType)
 import ccxt
 import logging
 import pandas as pd
@@ -332,7 +332,9 @@ class ExchangeHandler:
 
             order_params = {
                 **params,
-                'planType': 'trailing_stop',
+                # --- START KORREKTUR: planType für Bitget TSL muss MovingPlan sein ---
+                'planType': 'MovingPlan', 
+                # --- ENDE KORREKTUR ---
                 'triggerPrice': rounded_activation,
                 'callbackRate': callback_rate_str,
                 'triggerPriceType': 'market_price',
