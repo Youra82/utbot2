@@ -168,10 +168,11 @@ class ExchangeHandler:
             # Bitget erfordert oft 'holdSide' für isolated margin
             params = {}
             if margin_mode.lower() == 'isolated':
-                params = {'holdSide': 'long', 'posSide': 'net'} # <--- posSide hier hinzugefügt
+                # HINWEIS: 'posSide': 'net' wurde entfernt, da es in ccxt 4.3.5 nicht benötigt/unterstützt wird
+                params = {'holdSide': 'long'}
                 try:
                     self.session.set_leverage(leverage, symbol, params=params)
-                    params = {'holdSide': 'short', 'posSide': 'net'} # <--- posSide hier hinzugefügt
+                    params = {'holdSide': 'short'}
                     self.session.set_leverage(leverage, symbol, params=params)
                     logger.info(f"[{symbol}] Hebel erfolgreich auf {leverage}x für Long & Short (Isolated) gesetzt.")
                 except Exception as e_lev_iso:
@@ -183,8 +184,7 @@ class ExchangeHandler:
 
             else: # Cross Margin
                 try:
-                    # Für Cross ist holdSide nicht nötig, aber posSide ist sicher
-                    self.session.set_leverage(leverage, symbol, params={'posSide': 'net'})
+                    self.session.set_leverage(leverage, symbol)
                     logger.info(f"[{symbol}] Hebel erfolgreich auf {leverage}x (Cross) gesetzt.")
                 except Exception as e_lev_cross:
                     if 'Leverage not changed' not in str(e_lev_cross) and 'repeat submit' not in str(e_lev_cross):
@@ -228,13 +228,9 @@ class ExchangeHandler:
             order_params = {
                 'stopPrice': rounded_price,
                 'reduceOnly': True, # WICHTIG: Nur Position schließen, keine neue eröffnen
-                'posSide': 'net',  # Erforderlich für Bitget One-Way-Modus
+                # HINWEIS: 'posSide': 'net' wurde entfernt
                 **params # Übernimmt zusätzliche Parameter
             }
-
-            # Bitget-spezifisch: 'planType' könnte hier nötig sein, ABER JaegerBot nutzt es nicht hier,
-            # sondern nur den 'stopPrice'. Wir folgen JaegerBot.
-            # order_params['planType'] = params.get('planType', 'normal_plan') # Vorerst auskommentiert
 
             logger.info(f"[{symbol}] Sende Trigger-Market-Order: Seite={side}, Menge={amount}, Trigger@{rounded_price}, Params={order_params}")
 
@@ -264,10 +260,10 @@ class ExchangeHandler:
 
         # 1. Market-Order (Einstieg)
         try:
-            # Wichtig: Margin-Modus wurde bereits in main.py via set_leverage() gesetzt.
-            # <--- KORREKTUR: 'marginMode' entfernt, da es den Bitget-Fehler 40774 verursacht hat
+            # KORREKTUR: Wir senden NUR 'marginMode', genau wie JaegerBot es tut.
+            # 'posSide' wurde entfernt.
             market_params = {
-                'posSide': 'net' 
+                'marginMode': margin_mode.lower()
             }
             market_order = self.create_market_order(symbol, side, amount, params=market_params)
             
@@ -313,7 +309,7 @@ class ExchangeHandler:
         # 3. Stop-Loss (Trigger-Order mit reduceOnly)
         try:
             logger.info(f"[{symbol}] Schritt 2/3: Platziere Stop-Loss ({close_side}) bei {sl_price} für Menge {final_amount}...")
-            self.place_trigger_market_order(symbol, close_side, final_amount, sl_price) # reduceOnly & posSide ist in place_trigger_market_order Standard
+            self.place_trigger_market_order(symbol, close_side, final_amount, sl_price) # reduceOnly ist in place_trigger_market_order Standard
             sl_success = True
             logger.info(f"[{symbol}] Schritt 2/3: ✅ Stop-Loss platziert.")
         except Exception as e_sl:
