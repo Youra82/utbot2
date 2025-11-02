@@ -1,4 +1,4 @@
-# utbot2/utils/exchange_handler.py (Version 3.9 - Finaler Fix Geister-Positionen v2)
+# utbot2/utils/exchange_handler.py (Version 3.9 - Finaler Fix Geister-Positionen v3)
 import ccxt
 import logging
 import pandas as pd
@@ -62,7 +62,7 @@ class ExchangeHandler:
             params = {
                 'productType': 'USDT-FUTURES', 
                 'marginCoin': 'USDT',
-                'reload': True
+                'reload': True # Zwingt ccxt, den Cache zu umgehen
             }
             balance = self.session.fetch_balance(params=params)
             usdt_balance = 0.0
@@ -99,7 +99,7 @@ class ExchangeHandler:
             # 'reload': True ist der offizielle ccxt-Befehl, um den Cache zu umgehen.
             params = {
                 'productType': 'USDT-FUTURES',
-                'reload': True # Cache-Buster
+                'reload': True # Zwingt ccxt, den Cache zu umgehen
             }
             # --- ENDE KORREKTUR ---
             
@@ -127,7 +127,7 @@ class ExchangeHandler:
             params = {
                 'stop': True, 
                 'productType': 'USDT-FUTURES',
-                'reload': True # Cache-Buster
+                'reload': True # Zwingt ccxt, den Cache zu umgehen
             }
             # --- ENDE KORREKTUR ---
             return self.session.fetch_open_orders(symbol, params=params)
