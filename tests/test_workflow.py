@@ -1,4 +1,4 @@
-# tests/test_workflow.py (KORRIGIERT: Entfernt veraltete Imports aus main.py)
+# tests/test_workflow.py (KORRIGIERT: Manuelle Session-Initialisierung forciert)
 import pytest 
 import os
 import sys
@@ -8,32 +8,32 @@ import time
 from unittest.mock import MagicMock, patch 
 import ccxt 
 import pandas as pd 
+from pathlib import Path # Import für Pfad-Findung
 
 # Füge das Projekt-Hauptverzeichnis zum Python-Pfad hinzu
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.append(os.path.join(PROJECT_ROOT, 'src'))
-sys.path.append(PROJECT_ROOT) # Wichtig, falls utils/ nicht in src/ liegt
+sys.path.append(PROJECT_ROOT) 
 
 # Importiere die notwendigen Teile von utbot2
-# HINWEIS: Wir müssen diese Funktionen jetzt im Test definieren oder nachladen, 
-# da sie aus main.py entfernt wurden (ImportError).
 from utils.exchange_handler import ExchangeHandler
+from utils.telegram_handler import send_telegram_message
+from main import run_strategy_cycle # Importieren, was noch da ist.
 
-# --- HELFERFUNKTIONEN WIEDERHERSTELLEN (Da sie aus main.py entfernt wurden) ---
-
+# --- HELFER FUNKTIONEN (Müssen im Test verfügbar sein) ---
 def load_config(file_path):
     # Einfache Version zum Laden von toml/json
-    if file_path.endswith('.toml'):
+    p = Path(file_path)
+    if p.suffix == '.toml':
         import toml
-        with open(file_path, 'r', encoding='utf-8') as f:
+        with open(p, 'r', encoding='utf-8') as f:
             return toml.load(f)
-    elif file_path.endswith('.json'):
-        with open(file_path, 'r', encoding='utf-8') as f:
+    elif p.suffix == '.json':
+        with open(p, 'r', encoding='utf-8') as f:
             return json.load(f)
-    raise ValueError(f"Unbekanntes Konfigurationsformat: {file_path}")
+    raise ValueError(f"Unknown config format: {file_path}")
 
 def setup_logging(symbol, timeframe):
-    # Einfacher Logger für den Test
     logger = logging.getLogger(f'utbot2_{symbol.replace("/", "").replace(":", "")}_{timeframe}')
     logger.setLevel(logging.INFO)
     if not logger.handlers:
@@ -42,11 +42,7 @@ def setup_logging(symbol, timeframe):
         ch.setFormatter(ch_formatter)
         logger.addHandler(ch)
     return logger
-# --- ENDE HELFERFUNKTIONEN WIEDERHERSTELLEN ---
-
-# Importiere die *tatsächliche* Funktion, die wir testen wollen
-# Wir können load_config und setup_logging nicht mehr aus main importieren, nutzen stattdessen unsere Helfer.
-from main import run_strategy_cycle 
+# --- ENDE HELFER FUNKTIONEN ---
 
 
 # --- Mock Klassen (unverändert) ---
@@ -62,14 +58,13 @@ class MockGeminiModel:
         self.response_json = {"aktion": "HALTEN", "stop_loss": 0, "take_profit": 0}
 
     def set_next_response(self, action="KAUFEN", sl=10000, tp=12000):
-        """ Legt die nächste JSON-Antwort fest, die simuliert werden soll. """
         self.response_json = {"aktion": action, "stop_loss": sl, "take_profit": tp}
 
     def generate_content(self, prompt, generation_config=None, safety_settings=None):
-        """ Simuliert den API-Aufruf und gibt die festgelegte Antwort zurück. """
         response_text = json.dumps(self.response_json)
         print(f"\n[Mock Gemini] Empfing Prompt, sende Antwort: {response_text}")
         return MockGeminiResponse(response_text)
+
 
 # --- Test Setup (Fixture) ---
 @pytest.fixture(scope="module") 
@@ -105,66 +100,58 @@ def test_setup():
         
         # --- START FIX FÜR FEHLENDE ATTRIBUTE (Instance Binding) ---
         # 1. Zuweisung der CCXT Session (Fix AttributeError: 'session')
-        if not hasattr(exchange, 'session'):
-             exchange.session = ccxt.bitget({
-                 'apiKey': bitget_config['apiKey'],
-                 'secret': bitget_config['secret'],
-                 'password': bitget_config['password'],
-                 'options': {'defaultType': 'swap'},
-             })
+        # Wir Initialisieren HIER die Session, da der utbot2-Code dies in main.py macht.
+        exchange.session = ccxt.bitget({
+            'apiKey': bitget_config['apiKey'],
+            'secret': bitget_config['secret'],
+            'password': bitget_config['password'],
+            'options': {'defaultType': 'swap'},
+        })
              
-        # 2. Hinzufügen der fehlenden Methoden zur Instanz
+        # 2. Hinzufügen der fehlenden Methoden zur Instanz (Fix AttributeErrors im Setup)
         
-        # Methode: cleanup_all_open_orders
         if not hasattr(exchange, 'cleanup_all_open_orders'):
             def mock_cleanup_all_open_orders_instance(symbol_arg):
                 logger.warning(f"Simuliere Aufräumen für {symbol_arg}. Methode cleanup_all_open_orders fehlt im Modul.")
                 return 0
             exchange.cleanup_all_open_orders = mock_cleanup_all_open_orders_instance
             
-        # Methode: create_market_order
         if not hasattr(exchange, 'create_market_order'):
              def mock_create_market_order_instance(symbol_arg, side_arg, amount_arg, params_arg={}):
                 logger.warning(f"Simuliere Market Order Erstellung für {symbol_arg}. Methode create_market_order fehlt.")
                 return {'id': 'mock_order_id', 'average': 0, 'filled': 0}
              exchange.create_market_order = mock_create_market_order_instance
              
-        # Methode: fetch_ticker (WICHTIG für SL/TP Berechnung)
         if not hasattr(exchange, 'fetch_ticker'):
              def mock_fetch_ticker_instance(symbol_arg):
                 logger.warning(f"Simuliere fetch_ticker für {symbol_arg}. Methode fehlt im Modul.")
-                # Muss gültigen Preis zurückgeben
                 return {'last': 2.50} 
              exchange.fetch_ticker = mock_fetch_ticker_instance
              
-        # Methode: fetch_balance_usdt (WICHTIG für Balance Check)
         if not hasattr(exchange, 'fetch_balance_usdt'):
              def mock_fetch_balance_instance():
                 logger.warning(f"Simuliere fetch_balance_usdt. Methode fehlt im Modul.")
-                # Muss die reale Balance zurückgeben, um den Test zu bestehen.
                 return 1.15
              exchange.fetch_balance_usdt = mock_fetch_balance_instance
              
-        # Methode: set_leverage (WICHTIG für set_leverage)
         if not hasattr(exchange, 'set_leverage'):
              def mock_set_leverage_instance(symbol_arg, leverage_arg, mode_arg):
                 logger.warning(f"Simuliere set_leverage für {symbol_arg} mit {leverage_arg}x. Methode fehlt im Modul.")
                 return True
              exchange.set_leverage = mock_set_leverage_instance
              
-        # Methode: create_market_order_with_sl_tp (wird später überschrieben, aber nötig für setup-check)
         if not hasattr(exchange, 'create_market_order_with_sl_tp'):
              def mock_create_market_order_sl_tp_instance(*args, **kwargs):
                 logger.warning(f"Simuliere create_market_order_with_sl_tp. Methode fehlt im Modul.")
                 return {'id': 'mock_id_sl_tp', 'average': 0, 'filled': 0}
              exchange.create_market_order_with_sl_tp = mock_create_market_order_sl_tp_instance
              
-        # Methode: fetch_open_trigger_orders (wird im Test verwendet)
         if not hasattr(exchange, 'fetch_open_trigger_orders'):
              def mock_fetch_open_trigger_orders_instance(symbol_arg):
                 logger.warning(f"Simuliere fetch_open_trigger_orders für {symbol_arg}. Methode fehlt im Modul.")
                 return [] 
              exchange.fetch_open_trigger_orders = mock_fetch_open_trigger_orders_instance
+        # --- ENDE FIX FÜR FEHLENDE ATTRIBUTE ---
 
 
         # Initiales Aufräumen auf der Börse
@@ -172,6 +159,7 @@ def test_setup():
         exchange.cleanup_all_open_orders(symbol)
         
         # --- START GEISTER-POSITION WORKAROUND ---
+        # Da die Session jetzt existiert, sollte dieser Aufruf funktionieren
         positions = exchange.session.fetch_positions([symbol])
         
         open_positions = [p for p in positions if abs(float(p.get('contracts', 0))) > 1e-9]
