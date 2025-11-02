@@ -24,20 +24,24 @@ def guardian_decorator(func):
         # (Angepasst an die Struktur von utbot2's main loop)
         try:
             # Erwartete Argumente für die dekorierte Funktion in main.py:
-            # target, strategy_cfg, exchange, gemini_model, secrets['telegram'], total_usdt_balance, logger
+            # target (0), strategy_cfg (1), exchange (2), gemini_model (3), secrets['telegram'] (4), logger (5)
             target = args[0]
             telegram_config = args[4]
-            logger = args[6]
+            
+            # --- KORREKTUR: Index von 6 auf 5 geändert ---
+            logger = args[5] 
+            # --- ENDE KORREKTUR ---
+
             symbol = target.get('symbol', symbol)
             timeframe = target.get('timeframe', timeframe)
         except IndexError:
-             # Fallback, falls Argumente anders übergeben werden
-             for arg in args:
-                 if isinstance(arg, logging.Logger): logger = arg
-                 if isinstance(arg, dict) and 'bot_token' in arg: telegram_config = arg
-                 if isinstance(arg, dict) and 'symbol' in arg:
-                     symbol = arg.get('symbol', symbol)
-                     timeframe = arg.get('timeframe', timeframe)
+            # Fallback, falls Argumente anders übergeben werden
+            for arg in args:
+                if isinstance(arg, logging.Logger): logger = arg
+                if isinstance(arg, dict) and 'bot_token' in arg: telegram_config = arg
+                if isinstance(arg, dict) and 'symbol' in arg:
+                    symbol = arg.get('symbol', symbol)
+                    timeframe = arg.get('timeframe', timeframe)
 
         if not logger:
             logger = logging.getLogger("guardian_fallback")
