@@ -28,7 +28,7 @@ max_leverage = 15
 # --- NEU: Trailing Stop Konfiguration ---
 [targets.risk.trailing_stop]
 enabled = true                  # Setze auf 'true', um TSL statt fixem SL zu nutzen
-callback_pct = 1.5              # (1.5%) Wie weit der Preis fallen darf (der "Trail")
+callback_pct = 0.5              # (1.5%) Wie weit der Preis fallen darf (der "Trail")
 activation_pct = 2.0            # (2.0%) TSL wird erst aktiv, wenn der Trade 2% im Gewinn ist
 
 
@@ -44,7 +44,7 @@ max_leverage = 15
 # --- NEU: Füge dies auch hier hinzu, wenn ETH TSL nutzen soll ---
 [targets.risk.trailing_stop]
 enabled = true
-callback_pct = 1.0              # (1.0%)
+callback_pct = 0.5              # (1.0%)
 activation_pct = 2.0            # (2.0%)
 
 
