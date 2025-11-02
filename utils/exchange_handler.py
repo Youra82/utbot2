@@ -1,4 +1,4 @@
-# utbot2/utils/exchange_handler.py (Version 4.1 - TitanBot-Methoden zur Behebung von AttributeErrors)
+# utbot2/utils/exchange_handler.py (Version 4.1 - Atomare Order/TitanBot-Stil)
 import ccxt
 import logging
 import pandas as pd
@@ -9,11 +9,11 @@ logger = logging.getLogger('utbot2')
 
 class ExchangeHandler:
     def __init__(self):
-        """Initialisiert die Bitget-Session (extern gesetzt)."""
+        """Initialisiert die Bitget-Session (extern in main.py gesetzt)."""
         self.session = None # Wird von main.py oder test_setup gesetzt
         self.markets = None 
 
-    # --- HILFSFUNKTIONEN (Benötigt für die Logik) ---
+    # --- HILFSFUNKTIONEN (Behoben für AttributeError) ---
 
     def fetch_ohlcv(self, symbol, timeframe, limit=100):
         if not self.session: raise Exception("CCXT Session ist nicht initialisiert.")
@@ -40,7 +40,6 @@ class ExchangeHandler:
             raise
     
     def fetch_balance_usdt(self):
-        # ... (Implementierung beibehalten)
         try:
             if not self.session: raise Exception("CCXT Session ist nicht initialisiert.")
             params = {'productType': 'USDT-FUTURES', 'marginCoin': 'USDT', 'reload': True}
@@ -53,7 +52,6 @@ class ExchangeHandler:
             return 0.0
 
     def fetch_open_positions(self, symbol: str):
-        # ... (Implementierung beibehalten)
         try:
             if not self.session: raise Exception("CCXT Session ist nicht initialisiert.")
             params = {'productType': 'USDT-FUTURES', 'reload': True}
@@ -67,18 +65,16 @@ class ExchangeHandler:
     
     def set_leverage(self, symbol: str, leverage: int, margin_mode: str = 'isolated'):
         if not self.session: raise Exception("CCXT Session ist nicht initialisiert.")
-        # Minimaler Rumpf, um den Aufruf in main.py zu ermöglichen
         try:
             self.session.set_margin_mode(margin_mode, symbol, params={'productType': 'USDT-FUTURES'})
             self.session.set_leverage(leverage, symbol, params={'productType': 'USDT-FUTURES'})
         except Exception:
-            pass # Ignoriere Fehler, wenn bereits gesetzt
+            pass
         return True 
 
     def create_market_order(self, symbol, side, amount, params={}):
         """ Erstellt eine einfache Market Order (wird vom Workaround benötigt). """
         if not self.session: raise Exception("CCXT Session ist nicht initialisiert.")
-        # Minimaler Rumpf, um den Aufruf in main.py zu ermöglichen
         try:
              order_params = {**params}
              if 'productType' not in order_params: order_params['productType'] = 'USDT-FUTURES'
@@ -91,6 +87,8 @@ class ExchangeHandler:
         """ Holt offene Trigger Orders (vom Test benötigt). """
         if not self.session: raise Exception("CCXT Session ist nicht initialisiert.")
         try:
+            # Im Atomar-Modus werden SL/TP nicht als separate Orders angezeigt
+            # Aber wir behalten die Funktion bei, da der Test sie erwartet
             params = {'stop': True, 'productType': 'USDT-FUTURES', 'reload': True}
             return self.session.fetch_open_orders(symbol, params=params)
         except Exception as e:
@@ -100,10 +98,9 @@ class ExchangeHandler:
         """ Storniert alle offenen Orders (vom Test und main.py benötigt). """
         if not self.session: raise Exception("CCXT Session ist nicht initialisiert.")
         try:
-            # Storniere normale und Trigger Orders (Minimalprinzip)
             self.session.cancel_all_orders(symbol, params={'productType': 'USDT-FUTURES', 'stop': False})
             self.session.cancel_all_orders(symbol, params={'productType': 'USDT-FUTURES', 'stop': True})
-            return 1 # Simuliere Erfolg
+            return 1 
         except Exception:
             return 0
     # --- ENDE FEHLENDE METHODEN ---
@@ -112,7 +109,7 @@ class ExchangeHandler:
     # --- KERN-FUNKTION: ATOMARE ORDER-PLATZIERUNG (TitanBot-Stil) ---
     def create_order_atomic(self, symbol: str, side: str, amount: float, sl_price: float, tp_price: float, margin_mode: str):
         """
-        Erstellt Market Order mit integriertem SL und TP in einem atomaren API-Aufruf (Bitget V2-spezifisch).
+        Erstellt Market Order mit integriertem SL und TP in einem atomaren API-Aufruf.
         """
         if not self.session: raise Exception("CCXT Session ist nicht initialisiert.")
         
