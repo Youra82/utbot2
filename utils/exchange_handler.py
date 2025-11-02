@@ -1,38 +1,45 @@
-# utbot2/utils/exchange_handler.py (Inspiriert von JaegerBot/TitanBot/LtbBot)
+# utbot2/utils/exchange_handler.py (Version 3.9 - Final)
 import ccxt
 import logging
 import pandas as pd
 import time
-from datetime import datetime, timezone # Import hinzugefügt
+from datetime import datetime, timezone 
 
-logger = logging.getLogger('utbot2') # Logger-Namen angepasst
+logger = logging.getLogger('utbot2')
 
 class ExchangeHandler:
     def __init__(self, api_setup=None):
+        """Initialisiert die Bitget-Session."""
         if api_setup:
-            # Verwende explizit Bitget
             self.session = ccxt.bitget({
-                'apiKey': api_setup['apiKey'], 'secret': api_setup['secret'], 'password': api_setup['password'],
-                'options': { 'defaultType': 'swap' },
+                'apiKey': api_setup['apiKey'],
+                'secret': api_setup['secret'],
+                'password': api_setup['password'],
+                'options': {'defaultType': 'swap'},
             })
         else:
-            self.session = ccxt.bitget({'options': { 'defaultType': 'swap' }})
+            self.session = ccxt.bitget({'options': {'defaultType': 'swap'}})
         self.markets = self.session.load_markets()
         logger.info("ExchangeHandler initialisiert und Märkte geladen.")
 
-    # --- Standard-Funktionen ---
-    def fetch_ohlcv(self, symbol, timeframe, limit):
-        """ Lädt die letzten 'limit' Kerzen. """
+    # -------------------
+    # --- Basis-Funktionen
+    # -------------------
+
+    def fetch_ohlcv(self, symbol, timeframe, limit=100):
+        """Lädt OHLCV-Daten."""
         try:
             ohlcv = self.session.fetch_ohlcv(symbol, timeframe, limit=limit)
             if not ohlcv:
                 logger.warning(f"[{symbol}] Keine OHLCV-Daten erhalten.")
                 return pd.DataFrame()
 
-            df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+            df = pd.DataFrame(
+                ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume']
+            )
             df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms', utc=True)
             df.set_index('timestamp', inplace=True)
-            df.sort_index(inplace=True)
+            df = df.sort_index()
             for col in ['open', 'high', 'low', 'close', 'volume']:
                 df[col] = pd.to_numeric(df[col], errors='coerce')
             return df
@@ -41,7 +48,7 @@ class ExchangeHandler:
             raise
 
     def fetch_ticker(self, symbol):
-        """ Holt den aktuellen Ticker (Preisinformationen). """
+        """Holt aktuellen Ticker."""
         try:
             return self.session.fetch_ticker(symbol)
         except Exception as e:
@@ -49,7 +56,7 @@ class ExchangeHandler:
             raise
 
     def fetch_balance_usdt(self):
-        """ Holt das verfügbare USDT-Guthaben (robuste Version). """
+        """Holt das verfügbare USDT-Guthaben (robuste Version)."""
         try:
             params = {'productType': 'USDT-FUTURES', 'marginCoin': 'USDT'}
             balance = self.session.fetch_balance(params=params)
@@ -81,7 +88,7 @@ class ExchangeHandler:
             return 0.0
 
     def fetch_open_positions(self, symbol: str):
-        """ Holt alle offenen Positionen für ein Symbol (TitanBot-Logik). """
+        """Holt alle offenen Positionen für ein Symbol (TitanBot-Logik)."""
         try:
             params = {'productType': 'USDT-FUTURES'}
             positions = self.session.fetch_positions([symbol], params=params)
@@ -102,7 +109,7 @@ class ExchangeHandler:
             raise
 
     def fetch_open_trigger_orders(self, symbol: str):
-        """ Ruft alle offenen Trigger-Orders (SL/TP) für ein Symbol ab. """
+        """Ruft alle offenen Trigger-Orders (SL/TP) für ein Symbol ab."""
         try:
             params = {'stop': True, 'productType': 'USDT-FUTURES'}
             return self.session.fetch_open_orders(symbol, params=params)
@@ -111,7 +118,7 @@ class ExchangeHandler:
             return [] 
 
     def cleanup_all_open_orders(self, symbol: str):
-        """ Storniert ALLE offenen Orders (Trigger und Normal) für ein Symbol. """
+        """Storniert ALLE offenen Orders (Trigger und Normal) für ein Symbol."""
         cancelled_count = 0
         
         # 1. Normale Orders stornieren (stop: False)
@@ -150,7 +157,7 @@ class ExchangeHandler:
     # --- Order Platzierung (Kernlogik von JaegerBot) ---
 
     def set_leverage(self, symbol: str, leverage: int, margin_mode: str = 'isolated'):
-        """ Setzt Hebel und Margin-Modus. """
+        """Setzt Hebel und Margin-Modus."""
         leverage = int(round(leverage))
         if leverage < 1: leverage = 1 
         try:
@@ -206,7 +213,7 @@ class ExchangeHandler:
             if 'productType' not in order_params:
                 order_params['productType'] = 'USDT-FUTURES' 
             
-            # --- NEUE KORREKTUR (stbot-Logik) ---
+            # --- KORREKTUR (stbot-Logik / Deine Analyse) ---
             # Wenn 'reduceOnly' True ist, dürfen 'posSide', 'tradeSide' und 'marginMode'
             # NICHT im Request enthalten sein, da Bitget sonst 40774 oder 22002 wirft.
             is_reduce_only = str(order_params.get('reduceOnly', 'false')).lower() == 'true'
@@ -221,7 +228,7 @@ class ExchangeHandler:
                 if 'marginMode' in order_params:
                     logger.debug(f"Entferne 'marginMode' aus reduceOnly-Order-Params.")
                     del order_params['marginMode']
-            # --- ENDE NEUE KORREKTUR ---
+            # --- ENDE KORREKTUR ---
             
             rounded_amount = float(self.session.amount_to_precision(symbol, amount))
             if rounded_amount <= 0:
@@ -237,11 +244,10 @@ class ExchangeHandler:
             logger.error(f"[{symbol}] Nicht genügend Guthaben für Market-Order: {e}")
             raise
         except ccxt.ExchangeError as e:
-            # --- KORREKTUR: Fehler 22002 hier abfangen (wie von dir vorgeschlagen) ---
+            # Fange "No position to close" ab
             if '22002' in str(e) or 'No position to close' in str(e).lower():
                 logger.warning(f"[{symbol}] Keine Position zum Schließen (reduceOnly).")
-                return None # Das ist kein Fehler, den wir hochstufen müssen
-            # --- ENDE KORREKTUR ---
+                return None 
             logger.error(f"[{symbol}] Exchange-Fehler bei Market-Order: {e}")
             raise
         except Exception as e:
@@ -303,11 +309,10 @@ class ExchangeHandler:
                 'reduceOnly': True 
             }
             
-            # --- KORREKTUR: Entferne posSide/tradeSide/marginMode falls reduceOnly True ist ---
+            # KORREKTUR: Entferne posSide/tradeSide/marginMode falls reduceOnly True ist
             if 'posSide' in order_params: del order_params['posSide']
             if 'tradeSide' in order_params: del order_params['tradeSide']
             if 'marginMode' in order_params: del order_params['marginMode']
-            # --- ENDE KORREKTUR ---
 
             logger.info(f"[{symbol}] Sende Trailing-Stop-Order: Seite={side}, Menge={rounded_amount}, Params={order_params}")
             order = self.session.create_order(symbol, 'market', side, rounded_amount, params=order_params)
