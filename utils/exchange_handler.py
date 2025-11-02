@@ -1,4 +1,4 @@
-# utbot2/utils/exchange_handler.py (Version 4.1 - Atomare Order/TitanBot-Stil)
+# utbot2/utils/exchange_handler.py (Version 4.2 - Atomare Order/TitanBot-Stil)
 import ccxt
 import logging
 import pandas as pd
@@ -78,7 +78,6 @@ class ExchangeHandler:
         try:
              order_params = {**params}
              if 'productType' not in order_params: order_params['productType'] = 'USDT-FUTURES'
-             # Wir wollen die Order nicht wirklich platzieren, nur die CCXT-Struktur validieren
              return self.session.create_order(symbol, 'market', side, amount, params=order_params)
         except Exception as e:
              raise e
@@ -87,8 +86,6 @@ class ExchangeHandler:
         """ Holt offene Trigger Orders (vom Test benötigt). """
         if not self.session: raise Exception("CCXT Session ist nicht initialisiert.")
         try:
-            # Im Atomar-Modus werden SL/TP nicht als separate Orders angezeigt
-            # Aber wir behalten die Funktion bei, da der Test sie erwartet
             params = {'stop': True, 'productType': 'USDT-FUTURES', 'reload': True}
             return self.session.fetch_open_orders(symbol, params=params)
         except Exception as e:
@@ -127,7 +124,6 @@ class ExchangeHandler:
             'marginMode': margin_mode, 
             'productType': 'USDT-FUTURES',
             
-            # Atomare SL/TP Parameter (TitanBot/JaegerBot-Stil)
             'stopLossPrice': float(self.session.price_to_precision(symbol, sl_price)),
             'stopLossTriggerPrice': float(self.session.price_to_precision(symbol, sl_price)),
             'stopLossTriggerPriceType': 'market_price', 
