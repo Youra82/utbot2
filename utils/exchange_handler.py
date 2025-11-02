@@ -1,4 +1,4 @@
-# utbot2/utils/exchange_handler.py (Version 3.9 - Finaler Fix Geister-Positionen)
+# utbot2/utils/exchange_handler.py (Version 3.9 - Finaler Fix Geister-Positionen v2)
 import ccxt
 import logging
 import pandas as pd
@@ -58,7 +58,12 @@ class ExchangeHandler:
     def fetch_balance_usdt(self):
         """Holt das verfügbare USDT-Guthaben (robuste Version)."""
         try:
-            params = {'productType': 'USDT-FUTURES', 'marginCoin': 'USDT'}
+            # --- KORREKTUR: 'reload': True auch hier, um Guthaben-Cache zu umgehen ---
+            params = {
+                'productType': 'USDT-FUTURES', 
+                'marginCoin': 'USDT',
+                'reload': True
+            }
             balance = self.session.fetch_balance(params=params)
             usdt_balance = 0.0
 
@@ -91,11 +96,10 @@ class ExchangeHandler:
         """Holt alle offenen Positionen für ein Symbol (TitanBot-Logik)."""
         try:
             # --- START KORREKTUR (Cache-Buster für Geister-Positionen) ---
-            # Wir fügen einen Zeitstempel hinzu, um den ccxt-Cache zu umgehen.
-            # Dies zwingt ccxt, JEDES MAL frische Positionsdaten von der API abzurufen.
+            # 'reload': True ist der offizielle ccxt-Befehl, um den Cache zu umgehen.
             params = {
                 'productType': 'USDT-FUTURES',
-                '_cache_buster': time.time() # Cache-Buster
+                'reload': True # Cache-Buster
             }
             # --- ENDE KORREKTUR ---
             
@@ -119,11 +123,13 @@ class ExchangeHandler:
     def fetch_open_trigger_orders(self, symbol: str):
         """Ruft alle offenen Trigger-Orders (SL/TP) für ein Symbol ab."""
         try:
+            # --- START KORREKTUR (Cache-Buster für Geister-Positionen) ---
             params = {
                 'stop': True, 
                 'productType': 'USDT-FUTURES',
-                '_cache_buster': time.time() # Sicher ist sicher: Cache hier auch umgehen
+                'reload': True # Cache-Buster
             }
+            # --- ENDE KORREKTUR ---
             return self.session.fetch_open_orders(symbol, params=params)
         except Exception as e:
             logger.error(f"[{symbol}] Fehler beim Abrufen offener Trigger-Orders: {e}", exc_info=True)
