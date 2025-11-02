@@ -181,14 +181,34 @@ class ExchangeHandler:
             logger.error(f"[{symbol}] Unerwarteter Fehler beim Setzen von Hebel/Margin: {e_general}", exc_info=True)
             raise
 
-
+    # -----------------------------------------------------------------
+    # --- START KORREKTUR (create_market_order) ---
+    # -----------------------------------------------------------------
     def create_market_order(self, symbol: str, side: str, amount: float, params: dict = {}):
-        """ Erstellt eine reine Market-Order (unverändert). """
+        """ 
+        Erstellt eine reine Market-Order (JETZT MIT TITANBOT-LOGIK).
+        Fügt 'productType' hinzu und rundet den Betrag.
+        """
         try:
-            logger.info(f"[{symbol}] Sende Market-Order: Seite={side}, Menge={amount}, Params={params}")
-            order = self.session.create_order(symbol, 'market', side, amount, params=params)
+            # --- START KORREKTUR (TitanBot-Logik) ---
+            order_params = {**params}
+            if 'productType' not in order_params:
+                # Füge productType hinzu, wenn es nicht vom Aufrufer 
+                # bereits hinzugefügt wurde.
+                order_params['productType'] = 'USDT-FUTURES' 
+            
+            # Runde den Betrag, um Präzisionsfehler zu vermeiden
+            rounded_amount = float(self.session.amount_to_precision(symbol, amount))
+            if rounded_amount <= 0:
+                 logger.error(f"FEHLER: Berechneter Order-Betrag ist Null oder negativ ({rounded_amount}).")
+                 return None # Verhindere API-Fehler
+            # --- ENDE KORREKTUR ---
+
+            logger.info(f"[{symbol}] Sende Market-Order: Seite={side}, Menge={rounded_amount}, Params={order_params}")
+            order = self.session.create_order(symbol, 'market', side, rounded_amount, params=order_params) # Verwende rounded_amount und order_params
             logger.info(f"[{symbol}] Market-Order erfolgreich platziert. ID: {order.get('id')}")
             return order
+            
         except ccxt.InsufficientFunds as e:
             logger.error(f"[{symbol}] Nicht genügend Guthaben für Market-Order: {e}")
             raise
@@ -198,10 +218,10 @@ class ExchangeHandler:
         except Exception as e:
             logger.error(f"[{symbol}] Unerwarteter Fehler bei Market-Order: {e}", exc_info=True)
             raise
+    # -----------------------------------------------------------------
+    # --- ENDE KORREKTUR (create_market_order) ---
+    # -----------------------------------------------------------------
 
-    # -----------------------------------------------------------------
-    # --- START KORREKTUR 1 (TP / Fixer SL) ---
-    # -----------------------------------------------------------------
     def place_trigger_market_order(self, symbol: str, side: str, amount: float, trigger_price: float, params: dict = {}):
         """ 
         Platziert eine SL- oder TP-Order als Trigger-Market-Order.
@@ -232,14 +252,7 @@ class ExchangeHandler:
         except Exception as e:
             logger.error(f"[{symbol}] Unerwarteter Fehler bei Trigger-Order (TP/FixSL): {e}", exc_info=True)
             raise
-    # -----------------------------------------------------------------
-    # --- ENDE KORREKTUR 1 ---
-    # -----------------------------------------------------------------
 
-
-    # -----------------------------------------------------------------
-    # --- START KORREKTUR 2 (Trailing Stop Loss) ---
-    # -----------------------------------------------------------------
     def place_trailing_stop_order(self, symbol, side, amount, activation_price, callback_rate_decimal, params={}):
         """
         Platziert eine Trailing Stop Market Order (Stop-Loss) über ccxt für Bitget.
@@ -279,9 +292,6 @@ class ExchangeHandler:
         except Exception as e:
             logger.error(f"[{symbol}] FEHLER beim Platzieren des Trailing Stop: {e} | Params: {order_params}", exc_info=True)
             raise # Fehler weiterleiten
-    # -----------------------------------------------------------------
-    # --- ENDE KORREKTUR 2 ---
-    # -----------------------------------------------------------------
 
 
     # -----------------------------------------------------------------
@@ -302,7 +312,8 @@ class ExchangeHandler:
             # KORREKTUR FÜR FEHLER 40774 (Unverändert)
             market_params = {
                 'posSide': 'net',
-                'tradeSide': 'open' # <--- DER WICHTIGE FIX
+                'tradeSide': 'open'
+                # productType wird von create_market_order automatisch hinzugefügt
             }
             market_order = self.create_market_order(symbol, side, amount, params=market_params)
 
@@ -344,6 +355,7 @@ class ExchangeHandler:
         trigger_params = {
             'reduceOnly': True,
             'productType': 'USDT-FUTURES'
+            # 'posSide': 'net' wird für create_order nicht benötigt, wenn productType gesetzt ist
         }
 
         # 3. Stop-Loss (Trigger-Order ODER TSL)
@@ -373,8 +385,8 @@ class ExchangeHandler:
                     side=close_side,
                     amount=final_amount,
                     activation_price=activation_price,
-                    callback_rate_decimal=callback_rate_pct_decimal, # KORRIGIERTER PARAMETERNAME
-                    params=trigger_params # KORREKTUR: Params übergeben
+                    callback_rate_decimal=callback_rate_pct_decimal,
+                    params=trigger_params 
                 )
                 sl_success = True
                 logger.info(f"[{symbol}] Schritt 2/3: ✅ Trailing Stop-Loss platziert.")
@@ -382,7 +394,7 @@ class ExchangeHandler:
             else:
                 # --- B) FIXER STOP-LOSS WIRD VERWENDET (Alte Logik) ---
                 logger.info(f"[{symbol}] Schritt 2/3: Platziere fixen Stop-Loss ({close_side}) bei {sl_price} für Menge {final_amount}...")
-                self.place_trigger_market_order(symbol, close_side, final_amount, sl_price, params=trigger_params) # KORREKTUR: Params übergeben
+                self.place_trigger_market_order(symbol, close_side, final_amount, sl_price, params=trigger_params)
                 sl_success = True
                 logger.info(f"[{symbol}] Schritt 2/3: ✅ Fixen Stop-Loss platziert.")
         
@@ -392,7 +404,7 @@ class ExchangeHandler:
         # 4. Take-Profit (Trigger-Order mit reduceOnly)
         try:
             logger.info(f"[{symbol}] Schritt 3/3: Platziere Take-Profit ({close_side}) bei {tp_price} für Menge {final_amount}...")
-            self.place_trigger_market_order(symbol, close_side, final_amount, tp_price, params=trigger_params) # KORREKTUR: Params übergeben
+            self.place_trigger_market_order(symbol, close_side, final_amount, tp_price, params=trigger_params)
             tp_success = True
             logger.info(f"[{symbol}] Schritt 3/3: ✅ Take-Profit platziert.")
         except Exception as e_tp:
