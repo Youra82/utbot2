@@ -1,3 +1,11 @@
+# Baustelle...
+
+
+
+
+
+
+
 # utbot2
 
 Ein vollautomatischer Trading-Bot für Krypto-Futures auf der Bitget-Börse, der **Generative KI (Google Gemini)** nutzt, um Handelsentscheidungen zu treffen.
