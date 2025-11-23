@@ -1,4 +1,4 @@
-# /root/titanbot/src/titanbot/utils/exchange.py
+# /root/utbot2/src/utbot2/utils/exchange.py
 # KORRIGIERTE VERSION V3 - NUTZT DIE BITGET-SPEZIFISCHEN PARAMETER INNERHALB EINER MARKET ORDER (WIE IM ERFOLGREICHEN BEISPIEL)
 import ccxt
 import pandas as pd

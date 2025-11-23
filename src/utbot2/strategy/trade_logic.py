@@ -1,94 +1,90 @@
-# /root/titanbot/src/titanbot/strategy/trade_logic.py
+# /root/utbot2/src/utbot2/strategy/trade_logic.py
 import pandas as pd
-from titanbot.strategy.smc_engine import Bias, FVG, OrderBlock
 
-# --- GEÄNDERT: Neuer Parameter 'market_bias' hinzugefügt ---
-def get_titan_signal(smc_results: dict, current_candle: pd.Series, params: dict, market_bias: Bias):
+def get_titan_signal(processed_data: pd.DataFrame, current_candle: pd.Series, params: dict, market_bias=None):
     """
-    Hier kommt deine eigentliche Handelslogik hinein.
-    Diese Funktion entscheidet, ob ein Trade eröffnet werden soll, 
-    unter Berücksichtigung des Multi-Timeframe (MTF) Bias.
-
-    Rückgabewerte:
-    - (side, entry_price): z.B. ("buy", 123.45) oder ("sell", 123.45)
-    - (None, None): Wenn kein Signal vorhanden ist oder ein Filter es blockiert.
+    Ichimoku Trading Logik für UtBot2.
+    
+    Strategie:
+    1. TK Cross (Tenkan kreuzt Kijun)
+    2. Kumo Filter: Preis muss auf der richtigen Seite der Wolke sein.
+    3. Chikou Filter: Preis heute muss besser sein als vor 26 Perioden.
     """
     
-    # --- 1. Lade ADX-Filtereinstellungen und initialisiere ---
+    # Sicherheitscheck
+    if processed_data is None or processed_data.empty or len(processed_data) < 30:
+        return None, None
+
+    # Parameter laden
     strategy_params = params.get('strategy', {})
-    use_adx_filter = strategy_params.get('use_adx_filter', False) # Standard: Aus
-    adx_threshold = strategy_params.get('adx_threshold', 25) # Standard: 25
-
-    # --- NEU: MTF-Filter-Einstellungen ---
-    # Wir nehmen an, dass der Filter aktiviert ist, wenn der Bias ungleich NEUTRAL ist
-    use_mtf_filter = market_bias is not None and market_bias != Bias.NEUTRAL
-    # --- ENDE NEU ---
-
-    # --- 2. Führe die Standard-Signallogik aus ---
-    unmitigated_fvgs = smc_results.get("unmitigated_fvgs", [])
-    unmitigated_obs = smc_results.get("unmitigated_internal_obs", [])
-
-    signal_side = None
-    signal_price = None
-
-    # BEISPIEL-LOGIK:
-    # 1. Prüfe, ob die aktuelle Kerze in einen bullischen FVG eintaucht
-    for fvg in unmitigated_fvgs:
-        if fvg.bias == Bias.BULLISH and current_candle['low'] <= fvg.top:
-            signal_side = "buy"
-            signal_price = current_candle['close']
-            break # Nimm das erste Signal
-
-    # 2. Prüfe, ob die aktuelle Kerze in einen bärischen Order Block eintaucht
-    if not signal_side: # Nur prüfen, wenn noch kein Long-Signal gefunden wurde
-        for ob in unmitigated_obs:
-            if ob.bias == Bias.BEARISH and current_candle['high'] >= ob.barLow:
-                signal_side = "sell"
-                signal_price = current_candle['close']
-                break # Nimm das erste Signal
-
-    # --- 3. Wende den MTF-Filter an (falls Signal gefunden wurde) ---
-    if signal_side and use_mtf_filter:
-        # Bullischer Bias (BULLISH) erlaubt nur Longs
-        if market_bias == Bias.BULLISH and signal_side == "sell":
-            return None, None
-        
-        # Bärischer Bias (BEARISH) erlaubt nur Shorts
-        if market_bias == Bias.BEARISH and signal_side == "buy":
-            return None, None
-            
-        # Wenn der Bias NEUTRAL war oder das Signal mit dem Bias übereinstimmt, gehen wir weiter
+    use_chikou_filter = strategy_params.get('use_chikou_filter', True)
+    displacement = strategy_params.get('displacement', 26)
     
-    # --- 4. Wende den ADX-Filter an (falls Signal gefunden wurde) ---
-    if signal_side and use_adx_filter:
-        try:
-            # Hole ADX-Werte aus der aktuellen Kerze (wurden jetzt in trade_manager/backtester berechnet)
-            adx = current_candle.get('adx')
-            adx_pos = current_candle.get('adx_pos')
-            adx_neg = current_candle.get('adx_neg')
+    # Wir brauchen die letzten beiden abgeschlossenen Zeilen für Crossovers
+    last_row = processed_data.iloc[-1]
+    prev_row = processed_data.iloc[-2]
+    
+    # Aktuelle Werte
+    close = last_row['close']
+    tenkan = last_row['tenkan_sen']
+    kijun = last_row['kijun_sen']
+    
+    # Die Wolke (Senkou A/B) ist bereits geshiftet im DataFrame.
+    ssa = last_row['senkou_span_a']
+    ssb = last_row['senkou_span_b']
+    
+    # Vorherige Werte (für Crossover Erkennung)
+    prev_tenkan = prev_row['tenkan_sen']
+    prev_kijun = prev_row['kijun_sen']
+    
+    signal_side = None
+    signal_price = close
+    
+    # --- Prüfung auf Gültigkeit der Indikatoren ---
+    if pd.isna(ssa) or pd.isna(ssb) or pd.isna(tenkan) or pd.isna(kijun):
+        return None, None
 
-            # Prüfe, ob ADX-Daten gültig sind
-            if pd.isna(adx) or pd.isna(adx_pos) or pd.isna(adx_neg):
-                 return None, None # Blockiere, wenn ADX nicht berechnet werden konnte
+    # --- LONG SIGNAL ---
+    # 1. TK Cross Bullish: Tenkan kreuzt Kijun von unten nach oben
+    tk_cross_bull = (prev_tenkan <= prev_kijun) and (tenkan > kijun)
+    
+    # 2. Kumo Filter: Preis muss ÜBER der Wolke sein
+    cloud_top = max(ssa, ssb)
+    price_above_cloud = close > cloud_top
+    
+    if tk_cross_bull and price_above_cloud:
+        signal_side = "buy"
+        
+    # --- SHORT SIGNAL ---
+    # 1. TK Cross Bearish: Tenkan kreuzt Kijun von oben nach unten
+    tk_cross_bear = (prev_tenkan >= prev_kijun) and (tenkan < kijun)
+    
+    # 2. Kumo Filter: Preis muss UNTER der Wolke sein
+    cloud_bottom = min(ssa, ssb)
+    price_below_cloud = close < cloud_bottom
+    
+    if tk_cross_bear and price_below_cloud:
+        signal_side = "sell"
 
-            # 1. Prüfe auf Trendstärke
-            if adx < adx_threshold:
-                 return None, None # Markt ist "choppy", kein Trade
+    # --- Chikou Span Filter (Optional) ---
+    if signal_side and use_chikou_filter:
+        if len(processed_data) > displacement + 1:
+            past_idx = -(displacement + 1)
+            past_price = processed_data.iloc[past_idx]['close']
+            
+            if signal_side == "buy" and close <= past_price:
+                return None, None # Blockiert
+            if signal_side == "sell" and close >= past_price:
+                return None, None # Blockiert
+                
+    # --- MTF Bias Filter ---
+    if market_bias and market_bias != "NEUTRAL":
+        if market_bias == "BULLISH" and signal_side == "sell":
+            return None, None
+        if market_bias == "BEARISH" and signal_side == "buy":
+            return None, None
 
-            # 2. Prüfe auf Trendrichtung
-            if signal_side == "buy" and adx_pos < adx_neg:
-                 return None, None # Blockiere Long, da Abwärtstrend dominant ist
-
-            if signal_side == "sell" and adx_neg < adx_pos:
-                 return None, None # Blockiere Short, da Aufwärtstrend dominant ist
-
-        except Exception as e:
-            # print(f"FEHLER im ADX-Filter: {e}. Blockiere Trade zur Sicherheit.")
-            return None, None # Bei Fehlern im Filter lieber keinen Trade eingehen
-
-    # --- 5. Gib das gefilterte (oder ungefilterte) Signal zurück ---
     if signal_side:
         return signal_side, signal_price
 
-    # Kein Signal gefunden
     return None, None

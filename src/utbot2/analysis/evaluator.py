@@ -1,4 +1,4 @@
-# src/titanbot/analysis/evaluator.py
+# src/utbot2/analysis/evaluator.py
 import pandas as pd
 import numpy as np
 import ta
@@ -7,7 +7,7 @@ import os
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
 sys.path.append(os.path.join(PROJECT_ROOT, 'src'))
-from titanbot.strategy.smc_engine import SMCEngine # Importiere die neue Engine
+from utbot2.strategy.smc_engine import SMCEngine # Importiere die neue Engine
 
 def evaluate_dataset(data: pd.DataFrame, timeframe: str):
     """

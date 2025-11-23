@@ -1,4 +1,4 @@
-# src/titanbot/analysis/portfolio_optimizer.py (Version für TitanBot SMC mit MaxDD Constraint & Coin-Kollisionsschutz)
+# src/utbot2/analysis/portfolio_optimizer.py (Version für UtBot2 SMC mit MaxDD Constraint & Coin-Kollisionsschutz)
 import pandas as pd
 import itertools
 from tqdm import tqdm
@@ -10,7 +10,7 @@ import numpy as np # Für np.nan
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
 sys.path.append(os.path.join(PROJECT_ROOT, 'src'))
 
-from titanbot.analysis.portfolio_simulator import run_portfolio_simulation
+from utbot2.analysis.portfolio_simulator import run_portfolio_simulation
 
 # *** Angepasst: Nimmt target_max_dd entgegen ***
 def run_portfolio_optimizer(start_capital, strategies_data, start_date, end_date, target_max_dd: float):
