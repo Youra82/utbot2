@@ -1,4 +1,4 @@
-# TitanBot 🤖
+# UtBot2 🤖
 
 Ein selbstoptimierender, **SMC-gesteuerter** (Smart Money Concepts) Trading-Bot für Krypto-Futures auf der Bitget-Börse. Er identifiziert Marktstrukturen wie Order Blocks (OBs) und Fair Value Gaps (FVGs), um Handelsentscheidungen zu treffen.
 
@@ -18,14 +18,14 @@ Dieses System ist für den autonomen Betrieb auf einem Ubuntu-Server konzipiert 
 
 ## Installation & Setup 🛠️
 
-Führe diese Schritte aus, um den TitanBot auf einem frischen Ubuntu-Server in Betrieb zu nehmen.
+Führe diese Schritte aus, um den UtBot2 auf einem frischen Ubuntu-Server in Betrieb zu nehmen.
 
 ### 1. Projekt klonen
 
 ```bash
-# Ersetze <DEIN_GITHUB_REPO_LINK> mit dem Link zu deinem neuen TitanBot Repo
-git clone https://github.com/Youra82/titanbot.git
-cd titanbot
+# Ersetze <DEIN_GITHUB_REPO_LINK> mit dem Link zu deinem neuen UtBot2 Repo
+git clone https://github.com/Youra82/utbot2.git
+cd utbot2
 ```
 
 
@@ -91,22 +91,22 @@ crontab -e
 Füge die folgende **eine Zeile** am Ende der Datei ein:
 
 ```
-# Starte den TitanBot Master-Runner alle 15 Minuten
-*/15 * * * * /usr/bin/flock -n /home/ubuntu/titanbot/titanbot.lock /bin/sh -c "cd /home/ubuntu/titanbot && /home/ubuntu/titanbot/.venv/bin/python3 /home/ubuntu/titanbot/master_runner.py >> /home/ubuntu/titanbot/logs/cron.log 2>&1"
+# Starte den UtBot2 Master-Runner alle 15 Minuten
+*/15 * * * * /usr/bin/flock -n /home/ubuntu/utbot2/utbot2.lock /bin/sh -c "cd /home/ubuntu/utbot2 && /home/ubuntu/utbot2/.venv/bin/python3 /home/ubuntu/utbot2/master_runner.py >> /home/ubuntu/utbot2/logs/cron.log 2>&1"
 ```
 
 Master run manuell starten:
 
 ```
-# Starte den TitanBot Master-Runner manuell
-cd /home/ubuntu/titanbot && /home/ubuntu/titanbot/.venv/bin/python3 /home/ubuntu/titanbot/master_runner.py
+# Starte den UtBot2 Master-Runner manuell
+cd /home/ubuntu/utbot2 && /home/ubuntu/utbot2/.venv/bin/python3 /home/ubuntu/utbot2/master_runner.py
 ```
 
 
 Logverzeichnis anlegen:
 
 ```
-mkdir -p /home/ubuntu/titanbot/logs
+mkdir -p /home/ubuntu/utbot2/logs
 ```
 
 -----
@@ -123,7 +123,7 @@ Dieser Prozess lädt historische Daten, führt Tausende von Backtests mit versch
 ./run_pipeline.sh
 ```
 
-Nach Abschluss werden neue oder aktualisierte `config_...json`-Dateien in `src/titanbot/strategy/configs/` erstellt.
+Nach Abschluss werden neue oder aktualisierte `config_...json`-Dateien in `src/utbot2/strategy/configs/` erstellt.
 
 ### 2\. Analyse: Performance der Strategien bewerten
 
@@ -196,10 +196,10 @@ Verwende diese Befehle, um deine Analyse-Ergebnisse direkt auf dein Handy zu bek
 
     ```bash
     # Alle alten Konfigurationen löschen
-    rm -f src/titanbot/strategy/configs/config_*.json
+    rm -f src/utbot2/strategy/configs/config_*.json
 
     # Überprüfen, ob der Ordner leer ist
-    ls -l src/titanbot/strategy/configs/
+    ls -l src/utbot2/strategy/configs/
     ```
 
 ### 5\. Backup auf GitHub
@@ -209,7 +209,7 @@ Sichere den kompletten Stand deines Bots inklusive aller Konfigurationen auf Git
 ```bash
 # Sicherstellen, dass secret.json ignoriert wird (in .gitignore prüfen!)
 # git add .
-# git commit -m "Vollständiges Projekt-Backup TitanBot"
+# git commit -m "Vollständiges Projekt-Backup UtBot2"
 # git push origin main # Ggf. '--force', wenn du bewusst überschreiben willst
 ```
 
@@ -225,7 +225,7 @@ Dieses Material dient ausschließlich zu Bildungs- und Unterhaltungszwecken. Es 
 
 **Wichtige Hinweise:**
 
-1.  **GitHub Repo:** Ersetze `<DEIN_GITHUB_REPO_LINK>` im `git clone`-Befehl durch den tatsächlichen Link deines neuen TitanBot-Repositories.
+1.  **GitHub Repo:** Ersetze `<DEIN_GITHUB_REPO_LINK>` im `git clone`-Befehl durch den tatsächlichen Link deines neuen UtBot2-Repositories.
 2.  **`install.sh`:** Überprüfe kurz `install.sh`, ob dort noch spezifische Befehle für `tensorflow` oder `scikit-learn` drin sind, die entfernt werden können (obwohl es meistens nur `pip install -r requirements.txt` ist).
 3.  **Tests:** Die alten Tests in `tests/` sind **ungültig**. Du müsstest neue Tests schreiben, die die `SMCEngine` und die neue `trade_logic` prüfen.
 4.  **`show_results.sh` / `.csv`-Dateien:** Die Skripte zum Anzeigen und Senden von Ergebnissen (`show_results.sh`, `send_report.sh`, `show_chart.sh`) setzen voraus, dass der neue `backtester.py` (bzw. die darauf aufbauenden Skripte wie `portfolio_simulator.py`) weiterhin `.csv`-Dateien in einem ähnlichen Format wie zuvor ausgibt. Das musst du ggf. sicherstellen oder diese Skripte anpassen.

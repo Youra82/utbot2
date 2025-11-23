@@ -10,7 +10,7 @@ NC='\033[0m'
 
 echo -e "${BLUE}======================================================="
 # *** TITEL GEÄNDERT ***
-echo "         TitanBot Installations-Skript"
+echo "         UtBot2 Installations-Skript"
 echo "=======================================================${NC}"
 
 # --- System-Abhängigkeiten installieren ---

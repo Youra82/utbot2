@@ -13,17 +13,17 @@ PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.append(os.path.join(PROJECT_ROOT, 'src'))
 
 # Korrekter Import der tatsächlich existierenden Funktionen
-from titanbot.utils.exchange import Exchange
-from titanbot.utils.trade_manager import check_and_open_new_position, housekeeper_routine
-from titanbot.utils.trade_manager import set_trade_lock, is_trade_locked 
+from utbot2.utils.exchange import Exchange
+from utbot2.utils.trade_manager import check_and_open_new_position, housekeeper_routine
+from utbot2.utils.trade_manager import set_trade_lock, is_trade_locked 
 # NEU: Importiere die Hilfsfunktion für den Test
-from titanbot.utils.timeframe_utils import determine_htf 
+from utbot2.utils.timeframe_utils import determine_htf 
 # NEU: Importiere den Bias für die Mocking-Logik
-from titanbot.strategy.smc_engine import Bias
+from utbot2.strategy.smc_engine import Bias
 
 @pytest.fixture(scope="module")
 def test_setup():
-    print("\n--- Starte umfassenden LIVE TitanBot-Workflow-Test ---")
+    print("\n--- Starte umfassenden LIVE UtBot2-Workflow-Test ---")
     print("\n[Setup] Bereite Testumgebung vor...")
 
     secret_path = os.path.join(PROJECT_ROOT, 'secret.json')
@@ -33,11 +33,11 @@ def test_setup():
     with open(secret_path, 'r') as f:
         secrets = json.load(f)
 
-    # WICHTIG: Die Keys wurden von jaegerbot zu titanbot geändert!
-    if not secrets.get('titanbot') or not secrets['titanbot']: 
-        pytest.skip("Es wird mindestens ein Account unter 'titanbot' in secret.json für den Workflow-Test benötigt.")
+    # WICHTIG: Die Keys wurden von jaegerbot zu utbot2 geändert!
+    if not secrets.get('utbot2') or not secrets['utbot2']: 
+        pytest.skip("Es wird mindestens ein Account unter 'utbot2' in secret.json für den Workflow-Test benötigt.")
 
-    test_account = secrets['titanbot'][0]
+    test_account = secrets['utbot2'][0]
     telegram_config = secrets.get('telegram', {})
 
     try:
@@ -120,15 +120,15 @@ def test_setup():
     except Exception as e:
         print(f"FEHLER beim Aufräumen nach dem Test: {e}")
 
-def test_full_titanbot_workflow_on_bitget(test_setup):
+def test_full_utbot2_workflow_on_bitget(test_setup):
     exchange, params, telegram_config, symbol, logger = test_setup
 
     # NEU: Füge den market_bias in den get_titan_signal Mock-Aufruf ein
     # Da get_titan_signal jetzt 4 Argumente erwartet (smc_results, current_candle, params, market_bias)
     # Und market_bias in trade_manager.py ein Bias-Objekt erwartet (z.B. Bias.NEUTRAL)
-    with patch('titanbot.utils.trade_manager.set_trade_lock'), \
-        patch('titanbot.utils.trade_manager.is_trade_locked', return_value=False), \
-        patch('titanbot.utils.trade_manager.get_titan_signal', return_value=('buy', None)):
+    with patch('utbot2.utils.trade_manager.set_trade_lock'), \
+        patch('utbot2.utils.trade_manager.is_trade_locked', return_value=False), \
+        patch('utbot2.utils.trade_manager.get_titan_signal', return_value=('buy', None)):
         
         # NEU: Um den KeyError in trade_manager.py zu vermeiden, 
         # muss der Aufruf in test_workflow.py so bleiben, wie er ist. 

@@ -12,12 +12,12 @@ PROJECT_ROOT = os.path.abspath(os.path.dirname(__file__))
 sys.path.insert(0, os.path.join(PROJECT_ROOT, 'src'))
 
 # Importiere die Funktionen direkt über die Paketstruktur
-from titanbot.utils.exchange import Exchange
-from titanbot.utils.trade_manager import check_and_open_new_position, housekeeper_routine, is_trade_locked, set_trade_lock
-from titanbot.utils.timeframe_utils import determine_htf
-from titanbot.strategy.smc_engine import Bias
+from utbot2.utils.exchange import Exchange
+from utbot2.utils.trade_manager import check_and_open_new_position, housekeeper_routine, is_trade_locked, set_trade_lock
+from utbot2.utils.timeframe_utils import determine_htf
+from utbot2.strategy.smc_engine import Bias
 # Nur importieren, um sicherzustellen, dass die Abhängigkeit geladen wird
-from titanbot.strategy.trade_logic import get_titan_signal 
+from utbot2.strategy.trade_logic import get_titan_signal 
 
 
 # Logging Setup (minimal)
@@ -31,7 +31,7 @@ def run_test():
         with open(os.path.join(PROJECT_ROOT, 'secret.json'), "r") as f:
             secrets = json.load(f)
         
-        test_account = secrets['titanbot'][0]
+        test_account = secrets['utbot2'][0]
         telegram_config = secrets.get('telegram', {})
         exchange = Exchange(test_account)
 
@@ -65,7 +65,7 @@ def run_test():
         # WICHTIG: Korrekter Patch-Pfad, der direkt auf die Funktion im trade_manager zielt.
         # Dies ist der robusteste Weg, wenn der Aufrufer und die zu mockende Funktion
         # in verschiedenen Modulen liegen.
-        with patch('titanbot.utils.trade_manager.get_titan_signal', return_value=('buy', None)):
+        with patch('utbot2.utils.trade_manager.get_titan_signal', return_value=('buy', None)):
             # Die Funktion benötigt Dummy-Model/Scaler für Kompatibilität mit dem Funktionsaufruf
             check_and_open_new_position(exchange, None, None, params, telegram_config, logger)
 

@@ -1,4 +1,4 @@
-# /root/titanbot/src/titanbot/analysis/optimizer.py (Leverage BEGRENZT auf 5-15, mit MTF-HTF-Speicherung)
+# /root/utbot2/src/utbot2/analysis/optimizer.py
 import os
 import sys
 import json
@@ -16,16 +16,17 @@ warnings.filterwarnings('ignore', category=UserWarning, module='keras')
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
 sys.path.append(os.path.join(PROJECT_ROOT, 'src'))
 
-from titanbot.analysis.backtester import load_data, run_smc_backtest
-from titanbot.analysis.evaluator import evaluate_dataset
-from titanbot.utils.timeframe_utils import determine_htf # NEU: Import für HTF Bestimmung
+# Imports auf utbot2 angepasst
+from utbot2.analysis.backtester import load_data, run_backtest
+from utbot2.analysis.evaluator import evaluate_dataset
+from utbot2.utils.timeframe_utils import determine_htf
 
 optuna.logging.set_verbosity(optuna.logging.WARNING)
 
 HISTORICAL_DATA = None
-CURRENT_SYMBOL = None # NEU: Globale Variable für Symbol (wird für Backtester benötigt)
+CURRENT_SYMBOL = None
 CURRENT_TIMEFRAME = None
-CURRENT_HTF = None # NEU: Globale Variable für den berechneten HTF
+CURRENT_HTF = None
 CONFIG_SUFFIX = ""
 MAX_DRAWDOWN_CONSTRAINT = 0.30
 MIN_WIN_RATE_CONSTRAINT = 55.0
@@ -37,47 +38,49 @@ def create_safe_filename(symbol, timeframe):
     return f"{symbol.replace('/', '').replace(':', '')}_{timeframe}"
 
 def objective(trial):
-    smc_params = {
-        'swingsLength': trial.suggest_int('swingsLength', 10, 100),
-        'ob_mitigation': trial.suggest_categorical('ob_mitigation', ['High/Low', 'Close']),
-        'use_adx_filter': trial.suggest_categorical('use_adx_filter', [True, False]),
-        'adx_period': trial.suggest_int('adx_period', 10, 20),
-        'adx_threshold': trial.suggest_int('adx_threshold', 20, 30),
-        'symbol': CURRENT_SYMBOL, # NEU: Füge Symbol und Timeframe hinzu
+    # Ichimoku Parameter
+    strategy_params = {
+        'tenkan_period': trial.suggest_int('tenkan_period', 7, 15),
+        'kijun_period': trial.suggest_int('kijun_period', 20, 40),
+        'senkou_span_b_period': trial.suggest_int('senkou_span_b_period', 40, 70),
+        'displacement': 26,
+        'use_chikou_filter': trial.suggest_categorical('use_chikou_filter', [True, False]),
+        
+        'symbol': CURRENT_SYMBOL,
         'timeframe': CURRENT_TIMEFRAME,
-        'htf': CURRENT_HTF # NEU: Füge den HTF hinzu
+        'htf': CURRENT_HTF
     }
+    
     risk_params = {
-        'risk_reward_ratio': trial.suggest_float('risk_reward_ratio', 1.0, 5.0),
+        'risk_reward_ratio': trial.suggest_float('risk_reward_ratio', 1.5, 4.0),
         'risk_per_trade_pct': trial.suggest_float('risk_per_trade_pct', 0.5, 2.0),
-        'leverage': trial.suggest_int('leverage', 5, 15), # Leverage zwischen 5x und 15x
-        'trailing_stop_activation_rr': trial.suggest_float('trailing_stop_activation_rr', 1.0, 4.0),
-        'trailing_stop_callback_rate_pct': trial.suggest_float('trailing_stop_callback_rate_pct', 0.5, 3.0),
-        'atr_multiplier_sl': trial.suggest_float('atr_multiplier_sl', 1.0, 4.0),
-        'min_sl_pct': trial.suggest_float('min_sl_pct', 0.3, 2.0) # Als % (0.3% bis 2.0%)
+        'leverage': trial.suggest_int('leverage', 5, 15),
+        'trailing_stop_activation_rr': trial.suggest_float('trailing_stop_activation_rr', 1.0, 3.0),
+        'trailing_stop_callback_rate_pct': trial.suggest_float('trailing_stop_callback_rate_pct', 0.3, 2.0),
+        'atr_multiplier_sl': trial.suggest_float('atr_multiplier_sl', 1.5, 4.0),
+        'min_sl_pct': 0.5
     }
 
-    # Übergebe BEIDE Parameter-Dictionaries an den Backtester
-    result = run_smc_backtest( HISTORICAL_DATA.copy(), smc_params, risk_params, START_CAPITAL, verbose=False )
+    result = run_backtest(HISTORICAL_DATA.copy(), strategy_params, risk_params, START_CAPITAL, verbose=False)
+    
     pnl = result.get('total_pnl_pct', -1000)
-    drawdown = result.get('max_drawdown_pct', 1.0) # Backtester gibt Dezimal zurück
+    drawdown = result.get('max_drawdown_pct', 1.0)
     trades = result.get('trades_count', 0)
     win_rate = result.get('win_rate', 0)
 
-    # Pruning
     if OPTIM_MODE == "strict" and (
         drawdown > MAX_DRAWDOWN_CONSTRAINT or win_rate < MIN_WIN_RATE_CONSTRAINT or
-        pnl < MIN_PNL_CONSTRAINT or trades < 50):
+        pnl < MIN_PNL_CONSTRAINT or trades < 30):
         raise optuna.exceptions.TrialPruned()
     elif OPTIM_MODE == "best_profit" and (
-        drawdown > MAX_DRAWDOWN_CONSTRAINT or trades < 50):
+        drawdown > MAX_DRAWDOWN_CONSTRAINT or trades < 30):
         raise optuna.exceptions.TrialPruned()
 
     return pnl
 
 def main():
     global HISTORICAL_DATA, CURRENT_SYMBOL, CURRENT_TIMEFRAME, CURRENT_HTF, CONFIG_SUFFIX, MAX_DRAWDOWN_CONSTRAINT, MIN_WIN_RATE_CONSTRAINT, MIN_PNL_CONSTRAINT, START_CAPITAL, OPTIM_MODE
-    parser = argparse.ArgumentParser(description="Parameter-Optimierung für TitanBot (SMC)")
+    parser = argparse.ArgumentParser(description="Parameter-Optimierung für UtBot2 (Ichimoku)")
     parser.add_argument('--symbols', required=True, type=str)
     parser.add_argument('--timeframes', required=True, type=str)
     parser.add_argument('--start_date', required=True, type=str)
@@ -101,51 +104,44 @@ def main():
 
     for task in TASKS:
         symbol, timeframe = task['symbol'], task['timeframe']
-        
-        # NEU: Globale Variablen setzen
         CURRENT_SYMBOL = symbol
         CURRENT_TIMEFRAME = timeframe
         CURRENT_HTF = determine_htf(timeframe)
-        
-        print(f"\n===== Optimiere: {symbol} ({timeframe}) | MTF-Bias von {CURRENT_HTF} =====")
+
+        print(f"\n===== Optimiere: {symbol} ({timeframe}) [Ichimoku] =====")
         HISTORICAL_DATA = load_data(symbol, timeframe, args.start_date, args.end_date)
-        if HISTORICAL_DATA.empty: print("Keine Daten geladen. Überspringe."); continue
+        if HISTORICAL_DATA.empty: continue
 
-        print("\n--- Bewertung der Datensatz-Qualität ---")
-        evaluation = evaluate_dataset(HISTORICAL_DATA.copy(), timeframe)
-        print(f"Note: {evaluation['score']} / 10\n" + "\n".join(evaluation['justification']) + "\n----------------------------------------")
-        if evaluation['score'] < 3: print(f"Datensatz-Qualität zu gering. Überspringe Optimierung."); continue
-
-        DB_FILE = os.path.join(PROJECT_ROOT, 'artifacts', 'db', 'optuna_studies_smc.db')
+        DB_FILE = os.path.join(PROJECT_ROOT, 'artifacts', 'db', 'optuna_studies_ichimoku.db')
         os.makedirs(os.path.dirname(DB_FILE), exist_ok=True)
         STORAGE_URL = f"sqlite:///{DB_FILE}?timeout=60"
-        study_name = f"smc_{create_safe_filename(symbol, timeframe)}{CONFIG_SUFFIX}_{OPTIM_MODE}"
+        study_name = f"ichi_{create_safe_filename(symbol, timeframe)}{CONFIG_SUFFIX}_{OPTIM_MODE}"
 
         study = optuna.create_study(storage=STORAGE_URL, study_name=study_name, direction="maximize", load_if_exists=True)
         try:
             study.optimize(objective, n_trials=N_TRIALS, n_jobs=args.jobs, show_progress_bar=True)
-        except Exception as e_opt:
-            print(f"FEHLER während Optuna optimize: {e_opt}")
-            continue # Nächsten Task versuchen
+        except Exception as e:
+            print(f"FEHLER: {e}")
+            continue
 
         valid_trials = [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]
-        if not valid_trials: print(f"\n❌ FEHLER: Für {symbol} ({timeframe}) konnte keine Konfiguration gefunden werden."); continue
+        if not valid_trials: continue
 
         best_trial = max(valid_trials, key=lambda t: t.value)
         best_params = best_trial.params
 
-        config_dir = os.path.join(PROJECT_ROOT, 'src', 'titanbot', 'strategy', 'configs')
+        config_dir = os.path.join(PROJECT_ROOT, 'src', 'utbot2', 'strategy', 'configs')
         os.makedirs(config_dir, exist_ok=True)
         config_output_path = os.path.join(config_dir, f'config_{create_safe_filename(symbol, timeframe)}{CONFIG_SUFFIX}.json')
 
         strategy_config = {
-            'swingsLength': best_params['swingsLength'],
-            'ob_mitigation': best_params['ob_mitigation'],
-            'use_adx_filter': best_params['use_adx_filter'],
-            'adx_period': best_params['adx_period'],
-            'adx_threshold': best_params['adx_threshold']
+            'tenkan_period': best_params['tenkan_period'],
+            'kijun_period': best_params['kijun_period'],
+            'senkou_span_b_period': best_params['senkou_span_b_period'],
+            'displacement': 26,
+            'use_chikou_filter': best_params['use_chikou_filter']
         }
-        
+
         risk_config = {
             'margin_mode': "isolated",
             'risk_per_trade_pct': round(best_params['risk_per_trade_pct'], 2),
@@ -154,18 +150,17 @@ def main():
             'trailing_stop_activation_rr': round(best_params['trailing_stop_activation_rr'], 2),
             'trailing_stop_callback_rate_pct': round(best_params['trailing_stop_callback_rate_pct'], 2),
             'atr_multiplier_sl': round(best_params['atr_multiplier_sl'], 2),
-            'min_sl_pct': round(best_params['min_sl_pct'], 2)
+            'min_sl_pct': 0.5
         }
         behavior_config = {"use_longs": True, "use_shorts": True}
-        
-        # NEU: Speichere HTF in der finalen Config
+
         config_output = {
-            "market": {"symbol": symbol, "timeframe": timeframe, "htf": CURRENT_HTF}, 
+            "market": {"symbol": symbol, "timeframe": timeframe, "htf": CURRENT_HTF},
             "strategy": strategy_config,
             "risk": risk_config, "behavior": behavior_config
         }
         with open(config_output_path, 'w') as f: json.dump(config_output, f, indent=4)
-        print(f"\n✔ Beste Konfiguration (PnL: {best_trial.value:.2f}%) wurde in '{config_output_path}' gespeichert.")
+        print(f"\n✔ Beste Konfiguration gespeichert.")
 
 if __name__ == "__main__":
     main()

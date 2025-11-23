@@ -1,5 +1,5 @@
 #!/bin/bash
-echo "--- Starte TitanBot-Sicherheitsnetz ---"
+echo "--- Starte UtBot2-Sicherheitsnetz ---"
 
 if [ ! -f ".venv/bin/activate" ]; then
     echo "Fehler: Virtuelle Umgebung nicht gefunden. Bitte install.sh ausführen."

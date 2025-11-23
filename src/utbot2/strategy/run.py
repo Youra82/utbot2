@@ -1,4 +1,4 @@
-# /root/titanbot/src/titanbot/strategy/run.py
+# /root/utbot2/src/utbot2/strategy/run.py
 import os
 import sys
 import json
@@ -11,18 +11,18 @@ import ccxt
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
 sys.path.append(os.path.join(PROJECT_ROOT, 'src'))
 
-from titanbot.utils.exchange import Exchange
-from titanbot.utils.telegram import send_message
-from titanbot.utils.trade_manager import full_trade_cycle
-from titanbot.utils.timeframe_utils import determine_htf # NEU: Import für HTF Bestimmung
+from utbot2.utils.exchange import Exchange
+from utbot2.utils.telegram import send_message
+from utbot2.utils.trade_manager import full_trade_cycle
+from utbot2.utils.timeframe_utils import determine_htf # NEU: Import für HTF Bestimmung
 
 def setup_logging(symbol, timeframe):
     safe_filename = f"{symbol.replace('/', '').replace(':', '')}_{timeframe}"
     log_dir = os.path.join(PROJECT_ROOT, 'logs')
     os.makedirs(log_dir, exist_ok=True)
-    log_file = os.path.join(log_dir, f'titanbot_{safe_filename}.log')
+    log_file = os.path.join(log_dir, f'utbot2_{safe_filename}.log')
 
-    logger = logging.getLogger(f'titanbot_{safe_filename}')
+    logger = logging.getLogger(f'utbot2_{safe_filename}')
     logger.setLevel(logging.INFO)
 
     if not logger.handlers:
@@ -44,7 +44,7 @@ def setup_logging(symbol, timeframe):
 
 
 def load_config(symbol, timeframe, use_macd_filter):
-    configs_dir = os.path.join(PROJECT_ROOT, 'src', 'titanbot', 'strategy', 'configs')
+    configs_dir = os.path.join(PROJECT_ROOT, 'src', 'utbot2', 'strategy', 'configs')
     safe_filename_base = f"{symbol.replace('/', '').replace(':', '')}_{timeframe}"
 
     # Suffix-Logik beibehalten für Flexibilität, aber für SMC meist leer
@@ -85,7 +85,7 @@ def run_for_account(account, telegram_config, params, model, scaler, logger):
         timeframe = params['market']['timeframe']
         htf = params['market']['htf'] # HTF aus Parametern lesen
         
-        logger.info(f"--- Starte TitanBot für {symbol} ({timeframe}) mit MTF-Bias von {htf} ---")
+        logger.info(f"--- Starte UtBot2 für {symbol} ({timeframe}) mit MTF-Bias von {htf} ---")
         
         exchange = Exchange(account)
 
@@ -104,7 +104,7 @@ def run_for_account(account, telegram_config, params, model, scaler, logger):
         logger.critical(f"Fehlerdetails: {e}", exc_info=True) # Loggt den Traceback
         # Sende Telegram Nachricht bei kritischem Fehler
         try:
-            error_message = f"🚨 *Kritischer Fehler* in TitanBot für *{symbol_f} ({tf_f})*:\n\n`{e}`\n\nBot-Instanz könnte instabil sein."
+            error_message = f"🚨 *Kritischer Fehler* in UtBot2 für *{symbol_f} ({tf_f})*:\n\n`{e}`\n\nBot-Instanz könnte instabil sein."
             send_message(
                 telegram_config.get('bot_token'),
                 telegram_config.get('chat_id'),
@@ -115,7 +115,7 @@ def run_for_account(account, telegram_config, params, model, scaler, logger):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="TitanBot SMC Trading-Skript")
+    parser = argparse.ArgumentParser(description="UtBot2 SMC Trading-Skript")
     parser.add_argument('--symbol', required=True, type=str)
     parser.add_argument('--timeframe', required=True, type=str)
     parser.add_argument('--use_macd', required=True, type=str) # Behalten als Dummy für master_runner
@@ -133,10 +133,10 @@ def main():
         with open(os.path.join(PROJECT_ROOT, 'secret.json'), "r") as f:
             secrets = json.load(f)
 
-        # Lese Account-Konfigurationen (nach der Umbenennung erwarten wir 'titanbot' Schlüssel)
-        accounts_to_run = secrets.get('titanbot', [])
+        # Lese Account-Konfigurationen (nach der Umbenennung erwarten wir 'utbot2' Schlüssel)
+        accounts_to_run = secrets.get('utbot2', [])
         if not accounts_to_run:
-            logger.critical("Keine Account-Konfigurationen unter 'titanbot' in secret.json gefunden!")
+            logger.critical("Keine Account-Konfigurationen unter 'utbot2' in secret.json gefunden!")
             sys.exit(1)
 
         telegram_config = secrets.get('telegram', {})
@@ -153,7 +153,7 @@ def main():
 
     # Stelle sicher, dass accounts_to_run eine Liste ist
     if not isinstance(accounts_to_run, list):
-        logger.critical("Fehler: 'titanbot'-Eintrag in secret.json ist keine Liste von Accounts.")
+        logger.critical("Fehler: 'utbot2'-Eintrag in secret.json ist keine Liste von Accounts.")
         sys.exit(1)
 
     # Führe für jeden Account den Handelszyklus aus
@@ -161,7 +161,7 @@ def main():
         # Übergebe MODEL und SCALER als None
         run_for_account(account, telegram_config, params, None, None, logger)
 
-    logger.info(f">>> TitanBot-Lauf für {symbol} ({timeframe}) abgeschlossen <<<\n")
+    logger.info(f">>> UtBot2-Lauf für {symbol} ({timeframe}) abgeschlossen <<<\n")
 
 if __name__ == "__main__":
     main()
