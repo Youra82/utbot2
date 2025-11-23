@@ -1,226 +1,232 @@
-# Baustelle...
-        🏗️🏗️🏗️  IN ARBEIT  🏗️🏗️🏗️
+# TitanBot 🤖
 
-              ╔══════════════════╗
-              ║   🚧 BAUSTELLE 🚧   ║
-              ╚══════════════════╝
-                      ||
-                      ||
-                 👷‍♂️   ███████
-                    ███▒▒▒▒▒███
-                   ██▒▒▒⚙️▒▒▒▒██
-                    ███▒▒▒▒███
-                      █████
-                      █   █
-                     ██   ██
+Ein selbstoptimierender, **SMC-gesteuerter** (Smart Money Concepts) Trading-Bot für Krypto-Futures auf der Bitget-Börse. Er identifiziert Marktstrukturen wie Order Blocks (OBs) und Fair Value Gaps (FVGs), um Handelsentscheidungen zu treffen.
 
+Dieses System ist für den autonomen Betrieb auf einem Ubuntu-Server konzipiert und umfasst eine Pipeline zur **Optimierung von SMC- und Risiko-Parametern** sowie zum Live-Handel.
 
+---
 
+## Features 🧠
 
+* **SMC-basierte Analyse:** Identifiziert automatisch wichtige Marktstrukturen (BOS, CHoCH, Order Blocks, Fair Value Gaps) zur Fundierung von Handelsentscheidungen.
+* **Automatisierte Optimierungs-Pipeline:** Ein einziges Skript (`run_pipeline.sh`) steuert den Prozess der Datenanalyse und der **Optimierung der SMC- und Risikoparameter** mithilfe von `optuna` und Backtesting.
+* **Dynamisches Risikomanagement:** Die Positionsgröße wird vor jedem Trade dynamisch auf Basis des *aktuellen* Kontostandes berechnet, um den Zinseszinseffekt optimal zu nutzen.
+* **Robust & Sicher:** Entwickelt für einen stabilen 24/7-Betrieb mit Sicherheits-Checks, Schutz vor Doppel-Trades pro Kerze und einem "Guardian"-Mechanismus, der kritische Fehler abfängt und meldet.
+* **Anpassbare Handelslogik:** Die konkrete Einstiegslogik (z.B. Entry bei FVG-Touch) ist in einer separaten Datei (`trade_logic.py`) definiert und kann leicht angepasst werden.
 
+---
 
+## Installation & Setup 🛠️
 
-# utbot2
+Führe diese Schritte aus, um den TitanBot auf einem frischen Ubuntu-Server in Betrieb zu nehmen.
 
-Ein vollautomatischer Trading-Bot für Krypto-Futures auf der Bitget-Börse, der **Generative KI (Google Gemini)** nutzt, um Handelsentscheidungen zu treffen.
-
-Dieses System wurde für den Betrieb auf einem Ubuntu-Server entwickelt und führt Trades basierend auf einer zentralen Konfigurationsdatei aus, die eine flexible Steuerung mehrerer Handelspaare und Strategie-Modi erlaubt.
-
-## Kernstrategie (Generative KI-Analyse)
-
-Der Bot implementiert eine KI-gestützte Strategie, die darauf abzielt, die kontextbezogene Mustererkennung eines großen Sprachmodells (LLM) zu nutzen.
-
-**Handelsthese:** Ein großes Sprachmodell (LLM) wie Google Gemini kann die Fähigkeit menschlicher Analysten simulieren, wiederkehrende Muster in Märkten zu erkennen. Durch die Analyse von Preisdaten und technischen Indikatoren in einem vordefinierten, kontextbezogenen Rahmen (z.B. "Swing-Trading") kann es plausible, kurzfristige Handelsentscheidungen generieren, inklusive konkreter Ausstiegsziele.
-
-**Signale:**
-
-  * **Indikator-Analyse:** Vor jeder Entscheidung berechnet der Bot eine Reihe von Schlüsselindikatoren, darunter Momentum (**StochRSI**), Trend/Signal (**MACD**) und Volatilität (**ATR**).
-  * **KI-Anfrage (Prompt):** Der Bot erstellt eine detaillierte, kontextbezogene Anfrage für die KI. Diese enthält den gewählten Trading-Stil (z.B. "Swing-Trader"), eine Zusammenfassung der aktuellen Indikatorwerte und die rohen Kerzendaten der letzten Wochen.
-  * **Einstieg:** Ein Trade wird nur dann initiiert, wenn die KI in ihrer Antwort eine klare Aktion (`"aktion": "KAUFEN"` oder `"aktion": "VERKAUFEN"`) zurückgibt.
-
-**Ausstieg & Risikomanagement:**
-
-  * **KI-definierte Ziele:** Sowohl der **Stop-Loss** als auch der **Take-Profit** werden direkt von der KI in ihrer JSON-Antwort vorgegeben und vom Bot übernommen.
-  * **Dynamische Positionsgröße & Hebel:** Die Positionsgröße wird für jeden Trade dynamisch berechnet, um ein festes prozentuales Risiko des Kapitals zu gewährleisten. Der Hebel wird automatisch basierend auf der Volatilität (ATR) und dem von der KI vorgegebenen Stop-Loss-Abstand angepasst, um das Risiko präzise zu steuern.
-  * **Trade-Überwachung:** Der Bot verfügt über ein "Gedächtnis" (`open_trades.json`), um eröffnete Positionen zu verwalten. Er erkennt automatisch, wenn ein Trade durch Stop-Loss oder Take-Profit geschlossen wurde und sendet eine entsprechende Erfolgs- oder Verlust-Benachrichtigung.
-
-## Arbeitsablauf in 2 Phasen
-
-1.  **Phase 1: Strategie KONFIGURIEREN (Manuelle Einrichtung)**
-    Du definierst deine gesamte Handelsstrategie durch Bearbeiten der zentralen `config.toml`-Datei. Hier legst du fest, welche Coins gehandelt werden sollen, welchen Trading-Stil die KI anwenden soll (`swing`, `daytrade`, `scalp`) und wie dein Risikomanagement für jeden Coin aussieht.
-
-2.  **Phase 2: Strategie AUSFÜHREN (Live-Handel)**
-    Ein Cronjob startet periodisch das `run.sh`-Skript. Der Bot liest die `config.toml`, durchläuft die Liste der aktiven Coins und führt für jeden eine der folgenden Aktionen aus:
-
-      * **Wenn kein Trade offen ist:** Er analysiert den Markt und fragt die KI nach einer neuen Handelsentscheidung.
-      * **Wenn ein Trade offen ist:** Er überwacht den Status des Trades und meldet, falls dieser durch SL/TP geschlossen wurde.
-
-## Installation & Einrichtung 🚀
-
-Führe die folgenden Schritte auf einem frischen Ubuntu-Server (empfohlen: 22.04 LTS) aus.
-
-#### 1\. Projekt klonen
-
-Ersetze `DEIN_GITHUB_USERNAME` mit deinem tatsächlichen Benutzernamen.
+### 1. Projekt klonen
 
 ```bash
-git clone https://github.com/Youra82/utbot2.git
+# Ersetze <DEIN_GITHUB_REPO_LINK> mit dem Link zu deinem neuen TitanBot Repo
+git clone https://github.com/Youra82/titanbot.git
+cd titanbot
 ```
 
-#### 2\. Installations-Skript ausführen
+
+### 2\. Installations-Skript ausführen
+
+Dieses Skript ist der wichtigste Schritt. Es installiert alle Abhängigkeiten (ohne Tensorflow), richtet die Python-Umgebung ein und **macht alle anderen Skripte im Projekt automatisch ausführbar**.
 
 ```bash
-cd utbot2
-chmod +x install.sh
-bash install.sh
+bash ./install.sh
 ```
 
-#### 3\. API-Schlüssel eintragen
+*(Hinweis: Das `install.sh`-Skript selbst muss eventuell leicht angepasst werden, um die Tensorflow-spezifischen Teile zu entfernen, falls vorhanden. Die `requirements.txt` sollte bereits korrekt sein.)*
 
-Bearbeite die `secret.json`-Datei mit deinen API-Schlüsseln für Bitget, Telegram und Google.
+### 3\. API-Schlüssel eintragen
+
+Erstelle deine persönliche `secret.json`-Datei aus der Vorlage (falls vorhanden, ansonsten manuell) und trage deine API-Schlüssel von Bitget sowie deine Telegram-Daten ein.
 
 ```bash
+# Falls eine Vorlage existiert:
+# cp secret.json.example secret.json
 nano secret.json
 ```
 
-Speichere mit `Strg + X`, dann `Y`, dann `Enter`.
+**Beispielinhalt für `secret.json`:**
 
-## Live-Betrieb & Automatisierung
-
-#### 1\. Strategie in `config.toml` festlegen
-
-Dies ist die **einzige Datei**, die du für die Steuerung des Bots bearbeiten musst.
-
-```bash
-nano config.toml
+```json
+{
+    "jaegerbot": [
+        {
+            "name": "DeinAccountName",
+            "apiKey": "DEIN_API_KEY",
+            "secret": "DEIN_SECRET_KEY",
+            "password": "DEIN_API_PASSWORT"
+        }
+    ],
+    "telegram": {
+        "bot_token": "DEIN_TELEGRAM_BOT_TOKEN",
+        "chat_id": "DEINE_TELEGRAM_CHAT_ID"
+    }
+}
 ```
 
-Passe die globalen Einstellungen und die `[[targets]]`-Blöcke nach deinen Wünschen an.
+> Speichere mit `Strg + X`, dann `Y`, dann `Enter`.
 
-#### 2\. Automatisierung per Cronjob einrichten
+### 4\. Strategien für den Handel aktivieren
 
-Richte einen automatischen Prozess für den Live-Handel ein.
+Bearbeite die `settings.json`, um festzulegen, welche deiner optimierten SMC-Strategien (Symbol/Timeframe-Kombinationen) im Live-Handel aktiv sein sollen.
 
 ```bash
-# Mache das Start-Skript zuerst ausführbar (einmalig)
-chmod +x run.sh
-# manuell starten:
-bash run.sh
+nano settings.json
+```
 
-# Öffne den Cronjob-Editor
+Stelle sicher, dass die `"symbol"` und `"timeframe"` Einträge mit den Namen deiner `config_...json`-Dateien übereinstimmen.
+
+### 5\. Automatisierung per Cronjob einrichten
+
+Richte den Cronjob ein, der den `master_runner` regelmäßig startet (z.B. alle 5 oder 15 Minuten, je nach kürzestem Timeframe deiner Strategien).
+
+```bash
 crontab -e
 ```
 
-Füge die folgende Zeile am Ende der Datei ein. Sie startet den Bot alle 15 Minuten.
+Füge die folgende **eine Zeile** am Ende der Datei ein:
 
 ```
-*/15 * * * * flock -n /pfad/zu/deinem/utbot2/utbot2.lock cd /pfad/zu/deinem/utbot2 && bash run.sh >> /pfad/zu/deinem/utbot2/logs/cron.log 2>&1
+# Starte den TitanBot Master-Runner alle 15 Minuten
+*/15 * * * * /usr/bin/flock -n /home/ubuntu/titanbot/titanbot.lock /bin/sh -c "cd /home/ubuntu/titanbot && /home/ubuntu/titanbot/.venv/bin/python3 /home/ubuntu/titanbot/master_runner.py >> /home/ubuntu/titanbot/logs/cron.log 2>&1"
 ```
 
-*(**Wichtig:** Ersetze `/pfad/zu/deinem/utbot2` durch den tatsächlichen, vollständigen Pfad zu deinem Projektordner, z.B. `/home/ubuntu/utbot2`.)*
+Master run manuell starten:
 
-## Verwaltung ⚙️
+```
+# Starte den TitanBot Master-Runner manuell
+cd /home/ubuntu/titanbot && /home/ubuntu/titanbot/.venv/bin/python3 /home/ubuntu/titanbot/master_runner.py
+```
 
-#### Bot aktualisieren 🔄
 
-Um den Code des Bots auf den neuesten Stand zu bringen, ohne deine `secret.json` zu überschreiben, kannst du das mitgelieferte Update-Skript verwenden.
+Logverzeichnis anlegen:
+
+```
+mkdir -p /home/ubuntu/titanbot/logs
+```
+
+-----
+
+## Workflow & Befehlsreferenz ⚙️
+
+Dies ist deine Kommandozentrale für die Erstellung, Analyse und Verwaltung deiner SMC-Handelsstrategien. Alle Befehle funktionieren direkt nach der Ausführung von `install.sh`.
+
+### 1\. Pipeline: SMC-Strategien optimieren
+
+Dieser Prozess lädt historische Daten, führt Tausende von Backtests mit verschiedenen SMC- (`swingsLength`, `ob_mitigation`) und Risiko-Parametern (`RR`, `Leverage` etc.) durch und speichert die besten Kombinationen. **Es findet kein KI-Training mehr statt.**
 
 ```bash
-# 1. Update-Skript ausführbar machen (einmalig)
-chmod +x update.sh
-
-# 2. Update ausführen
-bash update.sh
+./run_pipeline.sh
 ```
 
-#### Logs überwachen
+Nach Abschluss werden neue oder aktualisierte `config_...json`-Dateien in `src/titanbot/strategy/configs/` erstellt.
 
-Die Ausgaben des Bots werden in die Datei `logs/cron.log` geschrieben.
-**Log-Datei in Echtzeit ansehen:**
+### 2\. Analyse: Performance der Strategien bewerten
+
+Dieses Skript bietet Modi, um die erstellten Strategien zu analysieren. (Hinweis: Die Funktionalität von `show_results.sh` muss eventuell an die SMC-Logik angepasst werden, falls die Backtest-Ausgaben sich geändert haben).
 
 ```bash
-tail -f logs/cron.log
+./show_results.sh
 ```
 
-*(`Strg + C` zum Beenden)*
+Dabei werden `.csv`-Dateien mit den detaillierten Equity-Kurven im Hauptverzeichnis erstellt (wenn der Backtester entsprechend angepasst wurde).
 
-Die Wahl des richtigen Timeframes hängt direkt von deinem Trading-Stil ab. Hier ist eine Übersicht der gängigsten Kombinationen.
+### 3\. Reporting: Ergebnisse an Telegram senden
+
+Verwende diese Befehle, um deine Analyse-Ergebnisse direkt auf dein Handy zu bekommen. Funktioniert, wenn die `.csv`-Dateien im korrekten Format generiert werden.
+
+  * **CSV-Rohdaten senden:**
+
+    ```bash
+    ./send_report.sh optimal_portfolio_equity.csv
+    # oder ./send_report.sh manual_portfolio_equity.csv
+    ```
+
+  * **Grafische Diagramme senden:**
+
+    ```bash
+    ./show_chart.sh optimal_portfolio_equity.csv
+    # oder ./show_chart.sh manual_portfolio_equity.csv
+    ```
+
+### 4\. Wartung & Verwaltung
+
+  * **Logs live mitverfolgen (wichtigster Befehl):**
+
+    ```bash
+    tail -f logs/cron.log
+    ```
+
+  * **Die letzten 500 Log-Einträge anzeigen:**
+
+    ```bash
+    tail -n 500 logs/cron.log
+    ```
+
+  * **Alle Fehler-Einträge anzeigen:**
+
+    ```bash
+    grep -i "ERROR" logs/cron.log | tail -n 500
+    ```
+
+  * **Bot auf die neueste Version aktualisieren:**
+
+    ```bash
+    ./update.sh
+    ```
+
+  * **Automatisierte Tests ausführen (nach jedem Update empfohlen):**
+    *(Hinweis: Die Tests in `tests/` müssen komplett neu geschrieben werden, um die SMC-Logik zu testen\!)*
+
+    ```bash
+    ./run_tests.sh
+    ```
+
+  * **Projektstatus und Struktur anzeigen:**
+
+    ```bash
+    ./show_status.sh
+    ```
+
+  * **Alte Konfigurationen für einen Neustart löschen:**
+
+    ```bash
+    # Alle alten Konfigurationen löschen
+    rm -f src/titanbot/strategy/configs/config_*.json
+
+    # Überprüfen, ob der Ordner leer ist
+    ls -l src/titanbot/strategy/configs/
+    ```
+
+### 5\. Backup auf GitHub
+
+Sichere den kompletten Stand deines Bots inklusive aller Konfigurationen auf GitHub. **WARNUNG:** Führe dies nur aus, wenn dein Repository auf **"Privat"** gestellt ist, da deine Konfigurationen und eventuell deine `secret.json` (falls nicht in `.gitignore`) hochgeladen werden\!
+
+```bash
+# Sicherstellen, dass secret.json ignoriert wird (in .gitignore prüfen!)
+# git add .
+# git commit -m "Vollständiges Projekt-Backup TitanBot"
+# git push origin main # Ggf. '--force', wenn du bewusst überschreiben willst
+```
+
+-----
+
+## ⚠️ Disclaimer
+
+Dieses Material dient ausschließlich zu Bildungs- und Unterhaltungszwecken. Es handelt sich nicht um eine Finanzberatung. Der Nutzer trägt die alleinige Verantwortung für alle Handlungen. Der Autor haftet nicht für etwaige Verluste.
+
+```
 
 ---
-## ## Timeframes nach Trading-Stil
 
-Die Grundregel lautet: Je kürzer du einen Trade halten möchtest, desto kleiner sollte dein Timeframe sein.
+**Wichtige Hinweise:**
 
-| Trading-Stil | Typische Timeframes | Zweck / Haltedauer |
-| :--- | :--- | :--- |
-| **Swing-Trading** | **4h, 1D** (4-Stunden, 1-Tag) | Große Marktschwankungen über **Tage bis Wochen** erfassen. |
-| **Day-Trading** | **15m, 1h** (15-Minuten, 1-Stunde) | Trades innerhalb **desselben Tages** eröffnen und schließen. |
-| **Scalping** | **1m, 5m** (1-Minute, 5-Minuten) | Viele kleine Gewinne aus minimalen Preisbewegungen erzielen; Haltedauer von **Sekunden bis Minuten**. |
-
-
-
-Dein Bot ist aktuell im **Swing-Modus** konfiguriert, weshalb Timeframes wie **4h** oder **1D** am besten zu dieser Einstellung passen.
-
-Komplette Projektstruktur anzeigen:
-
-```bash
-chmod +x show_status.sh
+1.  **GitHub Repo:** Ersetze `<DEIN_GITHUB_REPO_LINK>` im `git clone`-Befehl durch den tatsächlichen Link deines neuen TitanBot-Repositories.
+2.  **`install.sh`:** Überprüfe kurz `install.sh`, ob dort noch spezifische Befehle für `tensorflow` oder `scikit-learn` drin sind, die entfernt werden können (obwohl es meistens nur `pip install -r requirements.txt` ist).
+3.  **Tests:** Die alten Tests in `tests/` sind **ungültig**. Du müsstest neue Tests schreiben, die die `SMCEngine` und die neue `trade_logic` prüfen.
+4.  **`show_results.sh` / `.csv`-Dateien:** Die Skripte zum Anzeigen und Senden von Ergebnissen (`show_results.sh`, `send_report.sh`, `show_chart.sh`) setzen voraus, dass der neue `backtester.py` (bzw. die darauf aufbauenden Skripte wie `portfolio_simulator.py`) weiterhin `.csv`-Dateien in einem ähnlichen Format wie zuvor ausgibt. Das musst du ggf. sicherstellen oder diese Skripte anpassen.
 ```
-
-```bash
-bash ./show_status.sh
-```
------
-
-Projekt hochladen:
-
-```bash
-git add .
-```
-
-```bash
-git commit -m "Rollback auf stabile Server-Version vom 12.10."
-```
-
-```bash
-git push --force origin main
-```
-
-## Qualitätssicherung & Tests 🛡️
-
-Um sicherzustellen, dass alle Kernfunktionen des Bots nach jeder Code-Änderung wie erwartet funktionieren und keine alten Fehler ("Regressionen") wieder auftreten, verfügt das Projekt über ein automatisiertes Test-System.
-
-Dieses "Sicherheitsnetz" prüft zwei Ebenen:
-
-1.  **Struktur-Tests:** Überprüfen, ob alle kritischen Funktionen und Code-Teile vorhanden sind.
-2.  **Workflow-Tests:** Führen einen kompletten Live-Zyklus auf der Bitget-API durch (Aufräumen, Order platzieren mit korrekten Einstellungen, SL/TP setzen, Position schließen), um die korrekte Interaktion mit der Börse zu verifizieren.
-
-#### Das Test-System ausführen
-
-Der einfachste Weg, alle Tests zu starten, ist das dafür vorgesehene Skript. Dieser Befehl sollte **nach jeder Code-Änderung** (z.B. nach einem `bash ./update.sh`) ausgeführt werden, um die Stabilität und korrekte Funktion des Bots zu garantieren.
-
-```bash
-bash ./run_tests.sh
-```
-
-  * **Erfolgreiches Ergebnis:** Alle Tests werden als `PASSED` (grün) markiert. Das bedeutet, alle geprüften Kernfunktionen arbeiten wie erwartet.
-  * **Fehlerhaftes Ergebnis:** Mindestens ein Test wird als `FAILED` (rot) markiert. Die Ausgabe gibt einen detaillierten Hinweis darauf, welche Funktion nicht mehr wie erwartet funktioniert. In diesem Fall sollte der Bot nicht im Live-Betrieb eingesetzt werden, bis der Fehler behoben ist.
-
-crontab -e
-```bash
-*/15 * * * * /usr/bin/python3 /root/utbot2/master_runner.py >> /root/utbot2/logs/master_runner_cron.log 2>&1
-```
------
-
-### ✅ Requirements
-
-  - Python 3.10+
-  - Siehe `requirements.txt` für die spezifischen Python-Pakete.
-
-### 📃 License
-
-Dieses Projekt ist unter der [GNU General Public License](https://www.google.com/search?q=LICENSE) lizenziert.
-
-### ⚠️ Disclaimer
-
-Dieses Material dient ausschließlich zu Bildungs- und Unterhaltungszwecken. Es handelt sich nicht um eine Finanzberatung. Der Nutzer trägt die alleinige Verantwortung für alle Handlungen, die auf der Grundlage dieser Informationen getroffen werden. Der Autor haftet nicht für etwaige Verluste oder Schäden, die aus der Nutzung entstehen.
