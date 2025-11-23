@@ -1,8 +1,0 @@
-ccxt==4.3.5
-pandas
-requests
-google-generativeai
-pandas-ta
-toml
-joblib
-pytest
