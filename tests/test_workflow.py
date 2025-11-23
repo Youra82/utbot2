@@ -1,5 +1,4 @@
-# tests/test_workflow.py
-# FÜR 30 USDT, XRP/USDT:USDT, TSL FUNKTIONIERT
+# /root/utbot2/tests/test_workflow.py
 import pytest
 import os
 import sys
@@ -15,11 +14,10 @@ sys.path.append(os.path.join(PROJECT_ROOT, 'src'))
 # Korrekter Import der tatsächlich existierenden Funktionen
 from utbot2.utils.exchange import Exchange
 from utbot2.utils.trade_manager import check_and_open_new_position, housekeeper_routine
-from utbot2.utils.trade_manager import set_trade_lock, is_trade_locked 
+from utbot2.utils.trade_manager import set_trade_lock, is_trade_locked
 # NEU: Importiere die Hilfsfunktion für den Test
-from utbot2.utils.timeframe_utils import determine_htf 
-# NEU: Importiere den Bias für die Mocking-Logik
-from utbot2.strategy.smc_engine import Bias
+from utbot2.utils.timeframe_utils import determine_htf
+# NEU: Keine SMCEngine mehr nötig hier
 
 @pytest.fixture(scope="module")
 def test_setup():
@@ -33,8 +31,8 @@ def test_setup():
     with open(secret_path, 'r') as f:
         secrets = json.load(f)
 
-    # WICHTIG: Die Keys wurden von jaegerbot zu utbot2 geändert!
-    if not secrets.get('utbot2') or not secrets['utbot2']: 
+    # Key check auf utbot2
+    if not secrets.get('utbot2') or not secrets['utbot2']:
         pytest.skip("Es wird mindestens ein Account unter 'utbot2' in secret.json für den Workflow-Test benötigt.")
 
     test_account = secrets['utbot2'][0]
@@ -50,18 +48,23 @@ def test_setup():
     # XRP FÜR TEST (ANGEPASSTE PARAMETER FÜR NIEDRIGERES RISIKO UND MARGIN)
     symbol = 'XRP/USDT:USDT'
     timeframe = '5m'
-    
+
     # NEU: Bestimme HTF für den Test-Case
     htf = determine_htf(timeframe)
 
     params = {
-        'market': {'symbol': symbol, 'timeframe': timeframe, 'htf': htf}, # Hinzugefügt: 'htf': htf
-        'strategy': { 'swingsLength': 20, 'ob_mitigation': 'High/Low' },
+        'market': {'symbol': symbol, 'timeframe': timeframe, 'htf': htf}, 
+        'strategy': { 
+            'tenkan_period': 9, 
+            'kijun_period': 26, 
+            'senkou_span_b_period': 52,
+            'displacement': 26 
+        },
         'risk': {
             'margin_mode': 'isolated',
             'risk_per_trade_pct': 0.5,
             'risk_reward_ratio': 2.0,
-            'leverage': 15,
+            'leverage': 10,
             'trailing_stop_activation_rr': 1.5,
             'trailing_stop_callback_rate_pct': 0.5,
             'atr_multiplier_sl': 1.0,
@@ -123,16 +126,11 @@ def test_setup():
 def test_full_utbot2_workflow_on_bitget(test_setup):
     exchange, params, telegram_config, symbol, logger = test_setup
 
-    # NEU: Füge den market_bias in den get_titan_signal Mock-Aufruf ein
-    # Da get_titan_signal jetzt 4 Argumente erwartet (smc_results, current_candle, params, market_bias)
-    # Und market_bias in trade_manager.py ein Bias-Objekt erwartet (z.B. Bias.NEUTRAL)
+    # Wir mocken nur die Locks und das Signal, aber nicht die Order-Ausführung
+    # Damit testen wir die Logik in trade_manager und die API von ccxt/exchange.py
     with patch('utbot2.utils.trade_manager.set_trade_lock'), \
-        patch('utbot2.utils.trade_manager.is_trade_locked', return_value=False), \
-        patch('utbot2.utils.trade_manager.get_titan_signal', return_value=('buy', None)):
-        
-        # NEU: Um den KeyError in trade_manager.py zu vermeiden, 
-        # muss der Aufruf in test_workflow.py so bleiben, wie er ist. 
-        # Die Anpassung des get_titan_signal Mocks ist ausreichend.
+         patch('utbot2.utils.trade_manager.is_trade_locked', return_value=False), \
+         patch('utbot2.utils.trade_manager.get_titan_signal', return_value=('buy', 2.0)): # Fake buy signal
 
         print("\n[Schritt 1/3] Mocke Signal und prüfe Trade-Eröffnung...")
 
@@ -144,7 +142,7 @@ def test_full_utbot2_workflow_on_bitget(test_setup):
     print("\n[Schritt 2/3] Überprüfe Position und Orders...")
     position = exchange.fetch_open_positions(symbol)
 
-    # Hier muss die Position existieren, da der Lock-Check ignoriert wurde
+    # Hier muss die Position existieren
     assert position, "FEHLER: Position wurde nicht eröffnet! (Trade Lock sollte deaktiviert sein)."
 
     assert len(position) == 1
@@ -155,15 +153,14 @@ def test_full_utbot2_workflow_on_bitget(test_setup):
     # 1. Prüfe auf SL/TP (Trigger-Orders)
     assert len(trigger_orders) >= 1, f"SL fehlt! Gefunden: {len(trigger_orders)}"
 
-    # 2. Prüfe auf TSL (Ignoriere CCXT/Bitget-Inkonsistenzen)
+    # 2. Prüfe auf TSL (Ignoriere CCXT/Bitget-Inkonsistenzen bei der Rückgabe, aber prüfe ob logik durchlief)
+    # Die echte TSL Prüfung ist schwierig via API Abruf bei manchen Börsen, aber wenn der Code durchlief, ist es gut.
     tsl_orders = [o for o in trigger_orders if 'trailingPercent' in o.get('info', {})]
-
     if len(tsl_orders) == 0:
         print("-> TSL-Prüfung: WARNUNG: TSL-Order wurde nicht in der Trigger-Liste gefunden (CCXT/Bitget-Problem), aber die Log-Ausgabe war erfolgreich. Gehe fort.")
     else:
         tsl = tsl_orders[0]
-        assert 'trailingPercent' in tsl.get('info', {})
-        print(f"-> TSL erfolgreich platziert: {tsl.get('orderId')} mit {tsl.get('info', {}).get('trailingPercent')}% Rücklauf.")
+        print(f"-> TSL erfolgreich platziert: {tsl.get('orderId')}")
 
     # 3. Schließe die Position (Schritt 3/3)
     print("\n[Schritt 3/3] Schließe die Position...")
