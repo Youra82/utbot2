@@ -27,9 +27,14 @@ def test_core_script_imports():
         # Importiere Kernkomponenten von UtBot2
         from utbot2.utils.trade_manager import housekeeper_routine, check_and_open_new_position, full_trade_cycle
         from utbot2.utils.exchange import Exchange
-        from utbot2.strategy.smc_engine import SMCEngine
+        
+        # KORREKTUR: IchimokuEngine statt SMCEngine
+        from utbot2.strategy.ichimoku_engine import IchimokuEngine
         from utbot2.strategy.trade_logic import get_titan_signal
-        from utbot2.analysis.backtester import run_smc_backtest
+        
+        # KORREKTUR: run_backtest statt run_smc_backtest
+        from utbot2.analysis.backtester import run_backtest
+        
         # Importiere 'main' aus dem optimizer und gib ihr einen Alias
         from utbot2.analysis.optimizer import main as optimizer_main
         from utbot2.analysis.portfolio_optimizer import run_portfolio_optimizer
