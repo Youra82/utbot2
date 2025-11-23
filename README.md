@@ -1,232 +1,247 @@
-# UtBot2 🤖
+# UtBot2
 
-Ein selbstoptimierender, **SMC-gesteuerter** (Smart Money Concepts) Trading-Bot für Krypto-Futures auf der Bitget-Börse. Er identifiziert Marktstrukturen wie Order Blocks (OBs) und Fair Value Gaps (FVGs), um Handelsentscheidungen zu treffen.
+Ein vollautomatischer Trading-Bot für Krypto-Futures auf der Bitget-Börse, basierend auf der bewährten **Ichimoku Kinko Hyo** Strategie mit Multi-Timeframe-Analyse.
 
-Dieses System ist für den autonomen Betrieb auf einem Ubuntu-Server konzipiert und umfasst eine Pipeline zur **Optimierung von SMC- und Risiko-Parametern** sowie zum Live-Handel.
+Dieses System wurde für den Betrieb auf einem Ubuntu-Server entwickelt und umfasst neben dem Live-Trading-Modul eine hochentwickelte, automatisierte Pipeline zur Parameter-Optimierung (Optuna) und Portfolio-Zusammenstellung.
 
----
+## Kernstrategie ☁️
 
-## Features 🧠
+Der Bot implementiert eine klassische Trendfolge-Strategie, die darauf abzielt, große Marktbewegungen ("Trends") zu erfassen und Seitwärtsphasen zu filtern.
 
-* **SMC-basierte Analyse:** Identifiziert automatisch wichtige Marktstrukturen (BOS, CHoCH, Order Blocks, Fair Value Gaps) zur Fundierung von Handelsentscheidungen.
-* **Automatisierte Optimierungs-Pipeline:** Ein einziges Skript (`run_pipeline.sh`) steuert den Prozess der Datenanalyse und der **Optimierung der SMC- und Risikoparameter** mithilfe von `optuna` und Backtesting.
-* **Dynamisches Risikomanagement:** Die Positionsgröße wird vor jedem Trade dynamisch auf Basis des *aktuellen* Kontostandes berechnet, um den Zinseszinseffekt optimal zu nutzen.
-* **Robust & Sicher:** Entwickelt für einen stabilen 24/7-Betrieb mit Sicherheits-Checks, Schutz vor Doppel-Trades pro Kerze und einem "Guardian"-Mechanismus, der kritische Fehler abfängt und meldet.
-* **Anpassbare Handelslogik:** Die konkrete Einstiegslogik (z.B. Entry bei FVG-Touch) ist in einer separaten Datei (`trade_logic.py`) definiert und kann leicht angepasst werden.
+  * **Ichimoku Cloud (Kumo):** Das Herzstück der Strategie.
+      * **Trend-Filter:** Der Bot handelt nur Long, wenn der Preis *über* der Wolke ist, und Short, wenn er *darunter* ist.
+      * **Einstiegssignal (TK Cross):** Ein Trade wird eröffnet, wenn die schnelle Linie (Tenkan-sen) die langsame Linie (Kijun-sen) in Trendrichtung kreuzt.
+  * **Multi-Timeframe (MTF) Bias:** Vor jedem Trade auf dem kleinen Zeitrahmen (z.B. 15m) prüft der Bot den Trend auf einem höheren Zeitrahmen (z.B. 1h oder 4h). Ein Trade wird nur ausgeführt, wenn der **große Trend** (HTF Cloud) die Richtung bestätigt.
+  * **Ausstieg & Risikomanagement:**
+      * **Positionsgröße:** Dynamisch berechnet basierend auf einem festen Prozentsatz (`risk_per_trade_pct`) des aktuellen Kontostandes.
+      * **Dynamischer Stop Loss:** Der Stop Loss wird nicht statisch gesetzt, sondern basiert auf der aktuellen Marktvolatilität (**ATR**).
+      * **Trailing Stop:** Sobald der Trade in den Gewinn läuft, wird ein Trailing-Stop aktiviert, um Gewinne zu sichern, wenn der Trend bricht.
 
----
+## Architektur & Arbeitsablauf
 
-## Installation & Setup 🛠️
+Der Bot arbeitet mit einem präzisen, automatisierten und ressourcenschonenden System.
 
-Führe diese Schritte aus, um den UtBot2 auf einem frischen Ubuntu-Server in Betrieb zu nehmen.
+1.  **Der Cronjob (Der Wecker):** Ein einziger, simpler Cronjob läuft in einem kurzen Intervall (z.B. alle 15 Minuten). Er hat nur eine Aufgabe: den intelligenten Master-Runner zu starten.
 
-### 1. Projekt klonen
+2.  **Der Master-Runner (Der Dirigent):** Das `master_runner.py`-Skript ist das Herz der Automatisierung. Bei jedem Aufruf:
+
+      * Liest es alle aktiven Strategien aus der `settings.json` (oder dem optimierten Portfolio).
+      * Prüft es für jede Strategie, ob ein **neuer, exakter Zeit-Block** begonnen hat (z.B. eine neue 4-Stunden-Kerze).
+      * Nur wenn eine Strategie an der Reihe ist, startet es den eigentlichen Handelsprozess für diese eine Strategie.
+      * Es **sammelt die komplette Log-Ausgabe** und schreibt sie in die zentrale `cron.log`.
+
+3.  **Der Handelsprozess (Der Agent):**
+
+      * Die `run.py` wird für eine spezifische Strategie gestartet.
+      * Der **Guardian-Decorator** führt zuerst Sicherheits-Checks durch.
+      * Die Kernlogik in `trade_manager.py` wird ausgeführt:
+        1.  Abruf historischer Daten & HTF-Daten.
+        2.  Berechnung der Ichimoku-Komponenten & ATR.
+        3.  Prüfung auf Signale (TK Cross + Cloud Breakout).
+        4.  Ausführung der Order bei Bitget inkl. SL/TP.
+
+-----
+
+## Installation 🚀
+
+Führe die folgenden Schritte auf einem frischen Ubuntu-Server (oder lokal) aus.
+
+#### 1\. Projekt klonen
 
 ```bash
-# Ersetze <DEIN_GITHUB_REPO_LINK> mit dem Link zu deinem neuen UtBot2 Repo
 git clone https://github.com/Youra82/utbot2.git
+```
+
+#### 2\. Installations-Skript ausführen
+
+```bash
 cd utbot2
 ```
 
+Installation aktivieren (einmalig):
 
-### 2\. Installations-Skript ausführen
+```bash
+chmod +x install.sh
+```
 
-Dieses Skript ist der wichtigste Schritt. Es installiert alle Abhängigkeiten (ohne Tensorflow), richtet die Python-Umgebung ein und **macht alle anderen Skripte im Projekt automatisch ausführbar**.
+Installation ausführen:
 
 ```bash
 bash ./install.sh
 ```
 
-*(Hinweis: Das `install.sh`-Skript selbst muss eventuell leicht angepasst werden, um die Tensorflow-spezifischen Teile zu entfernen, falls vorhanden. Die `requirements.txt` sollte bereits korrekt sein.)*
+#### 3\. API-Schlüssel eintragen
 
-### 3\. API-Schlüssel eintragen
-
-Erstelle deine persönliche `secret.json`-Datei aus der Vorlage (falls vorhanden, ansonsten manuell) und trage deine API-Schlüssel von Bitget sowie deine Telegram-Daten ein.
+Erstelle eine Kopie der Vorlage und trage deine Schlüssel ein.
 
 ```bash
-# Falls eine Vorlage existiert:
-# cp secret.json.example secret.json
+cp secret.json.example secret.json
 nano secret.json
 ```
 
-**Beispielinhalt für `secret.json`:**
+*(Achte darauf, dass der Hauptschlüssel in der JSON-Datei `"utbot2"` heißt).*
 
-```json
-{
-    "jaegerbot": [
-        {
-            "name": "DeinAccountName",
-            "apiKey": "DEIN_API_KEY",
-            "secret": "DEIN_SECRET_KEY",
-            "password": "DEIN_API_PASSWORT"
-        }
-    ],
-    "telegram": {
-        "bot_token": "DEIN_TELEGRAM_BOT_TOKEN",
-        "chat_id": "DEINE_TELEGRAM_CHAT_ID"
-    }
-}
-```
-
-> Speichere mit `Strg + X`, dann `Y`, dann `Enter`.
-
-### 4\. Strategien für den Handel aktivieren
-
-Bearbeite die `settings.json`, um festzulegen, welche deiner optimierten SMC-Strategien (Symbol/Timeframe-Kombinationen) im Live-Handel aktiv sein sollen.
-
-```bash
-nano settings.json
-```
-
-Stelle sicher, dass die `"symbol"` und `"timeframe"` Einträge mit den Namen deiner `config_...json`-Dateien übereinstimmen.
-
-### 5\. Automatisierung per Cronjob einrichten
-
-Richte den Cronjob ein, der den `master_runner` regelmäßig startet (z.B. alle 5 oder 15 Minuten, je nach kürzestem Timeframe deiner Strategien).
-
-```bash
-crontab -e
-```
-
-Füge die folgende **eine Zeile** am Ende der Datei ein:
-
-```
-# Starte den UtBot2 Master-Runner alle 15 Minuten
-*/15 * * * * /usr/bin/flock -n /home/ubuntu/utbot2/utbot2.lock /bin/sh -c "cd /home/ubuntu/utbot2 && /home/ubuntu/utbot2/.venv/bin/python3 /home/ubuntu/utbot2/master_runner.py >> /home/ubuntu/utbot2/logs/cron.log 2>&1"
-```
-
-Master run manuell starten:
-
-```
-# Starte den UtBot2 Master-Runner manuell
-cd /home/ubuntu/utbot2 && /home/ubuntu/utbot2/.venv/bin/python3 /home/ubuntu/utbot2/master_runner.py
-```
-
-
-Logverzeichnis anlegen:
-
-```
-mkdir -p /home/ubuntu/utbot2/logs
-```
+Speichere mit `Strg + X`, dann `Y`, dann `Enter`.
 
 -----
 
-## Workflow & Befehlsreferenz ⚙️
+## Konfiguration & Automatisierung
 
-Dies ist deine Kommandozentrale für die Erstellung, Analyse und Verwaltung deiner SMC-Handelsstrategien. Alle Befehle funktionieren direkt nach der Ausführung von `install.sh`.
+#### 1\. Strategien finden (Pipeline)
 
-### 1\. Pipeline: SMC-Strategien optimieren
+Führe die interaktive Pipeline aus, um die besten Ichimoku-Parameter (Tenkan/Kijun Perioden) für bestimmte Coins zu finden.
 
-Dieser Prozess lädt historische Daten, führt Tausende von Backtests mit verschiedenen SMC- (`swingsLength`, `ob_mitigation`) und Risiko-Parametern (`RR`, `Leverage` etc.) durch und speichert die besten Kombinationen. **Es findet kein KI-Training mehr statt.**
+Skripte aktivieren (einmalig):
+
+```bash
+chmod +x *.sh
+```
+
+Pipeline starten:
 
 ```bash
 ./run_pipeline.sh
 ```
 
-Nach Abschluss werden neue oder aktualisierte `config_...json`-Dateien in `src/utbot2/strategy/configs/` erstellt.
+#### 2\. Ergebnisse analysieren
 
-### 2\. Analyse: Performance der Strategien bewerten
-
-Dieses Skript bietet Modi, um die erstellten Strategien zu analysieren. (Hinweis: Die Funktionalität von `show_results.sh` muss eventuell an die SMC-Logik angepasst werden, falls die Backtest-Ausgaben sich geändert haben).
+Nach der Optimierung kannst du die Ergebnisse auswerten und Portfolios simulieren.
 
 ```bash
 ./show_results.sh
 ```
 
-Dabei werden `.csv`-Dateien mit den detaillierten Equity-Kurven im Hauptverzeichnis erstellt (wenn der Backtester entsprechend angepasst wurde).
+  * **Modus 1:** Einzelstrategien prüfen.
+  * **Modus 2:** Manuelles Portfolio zusammenstellen.
+  * **Modus 3:** Automatische Portfolio-Optimierung (findet die beste Kombi für z.B. max. 30% Drawdown).
 
-### 3\. Reporting: Ergebnisse an Telegram senden
-
-Verwende diese Befehle, um deine Analyse-Ergebnisse direkt auf dein Handy zu bekommen. Funktioniert, wenn die `.csv`-Dateien im korrekten Format generiert werden.
-
-  * **CSV-Rohdaten senden:**
-
-    ```bash
-    ./send_report.sh optimal_portfolio_equity.csv
-    # oder ./send_report.sh manual_portfolio_equity.csv
-    ```
-
-  * **Grafische Diagramme senden:**
-
-    ```bash
-    ./show_chart.sh optimal_portfolio_equity.csv
-    # oder ./show_chart.sh manual_portfolio_equity.csv
-    ```
-
-### 4\. Wartung & Verwaltung
-
-  * **Logs live mitverfolgen (wichtigster Befehl):**
-
-    ```bash
-    tail -f logs/cron.log
-    ```
-
-  * **Die letzten 500 Log-Einträge anzeigen:**
-
-    ```bash
-    tail -n 500 logs/cron.log
-    ```
-
-  * **Alle Fehler-Einträge anzeigen:**
-
-    ```bash
-    grep -i "ERROR" logs/cron.log | tail -n 500
-    ```
-
-  * **Bot auf die neueste Version aktualisieren:**
-
-    ```bash
-    ./update.sh
-    ```
-
-  * **Automatisierte Tests ausführen (nach jedem Update empfohlen):**
-    *(Hinweis: Die Tests in `tests/` müssen komplett neu geschrieben werden, um die SMC-Logik zu testen\!)*
-
-    ```bash
-    ./run_tests.sh
-    ```
-
-  * **Projektstatus und Struktur anzeigen:**
-
-    ```bash
-    ./show_status.sh
-    ```
-
-  * **Alte Konfigurationen für einen Neustart löschen:**
-
-    ```bash
-    # Alle alten Konfigurationen löschen
-    rm -f src/utbot2/strategy/configs/config_*.json
-
-    # Überprüfen, ob der Ordner leer ist
-    ls -l src/utbot2/strategy/configs/
-    ```
-
-### 5\. Backup auf GitHub
-
-Sichere den kompletten Stand deines Bots inklusive aller Konfigurationen auf GitHub. **WARNUNG:** Führe dies nur aus, wenn dein Repository auf **"Privat"** gestellt ist, da deine Konfigurationen und eventuell deine `secret.json` (falls nicht in `.gitignore`) hochgeladen werden\!
+Ergebnisse an Telegram senden:
 
 ```bash
-# Sicherstellen, dass secret.json ignoriert wird (in .gitignore prüfen!)
-# git add .
-# git commit -m "Vollständiges Projekt-Backup UtBot2"
-# git push origin main # Ggf. '--force', wenn du bewusst überschreiben willst
+./send_report.sh optimal_portfolio_equity.csv
+./show_chart.sh optimal_portfolio_equity.csv
+```
+
+Aufräumen (Alte Configs löschen für Neustart):
+
+```bash
+rm -f src/utbot2/strategy/configs/config_*.json
+rm artifacts/db/*.db
+```
+
+#### 3\. Strategien für den Handel aktivieren
+
+Bearbeite die `settings.json`. Du kannst entweder Strategien manuell eintragen oder den Bot anweisen, automatisch das optimierte Portfolio zu nutzen.
+
+```bash
+nano settings.json
+```
+
+**Empfohlene Einstellung (Autopilot):**
+
+```json
+{
+    "live_trading_settings": {
+        "use_auto_optimizer_results": true,
+        "active_strategies": []
+    },
+    "optimization_settings": {
+        "enabled": false
+    }
+}
+```
+
+#### 4\. Automatisierung per Cronjob einrichten
+
+Richte den automatischen Prozess für den Live-Handel ein.
+
+```bash
+crontab -e
+```
+
+Füge die folgende Zeile am Ende ein (Pfad anpassen, falls nötig, z.B. `/root/utbot2`):
+
+```
+# Starte den UtBot2 Master-Runner alle 15 Minuten
+*/15 * * * * /usr/bin/flock -n /root/utbot2/utbot2.lock /bin/sh -c "cd /root/utbot2 && /root/utbot2/.venv/bin/python3 /root/utbot2/master_runner.py >> /root/utbot2/logs/cron.log 2>&1"
+```
+
+Logverzeichnis anlegen:
+
+```bash
+mkdir -p /root/utbot2/logs
 ```
 
 -----
 
-## ⚠️ Disclaimer
+## Tägliche Verwaltung & Wichtige Befehle ⚙️
 
-Dieses Material dient ausschließlich zu Bildungs- und Unterhaltungszwecken. Es handelt sich nicht um eine Finanzberatung. Der Nutzer trägt die alleinige Verantwortung für alle Handlungen. Der Autor haftet nicht für etwaige Verluste.
+#### Logs ansehen
 
+Die zentrale `cron.log` enthält alle Aktivitäten.
+
+  * **Logs live mitverfolgen:**
+    ```bash
+    tail -f logs/cron.log
+    ```
+  * **Nach Fehlern suchen:**
+    ```bash
+    grep -i "ERROR" logs/cron.log
+    ```
+  * **Individuelle Strategie-Logs:**
+    ```bash
+    tail -n 100 logs/utbot2_BTCUSDTUSDT_4h.log
+    ```
+
+#### Manueller Start (Test)
+
+Um den `master_runner` sofort auszuführen, ohne auf den Cronjob zu warten:
+
+```bash
+python3 master_runner.py
 ```
 
----
+#### Bot aktualisieren
 
-**Wichtige Hinweise:**
+Um den neuesten Code von GitHub zu laden und die Umgebung sauber zu halten:
 
-1.  **GitHub Repo:** Ersetze `<DEIN_GITHUB_REPO_LINK>` im `git clone`-Befehl durch den tatsächlichen Link deines neuen UtBot2-Repositories.
-2.  **`install.sh`:** Überprüfe kurz `install.sh`, ob dort noch spezifische Befehle für `tensorflow` oder `scikit-learn` drin sind, die entfernt werden können (obwohl es meistens nur `pip install -r requirements.txt` ist).
-3.  **Tests:** Die alten Tests in `tests/` sind **ungültig**. Du müsstest neue Tests schreiben, die die `SMCEngine` und die neue `trade_logic` prüfen.
-4.  **`show_results.sh` / `.csv`-Dateien:** Die Skripte zum Anzeigen und Senden von Ergebnissen (`show_results.sh`, `send_report.sh`, `show_chart.sh`) setzen voraus, dass der neue `backtester.py` (bzw. die darauf aufbauenden Skripte wie `portfolio_simulator.py`) weiterhin `.csv`-Dateien in einem ähnlichen Format wie zuvor ausgibt. Das musst du ggf. sicherstellen oder diese Skripte anpassen.
+```bash
+./update.sh
 ```
+
+## Qualitätssicherung & Tests 🛡️
+
+Um sicherzustellen, dass die Ichimoku-Logik und die API-Verbindung korrekt funktionieren, nutze das Test-System.
+
+**Wann ausführen?** Nach jedem Update oder Code-Änderungen.
+
+```bash
+./run_tests.sh
+```
+
+  * **Erfolgreich:** Alle Tests `PASSED` (Grün).
+  * **Fehler:** Tests `FAILED` (Rot). Der Bot sollte nicht live gehen.
+
+-----
+
+## Git Management
+
+Projekt hochladen (Backup):
+
+```bash
+git add .
+git commit -m "Update UtBot2 Konfiguration"
+git push --force origin main
+```
+
+Projektstatus prüfen:
+
+```bash
+./show_status.sh
+```
+
+-----
+
+### ⚠️ Disclaimer
+
+Dieses Material dient ausschließlich zu Bildungs- und Unterhaltungszwecken. Es handelt sich nicht um eine Finanzberatung. Der Nutzer trägt die alleinige Verantwortung für alle Handlungen. Der Autor haftet nicht für etwaige Verluste. Trading mit Krypto-Futures beinhaltet ein hohes Risiko.
