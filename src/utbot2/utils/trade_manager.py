@@ -303,9 +303,9 @@ def check_and_open_new_position(exchange, model, scaler, params, telegram_config
         callback_pct = risk_params.get('trailing_stop_callback_rate_pct', 0.5) / 100.0
         
         if pos_side == 'buy':
-            act_price = entry_price + sl_distance * act_rr
+            act_price = actual_entry_price + sl_distance * act_rr
         else:
-            act_price = entry_price - sl_distance * act_rr
+            act_price = actual_entry_price - sl_distance * act_rr
             
         exchange.place_trailing_stop_order(symbol, tsl_side, contracts, act_price, callback_pct, {'reduceOnly': True})
 
