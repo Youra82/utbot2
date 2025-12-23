@@ -115,7 +115,7 @@ class Exchange:
             logger.error(f"Fehler bei fetch_ticker für {symbol}: {e}")
             return None
 
-    # *** START: 1:1 JAEGERBOT LOGIK ***
+    # *** START: 1:1 UTBOT2 LOGIK ***
     def set_margin_mode(self, symbol, mode='isolated'):
         if not self.markets: return False
         try:
@@ -139,7 +139,7 @@ class Exchange:
             else:
                 return True # War bereits gesetzt, ist OK
             return False # Expliziter Fehler
-    # *** ENDE: 1:1 JAEGERBOT LOGIK ***
+    # *** ENDE: 1:1 UTBOT2 LOGIK ***
 
     def create_market_order(self, symbol, side, amount, params={}):
         if not self.markets: return None
@@ -160,7 +160,7 @@ class Exchange:
             logger.error(f"FEHLER beim Erstellen der Market Order ({symbol}, {side}, {amount}): {e}")
             return None
 
-    # *** KORRIGIERTE TRIGGER ORDER FUNKTION - 1:1 WIE JAEGERBOT ***
+    # *** KORRIGIERTE TRIGGER ORDER FUNKTION - 1:1 WIE UTBOT2 ***
     def place_trigger_market_order(self, symbol, side, amount, trigger_price, params={}):
         """
         Platziert eine Standard Trigger-Order (Stop-Loss oder Take-Profit).
@@ -173,7 +173,7 @@ class Exchange:
                 logger.error(f"FEHLER: Berechneter Trigger-Order-Betrag ist Null ({rounded_amount}).")
                 return None
 
-            # Dies ist die exakte JaegerBot Parameterstruktur
+            # Dies ist die exakte UtBot2 Parameterstruktur
             order_params = {
                 'triggerPrice': rounded_price,
                 'reduceOnly': params.get('reduceOnly', False)
@@ -241,7 +241,7 @@ class Exchange:
             logger.error(f"FEHLER beim Abrufen des USDT-Kontostandes: {e}", exc_info=True)
             return 0
 
-    # *** KORRIGIERTE CANCEL ORDERS FUNKTION - 1:1 WIE JAEGERBOT ***
+    # *** KORRIGIERTE CANCEL ORDERS FUNKTION - 1:1 WIE UTBOT2 ***
     def cancel_all_orders_for_symbol(self, symbol):
         """Storniert alle offenen Orders (normal und trigger) für ein Symbol."""
         if not self.markets: return 0

@@ -21,14 +21,11 @@ try:
     with open(SECRET_FILE, 'r') as f:
         secrets = json.load(f)
     
-    # *** HINWEIS: Liest immer noch den Schlüssel 'jaegerbot'. ***
-    # Du könntest diesen Schlüssel in secret.json in 'utbot2' umbenennen
-    # und dann hier auch 'utbot2' verwenden für volle Konsistenz.
-    # Aktuell funktioniert es aber auch so.
-    if 'jaegerbot' not in secrets or not secrets['jaegerbot']:
-         print("Fehler: Kein 'jaegerbot'-Eintrag in secret.json gefunden oder Liste ist leer.")
-         sys.exit(1)
-    account_config = secrets['jaegerbot'][0] 
+        # *** HINWEIS: Nutzt jetzt den Schlüssel 'utbot2'. ***
+        if 'utbot2' not in secrets or not secrets['utbot2']:
+            print("Fehler: Kein 'utbot2'-Eintrag in secret.json gefunden oder Liste ist leer.")
+            sys.exit(1)
+        account_config = secrets['utbot2'][0]
     account_name = account_config.get('name', 'Unbenannt')
     print(f"Prüfe Account: {account_name}")
 
@@ -62,7 +59,7 @@ try:
     if is_unified:
         print("\n>>> KONTOTYP: Einheitliches Handelskonto (Unified Trading Account) <<<")
         # *** Text angepasst ***
-        print("\nBEFUND: Dies kann zu Problemen führen, da UtBot2 (wie JaegerBot) primär für das 'Klassische Konto' entwickelt wurde. Die API-Logik unterscheidet sich.")
+        print("\nBEFUND: Dies kann zu Problemen führen, da UtBot2 primär für das 'Klassische Konto' entwickelt wurde. Die API-Logik unterscheidet sich.")
     else:
         print("\n>>> KONTOTYP: Klassisches Konto (Classic Account) <<<")
         print("\nBEFUND: Das ist der erwartete Kontotyp. Probleme liegen wahrscheinlich woanders.")
