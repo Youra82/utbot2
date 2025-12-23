@@ -44,11 +44,11 @@ def main():
         with open(secret_file, 'r') as f:
             secrets = json.load(f)
 
-        # *** Geändert: Account-Name (optional) ***
-        if not secrets.get('jaegerbot'): # Behalte den Secret-Namen bei
-            print("Fehler: Kein 'jaegerbot'-Account in secret.json gefunden.")
+        # *** Geändert: Account-Name (nun 'utbot2') ***
+        if not secrets.get('utbot2'):
+            print("Fehler: Kein 'utbot2'-Account in secret.json gefunden.")
             return
-        main_account_config = secrets['jaegerbot'][0]
+        main_account_config = secrets['utbot2'][0]
 
         print(f"Frage Kontostand für Account '{main_account_config.get('name', 'Standard')}' ab...")
         
