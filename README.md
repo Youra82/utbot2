@@ -21,8 +21,9 @@
 UTBot2 ist die zweite Generation eines universellen Trading-Bots, der für maximale Flexibilität und Anpassungsfähigkeit entwickelt wurde. Das System unterstützt eine Vielzahl von Handelspaaren und Timeframes und kann an verschiedene Marktbedingungen angepasst werden.
 
 ### 🧭 Trading-Logik (Kurzfassung)
+- **Ichimoku-Kern**: Cloud, Kijun/Tenkan und Chikou-Confirmations liefern Trendrichtung und Momentum-Bestätigung.
 - **Multi-Asset Core**: Parallele Strategien je Symbol/Timeframe mit gemeinsamer Risk-Engine.
-- **Signal-Stack**: RSI, MACD, ATR, Bollinger + optionaler MACD-Filter ergeben einen kombinierten Signal-Score.
+- **Signal-Stack**: Ichimoku-Signale werden mit RSI/MACD/ATR/Bollinger zu einem kombinierten Score gemischt; optionaler MACD-Filter für Regime.
 - **Risk Layer**: SL/TP, optionales Trailing; Position Sizing auf Konto-Risk begrenzt.
 - **Optimizer Loop**: Optuna sucht Indikator-Parameter und Schwellenwerte; Ergebnisse landen als Configs pro Symbol.
 
