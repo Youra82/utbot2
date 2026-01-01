@@ -20,6 +20,18 @@
 
 UTBot2 ist die zweite Generation eines universellen Trading-Bots, der für maximale Flexibilität und Anpassungsfähigkeit entwickelt wurde. Das System unterstützt eine Vielzahl von Handelspaaren und Timeframes und kann an verschiedene Marktbedingungen angepasst werden.
 
+### 🧭 Trading-Logik (Kurzfassung)
+- **Multi-Asset Core**: Parallele Strategien je Symbol/Timeframe mit gemeinsamer Risk-Engine.
+- **Signal-Stack**: RSI, MACD, ATR, Bollinger + optionaler MACD-Filter ergeben einen kombinierten Signal-Score.
+- **Risk Layer**: SL/TP, optionales Trailing; Position Sizing auf Konto-Risk begrenzt.
+- **Optimizer Loop**: Optuna sucht Indikator-Parameter und Schwellenwerte; Ergebnisse landen als Configs pro Symbol.
+
+Architektur-Skizze:
+```
+OHLCV → Indikator-Stack → Signal-Score → Risk Engine → Order Router (CCXT)
+           ↘ Optuna (Parameter) ↗
+```
+
 ### 🎯 Hauptmerkmale
 
 - **🌐 Universal**: Funktioniert mit verschiedenen Kryptowährungen und Strategien
@@ -217,6 +229,13 @@ python src/utbot2/analysis/optimizer.py --walk-forward
 ```bash
 # Master Runner starten (alle aktiven Strategien)
 python master_runner.py
+```
+
+### Manuell starten / Cronjob testen
+Direkt ausführen, ohne auf den nächsten Cron-Lauf zu warten:
+
+```bash
+cd /home/ubuntu/utbot2 && /home/ubuntu/utbot2/.venv/bin/python3 /home/ubuntu/utbot2/master_runner.py
 ```
 
 Der Master Runner:
