@@ -108,7 +108,7 @@ OHLCV → Indikator-Stack → Signal-Score → Risk Engine → Order Router (CCX
 ### 1. Repository klonen
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/Youra82/utbot2.git
 cd utbot2
 ```
 
