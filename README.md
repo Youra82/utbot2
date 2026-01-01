@@ -30,15 +30,16 @@ UTBot2 ist die zweite Generation eines universellen Trading-Bots, der für maxim
 ### 🔍 Strategie-Visualisierung
 ```mermaid
 flowchart LR
-  A[OHLCV] --> B[Ichimoku
-  Cloud | Tenkan | Kijun | Chikou]
-  A --> C[Indicators
-  RSI | MACD | ATR | Bollinger]
-  B & C --> D[Signal-Score
-  + Regime-Filter]
-  D --> E[Risk Engine
-  SL/TP + Trail]
-  E --> F[Order Router (CCXT)]
+    A["OHLCV"]
+    B["Ichimoku<br/>Cloud | Tenkan | Kijun | Chikou"]
+    C["Indicators<br/>RSI | MACD | ATR | Bollinger"]
+    D["Signal-Score<br/>+ Regime-Filter"]
+    E["Risk Engine<br/>SL/TP + Trail"]
+    F["Order Router (CCXT)"]
+
+    A --> B
+    A --> C
+    B & C --> D --> E --> F
 ```
 
 ### 📈 Trade-Beispiel (TP/SL/Trailing)
