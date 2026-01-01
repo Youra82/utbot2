@@ -27,6 +27,27 @@ UTBot2 ist die zweite Generation eines universellen Trading-Bots, der für maxim
 - **Risk Layer**: SL/TP, optionales Trailing; Position Sizing auf Konto-Risk begrenzt.
 - **Optimizer Loop**: Optuna sucht Indikator-Parameter und Schwellenwerte; Ergebnisse landen als Configs pro Symbol.
 
+### 🔍 Strategie-Visualisierung
+```mermaid
+flowchart LR
+  A[OHLCV] --> B[Ichimoku
+  Cloud | Tenkan | Kijun | Chikou]
+  A --> C[Indicators
+  RSI | MACD | ATR | Bollinger]
+  B & C --> D[Signal-Score
+  + Regime-Filter]
+  D --> E[Risk Engine
+  SL/TP + Trail]
+  E --> F[Order Router (CCXT)]
+```
+
+### 📈 Trade-Beispiel (TP/SL/Trailing)
+- Setup: Preis über Cloud, Tenkan > Kijun, Chikou oberhalb Kurs → Long-Bias; MACD bestätigt Trend.
+- Entry: Pullback auf Kijun/Tenkan mit Bounce.
+- Initial SL: Unter Cloud-Unterkante oder 1.5× ATR unter Entry.
+- TP: 2–3× SL-Distanz oder nächstes Weekly-Level.
+- Trailing: Nach +1×SL Distanz Trail unter das letzte Higher Low / unter Tenkan ziehen, um Trendlauf zu halten.
+
 Architektur-Skizze:
 ```
 OHLCV → Indikator-Stack → Signal-Score → Risk Engine → Order Router (CCXT)
