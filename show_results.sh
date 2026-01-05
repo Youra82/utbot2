@@ -16,6 +16,14 @@ echo "  2) Manuelle Portfolio-Simulation (du wählst das Team)"
 echo "  3) Automatische Portfolio-Optimierung (der Bot wählt das beste Team)"
 echo "  4) Interaktive Charts (Ichimoku Cloud + Trade-Signale mit Entry/Exit Marker)"
 read -p "Auswahl (1-4) [Standard: 1]: " MODE
+
+# Validierung der Mode-Eingabe - Nur Ziffern 1-4 akzeptieren
+if [[ ! "$MODE" =~ ^[1-4]?$ ]]; then
+    echo -e "${RED}❌ Ungültige Eingabe! Verwende Standard (1).${NC}"
+    MODE=1
+fi
+
+# Standard auf 1 setzen wenn leer
 MODE=${MODE:-1}
 
 # *** NEU: Max Drawdown Abfrage für Modus 3 ***
