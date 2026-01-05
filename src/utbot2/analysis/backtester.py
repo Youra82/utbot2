@@ -18,6 +18,7 @@ from utbot2.strategy.trade_logic import get_titan_signal
 from utbot2.utils.timeframe_utils import determine_htf
 
 secrets_cache = None
+htf_cache = {}  # Cache für HTF-Daten um wiederholtes Laden zu vermeiden
 
 class Bias:
     BULLISH = "BULLISH"
@@ -70,6 +71,8 @@ def load_data(symbol, timeframe, start_date_str, end_date_str):
 
 
 def run_backtest(data, strategy_params, risk_params, start_capital=1000, verbose=False):
+    global htf_cache
+    
     if data.empty or len(data) < 52:
         return {"total_pnl_pct": -100, "trades_count": 0, "win_rate": 0, "max_drawdown_pct": 1.0, "end_capital": start_capital}
 
@@ -80,15 +83,37 @@ def run_backtest(data, strategy_params, risk_params, start_capital=1000, verbose
     # --- HTF Daten laden und Supertrend berechnen für MTF-Filter ---
     htf_processed = None
     if htf and htf != timeframe:
-        htf_data = load_data(symbol, htf, data.index.min().strftime('%Y-%m-%d'), data.index.max().strftime('%Y-%m-%d'))
-        if not htf_data.empty:
-            # Supertrend-Settings aus Strategy-Params oder Defaults
-            supertrend_settings = {
-                'supertrend_atr_period': strategy_params.get('supertrend_atr_period', 10),
-                'supertrend_multiplier': strategy_params.get('supertrend_multiplier', 3.0)
-            }
-            htf_engine = SupertrendEngine(settings=supertrend_settings)
-            htf_processed = htf_engine.process_dataframe(htf_data)
+        # Cache-Key für rohe HTF-Daten (ohne Supertrend-Params, da die OHLCV gleich bleiben)
+        raw_cache_key = f"{symbol}_{htf}_{data.index.min().strftime('%Y%m%d')}_{data.index.max().strftime('%Y%m%d')}_raw"
+        
+        # Supertrend-Settings
+        st_atr = strategy_params.get('supertrend_atr_period', 10)
+        st_mult = strategy_params.get('supertrend_multiplier', 3.0)
+        
+        # Cache-Key für verarbeitete Daten (inkl. Supertrend-Params)
+        processed_cache_key = f"{raw_cache_key}_{st_atr}_{st_mult}"
+        
+        if processed_cache_key in htf_cache:
+            # Verarbeitete HTF-Daten aus Cache nutzen
+            htf_processed = htf_cache[processed_cache_key]
+        else:
+            # Rohe HTF-Daten aus Cache oder laden
+            if raw_cache_key in htf_cache:
+                htf_data = htf_cache[raw_cache_key]
+            else:
+                htf_data = load_data(symbol, htf, data.index.min().strftime('%Y-%m-%d'), data.index.max().strftime('%Y-%m-%d'))
+                if not htf_data.empty:
+                    htf_cache[raw_cache_key] = htf_data.copy()
+            
+            if htf_data is not None and not htf_data.empty:
+                supertrend_settings = {
+                    'supertrend_atr_period': st_atr,
+                    'supertrend_multiplier': st_mult
+                }
+                htf_engine = SupertrendEngine(settings=supertrend_settings)
+                htf_processed = htf_engine.process_dataframe(htf_data.copy())
+                # Verarbeitete Daten in Cache speichern
+                htf_cache[processed_cache_key] = htf_processed
 
     # --- ATR Berechnung ---
     try:
