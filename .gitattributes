@@ -1,16 +1,16 @@
 * text=auto
 
-# Shell scripts
+# Shell scripts - ALWAYS EXECUTABLE
 *.sh eol=lf
-show_results.sh eol=lf export-ignore
-show_status.sh eol=lf export-ignore
-show_chart.sh eol=lf export-ignore
-run_pipeline.sh eol=lf export-ignore
-run_pipeline_automated.sh eol=lf export-ignore
-run_tests.sh eol=lf export-ignore
-send_report.sh eol=lf export-ignore
-install.sh eol=lf export-ignore
-update.sh eol=lf export-ignore
+show_results.sh eol=lf
+show_status.sh eol=lf
+show_chart.sh eol=lf
+run_pipeline.sh eol=lf
+run_pipeline_automated.sh eol=lf
+run_tests.sh eol=lf
+send_report.sh eol=lf
+install.sh eol=lf
+update.sh eol=lf
 
 # PowerShell scripts
 *.ps1 eol=crlf
