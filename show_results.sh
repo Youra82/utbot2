@@ -9,12 +9,12 @@ RESULTS_SCRIPT="src/utbot2/analysis/show_results.py"
 
 source "$VENV_PATH"
 
-# --- MODUS-MENÜ ---
-echo -e "\n${YELLOW}Wähle einen Analyse-Modus:${NC}"
+# --- ERWEITERTES MODUS-MENÜ ---
+echo -e "\n${YELLOW}Wähle einen Analyse-Modus für UtBot2:${NC}"
 echo "  1) Einzel-Analyse (jede Strategie wird isoliert getestet)"
 echo "  2) Manuelle Portfolio-Simulation (du wählst das Team)"
 echo "  3) Automatische Portfolio-Optimierung (der Bot wählt das beste Team)"
-echo "  4) Interaktive Charts (mit EMA, Bollinger Bands)"
+echo "  4) Interaktive Charts (Entry/Exit-Signale mit EMAs und Bollinger Bands)"
 read -p "Auswahl (1-4) [Standard: 1]: " MODE
 MODE=${MODE:-1}
 
@@ -40,14 +40,10 @@ fi
 # *** NEU: Übergebe Max DD an das Python Skript ***
 python3 "$RESULTS_SCRIPT" --mode "$MODE" --target_max_drawdown "$TARGET_MAX_DD"
 
-# --- OPTION 4: INTERAKTIVE CHARTS ---
+# --- OPTION 4: INTERAKTIVE CHARTS (Behandelt direkt in show_results.py) ---
 if [ "$MODE" == "4" ]; then
-    echo -e "\n${YELLOW}========== INTERAKTIVE CHARTS ===========${NC}"
-    echo ""
-    python3 src/utbot2/analysis/interactive_status.py
-    
     if [ $? -eq 0 ]; then
-        echo -e "${GREEN}✅ Charts wurden generiert!${NC}"
+        echo -e "${GREEN}✅ Interaktive Charts wurden generiert!${NC}"
     else
         echo -e "${RED}❌ Fehler beim Generieren der Charts.${NC}"
     fi
