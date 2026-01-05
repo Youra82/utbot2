@@ -14,6 +14,7 @@ import logging
 
 import pandas as pd
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
 sys.path.append(os.path.join(PROJECT_ROOT, 'src'))
@@ -101,27 +102,79 @@ def run_backtest_for_chart(df, config, start_capital=1000):
         risk_params = config.get('risk', {})
         
         # Backtester ausführen (mit weniger Output)
-        logger = logging.getLogger('utbot2.analysis.backtester')
-        original_level = logger.level
-        logger.setLevel(logging.ERROR)
+        logger_backtest = logging.getLogger('utbot2.analysis.backtester')
+        original_level = logger_backtest.level
+        logger_backtest.setLevel(logging.ERROR)
         
         stats = run_backtest(df.copy(), strategy_params, risk_params, start_capital=start_capital, verbose=False)
         
-        logger.setLevel(original_level)
+        logger_backtest.setLevel(original_level)
         
-        # Falls wir detaillierte Trades benötigen, führen wir eine vereinfachte Simulation durch
+        # Trade-Signale extrahieren
         trades = extract_trades_from_backtest(df, config, start_capital)
         
-        # Dummy equity curve (können wir später erweitern)
-        equity_df = pd.DataFrame({
-            'equity': [start_capital] * len(df)
-        }, index=df.index)
+        # Equity Curve simulieren basierend auf Trades
+        equity_df = build_equity_curve(df, trades, start_capital)
         
         return trades, equity_df, stats
     except Exception as e:
-        logger = logging.getLogger('interactive_status')
         logger.warning(f"Fehler bei Backtest-Simulation: {e}")
         return [], df[[]].copy(), {}
+
+def build_equity_curve(df, trades, start_capital):
+    """
+    Erstellt eine Equity Curve basierend auf den simulierten Trades
+    """
+    equity = start_capital
+    equity_data = []
+    
+    # Sammle alle Trade-Events mit Zeitstempel
+    trade_events = []
+    for trade in trades:
+        if 'exit_long' in trade:
+            entry_price = trade.get('entry_long', {}).get('price', 0)
+            exit_price = trade.get('exit_long', {}).get('price', 0)
+            exit_time = trade.get('exit_long', {}).get('time')
+            if entry_price and exit_price and exit_time:
+                pnl_pct = (exit_price - entry_price) / entry_price
+                trade_events.append({
+                    'time': pd.to_datetime(exit_time),
+                    'pnl_pct': pnl_pct,
+                    'side': 'long'
+                })
+        
+        if 'exit_short' in trade:
+            entry_price = trade.get('entry_short', {}).get('price', 0)
+            exit_price = trade.get('exit_short', {}).get('price', 0)
+            exit_time = trade.get('exit_short', {}).get('time')
+            if entry_price and exit_price and exit_time:
+                pnl_pct = (entry_price - exit_price) / entry_price
+                trade_events.append({
+                    'time': pd.to_datetime(exit_time),
+                    'pnl_pct': pnl_pct,
+                    'side': 'short'
+                })
+    
+    # Sortiere Trade-Events nach Zeit
+    trade_events = sorted(trade_events, key=lambda x: x['time'])
+    
+    # Erstelle Equity Curve für jeden Timestamp im DataFrame
+    trade_idx = 0
+    for timestamp, row in df.iterrows():
+        # Wende alle Trades bis zu diesem Timestamp an
+        while trade_idx < len(trade_events) and trade_events[trade_idx]['time'] <= timestamp:
+            trade = trade_events[trade_idx]
+            equity += equity * trade['pnl_pct']
+            trade_idx += 1
+        
+        equity_data.append({
+            'timestamp': timestamp,
+            'equity': equity
+        })
+    
+    equity_df = pd.DataFrame(equity_data)
+    equity_df.set_index('timestamp', inplace=True)
+    return equity_df
 
 def extract_trades_from_backtest(df, config, start_capital=1000):
     """
@@ -201,23 +254,35 @@ def extract_trades_from_backtest(df, config, start_capital=1000):
         return []
 
 
-def create_interactive_chart(symbol, timeframe, df, trades, start_date, end_date, window=None):
-    """Erstellt interaktiven Chart mit Ichimoku Cloud Indikatoren + Trade-Signalen (Entry/Exit)"""
+def create_interactive_chart(symbol, timeframe, df, trades, equity_df, stats, start_date, end_date, window=None):
+    """Erstellt interaktiven Chart mit Ichimoku Cloud Indikatoren + Trade-Signalen + Equity Curve (2 Zeilen)"""
     
     # Filter auf Fenster
     if window:
         cutoff_date = datetime.now(timezone.utc) - timedelta(days=window)
         df = df[df.index >= cutoff_date].copy()
+        equity_df = equity_df[equity_df.index >= cutoff_date].copy()
     
     # Filter auf Start/End Datum
     if start_date:
         df = df[df.index >= pd.to_datetime(start_date, utc=True)]
+        equity_df = equity_df[equity_df.index >= pd.to_datetime(start_date, utc=True)]
     if end_date:
         df = df[df.index <= pd.to_datetime(end_date, utc=True)]
+        equity_df = equity_df[equity_df.index <= pd.to_datetime(end_date, utc=True)]
     
-    fig = go.Figure()
+    # Erstelle 2 Subplots: Oben Price/Ichimoku/Trades, Unten Equity Curve
+    fig = make_subplots(
+        rows=2, cols=1,
+        shared_xaxes=True,
+        vertical_spacing=0.15,
+        row_heights=[0.65, 0.35],
+        subplot_titles=(f"{symbol} {timeframe} - Ichimoku Cloud + Trades", "Kontostandentwicklung (Equity Curve)")
+    )
     
-    # Candlestick Chart mit Ichimoku Farben
+    # ===== OBERER SUBPLOT (Price + Ichimoku + Trades) =====
+    
+    # Candlestick Chart
     fig.add_trace(
         go.Candlestick(
             x=df.index,
@@ -229,45 +294,49 @@ def create_interactive_chart(symbol, timeframe, df, trades, start_date, end_date
             increasing_line_color="#16a34a",
             decreasing_line_color="#dc2626",
             showlegend=True
-        )
+        ),
+        row=1, col=1
     )
-    
-    # === ICHIMOKU CLOUD INDIKATOREN ===
     
     # Tenkan-sen (Conversion Line)
     if 'tenkan_sen' in df.columns:
         fig.add_trace(
             go.Scatter(x=df.index, y=df['tenkan_sen'], name='Tenkan-sen',
-                      line=dict(color='red', width=2), showlegend=True)
+                      line=dict(color='red', width=2), showlegend=True),
+            row=1, col=1
         )
     
     # Kijun-sen (Base Line)
     if 'kijun_sen' in df.columns:
         fig.add_trace(
             go.Scatter(x=df.index, y=df['kijun_sen'], name='Kijun-sen',
-                      line=dict(color='blue', width=2), showlegend=True)
+                      line=dict(color='blue', width=2), showlegend=True),
+            row=1, col=1
         )
     
-    # Senkou Span A (obere Wolke)
+    # Senkou Span A
     if 'senkou_span_a' in df.columns:
         fig.add_trace(
             go.Scatter(x=df.index, y=df['senkou_span_a'], name='Senkou Span A',
-                      line=dict(color='green', width=1, dash='dash'), showlegend=True)
+                      line=dict(color='green', width=1, dash='dash'), showlegend=True),
+            row=1, col=1
         )
     
-    # Senkou Span B (untere Wolke mit Fill)
+    # Senkou Span B mit Fill
     if 'senkou_span_b' in df.columns:
         fig.add_trace(
             go.Scatter(x=df.index, y=df['senkou_span_b'], name='Senkou Span B',
                       line=dict(color='orange', width=1, dash='dash'),
-                      fill='tonexty', fillcolor='rgba(0,200,0,0.2)', showlegend=True)
+                      fill='tonexty', fillcolor='rgba(0,200,0,0.2)', showlegend=True),
+            row=1, col=1
         )
     
-    # Chikou Span (Lagging Span)
+    # Chikou Span
     if 'chikou_span' in df.columns:
         fig.add_trace(
             go.Scatter(x=df.index, y=df['chikou_span'], name='Chikou Span',
-                      line=dict(color='purple', width=1, dash='dot'), showlegend=True)
+                      line=dict(color='purple', width=1, dash='dot'), showlegend=True),
+            row=1, col=1
         )
     
     # === TRADE-SIGNALE EXTRAHIEREN ===
@@ -317,57 +386,91 @@ def create_interactive_chart(symbol, timeframe, df, trades, start_date, end_date
                 except:
                     pass
     
-    # Entry Long: grünes Dreieck nach oben
+    # Entry Long
     if entry_long_x:
         fig.add_trace(go.Scatter(
             x=entry_long_x, y=entry_long_y, mode="markers",
             marker=dict(color="#16a34a", symbol="triangle-up", size=14, line=dict(width=1.2, color="#0f5132")),
             name="Entry Long",
             showlegend=True
-        ))
+        ), row=1, col=1)
     
-    # Exit Long: cyan Kreis
+    # Exit Long
     if exit_long_x:
         fig.add_trace(go.Scatter(
             x=exit_long_x, y=exit_long_y, mode="markers",
             marker=dict(color="#22d3ee", symbol="circle", size=12, line=dict(width=1.1, color="#0e7490")),
             name="Exit Long",
             showlegend=True
-        ))
+        ), row=1, col=1)
     
-    # Entry Short: oranges Dreieck nach unten
+    # Entry Short
     if entry_short_x:
         fig.add_trace(go.Scatter(
             x=entry_short_x, y=entry_short_y, mode="markers",
             marker=dict(color="#f59e0b", symbol="triangle-down", size=14, line=dict(width=1.2, color="#92400e")),
             name="Entry Short",
             showlegend=True
-        ))
+        ), row=1, col=1)
     
-    # Exit Short: rotes Diamant
+    # Exit Short
     if exit_short_x:
         fig.add_trace(go.Scatter(
             x=exit_short_x, y=exit_short_y, mode="markers",
             marker=dict(color="#ef4444", symbol="diamond", size=12, line=dict(width=1.1, color="#7f1d1d")),
             name="Exit Short",
             showlegend=True
-        ))
+        ), row=1, col=1)
     
+    # ===== UNTERER SUBPLOT (Equity Curve) =====
+    if not equity_df.empty and 'equity' in equity_df.columns:
+        fig.add_trace(
+            go.Scatter(x=equity_df.index, y=equity_df['equity'], name='Equity',
+                      line=dict(color='#2563eb', width=2),
+                      fill='tozeroy', fillcolor='rgba(37, 99, 235, 0.1)',
+                      showlegend=True),
+            row=2, col=1
+        )
+    
+    # === STATISTIKEN als Annotation ===
+    stats_text = "<br>".join([
+        f"<b>Backtest Statistiken:</b>",
+        f"PnL: {stats.get('total_pnl_pct', 0):.2f}%",
+        f"Trades: {stats.get('trades_count', 0)}",
+        f"Win Rate: {stats.get('win_rate', 0):.1f}%",
+        f"Max DD: {stats.get('max_drawdown_pct', 0):.2f}%",
+        f"End Capital: ${stats.get('end_capital', 0):.0f}"
+    ])
+    
+    fig.add_annotation(
+        text=stats_text,
+        xref="paper", yref="paper",
+        x=0.02, y=0.48,
+        showarrow=False,
+        bgcolor="rgba(255, 255, 255, 0.8)",
+        bordercolor="black",
+        borderwidth=1,
+        font=dict(size=10, family="monospace"),
+        align="left",
+        xanchor="left",
+        yanchor="top"
+    )
+    
+    # Update Layout
     title = f"{symbol} {timeframe} - UtBot2 (Ichimoku Cloud + Trade-Signale)"
     fig.update_layout(
         title=title,
-        height=600,
+        height=800,
         hovermode='x unified',
         template='plotly_white',
         dragmode='zoom',
-        xaxis=dict(rangeslider=dict(visible=False), fixedrange=False),
-        yaxis=dict(fixedrange=False),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
         showlegend=True
     )
     
-    fig.update_yaxes(title_text="Preis")
-    fig.update_xaxes(fixedrange=False)
+    fig.update_yaxes(title_text="Preis (USDT)", row=1, col=1)
+    fig.update_yaxes(title_text="Equity (USDT)", row=2, col=1)
+    fig.update_xaxes(title_text="Datum", row=2, col=1)
     
     return fig
 
@@ -439,12 +542,14 @@ def main():
             trades, equity_df, stats = run_backtest_for_chart(df, config, start_capital)
             
             # Chart erstellen
-            logger.info("Erstelle Chart mit Trade-Signalen...")
+            logger.info("Erstelle Chart mit Trade-Signalen und Equity Curve...")
             fig = create_interactive_chart(
                 symbol,
                 timeframe,
                 df,
                 trades,
+                equity_df,
+                stats,
                 start_date,
                 end_date,
                 window
