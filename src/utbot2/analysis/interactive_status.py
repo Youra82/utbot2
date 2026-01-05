@@ -154,26 +154,38 @@ def create_interactive_chart(symbol, timeframe, df, trades, start_date, end_date
         )
     )
     
-    # EMAs
+    # === ICHIMOKU CLOUD INDIKATOREN ===
+    
+    # Tenkan-sen (Conversion Line) - schnelle Linie
     fig.add_trace(
-        go.Scatter(x=df.index, y=df['ema_20'], name='EMA 20', line=dict(color='orange', width=1.5))
-    )
-    fig.add_trace(
-        go.Scatter(x=df.index, y=df['ema_50'], name='EMA 50', line=dict(color='blue', width=1.5))
-    )
-    fig.add_trace(
-        go.Scatter(x=df.index, y=df['ema_200'], name='EMA 200', line=dict(color='red', width=2))
+        go.Scatter(x=df.index, y=df['tenkan_sen'], name='Tenkan-sen', 
+                   line=dict(color='red', width=2))
     )
     
-    # Bollinger Bands
+    # Kijun-sen (Base Line) - langsame Linie
     fig.add_trace(
-        go.Scatter(x=df.index, y=df['bb_upper'], 
-                   name='BB Upper', line=dict(color='green', width=1, dash='dash'))
+        go.Scatter(x=df.index, y=df['kijun_sen'], name='Kijun-sen', 
+                   line=dict(color='blue', width=2))
     )
+    
+    # Senkou Span A (Leading Span A) - obere Wolke
     fig.add_trace(
-        go.Scatter(x=df.index, y=df['bb_lower'], 
-                   name='BB Lower', line=dict(color='green', width=1, dash='dash'),
-                   fill='tonexty', fillcolor='rgba(0,255,0,0.1)')
+        go.Scatter(x=df.index, y=df['senkou_span_a'], name='Senkou Span A',
+                   line=dict(color='green', width=1, dash='dash'),
+                   fill=None)
+    )
+    
+    # Senkou Span B (Leading Span B) - untere Wolke
+    fig.add_trace(
+        go.Scatter(x=df.index, y=df['senkou_span_b'], name='Senkou Span B',
+                   line=dict(color='orange', width=1, dash='dash'),
+                   fill='tonexty', fillcolor='rgba(0,200,0,0.2)')
+    )
+    
+    # Chikou Span (Lagging Span) - verzögerte Linie
+    fig.add_trace(
+        go.Scatter(x=df.index, y=df['chikou_span'], name='Chikou Span',
+                   line=dict(color='purple', width=1, dash='dot'))
     )
     
     # Trade Marker
