@@ -254,35 +254,39 @@ def extract_trades_from_backtest(df, config, start_capital=1000):
         return []
 
 
-def create_interactive_chart(symbol, timeframe, df, trades, equity_df, stats, start_date, end_date, window=None):
-    """Erstellt interaktiven Chart mit Ichimoku Cloud Indikatoren + Trade-Signalen + Equity Curve (2 Zeilen)"""
+def create_interactive_chart(symbol, timeframe, df, trades, equity_df, stats, start_date, end_date, window=None, start_capital=1000):
+    """
+    Erstellt interaktiven Chart GENAU wie ltbbot:
+    - Ein einzelner Chart (kein make_subplots mit 2 Reihen)
+    - Rangeslider für einfaches Zoomen
+    - Kontostand auf zweiter Y-Achse (rechts) überlagert
+    - Statistiken im Titel (wie im Screenshot)
+    - Ichimoku Cloud Indikatoren
+    """
     
     # Filter auf Fenster
     if window:
         cutoff_date = datetime.now(timezone.utc) - timedelta(days=window)
         df = df[df.index >= cutoff_date].copy()
-        equity_df = equity_df[equity_df.index >= cutoff_date].copy()
     
     # Filter auf Start/End Datum
     if start_date:
         df = df[df.index >= pd.to_datetime(start_date, utc=True)]
-        equity_df = equity_df[equity_df.index >= pd.to_datetime(start_date, utc=True)]
     if end_date:
         df = df[df.index <= pd.to_datetime(end_date, utc=True)]
-        equity_df = equity_df[equity_df.index <= pd.to_datetime(end_date, utc=True)]
     
-    # Erstelle 2 Subplots: Oben Price/Ichimoku/Trades, Unten Equity Curve
-    fig = make_subplots(
-        rows=2, cols=1,
-        shared_xaxes=True,
-        vertical_spacing=0.15,
-        row_heights=[0.65, 0.35],
-        subplot_titles=(f"{symbol} {timeframe} - Ichimoku Cloud + Trades", "Kontostandentwicklung (Equity Curve)")
-    )
+    # Ein einzelner Chart mit secondary_y für Equity (wie ltbbot aber mit overlay)
+    fig = make_subplots(specs=[[{"secondary_y": True}]])
     
-    # ===== OBERER SUBPLOT (Price + Ichimoku + Trades) =====
+    # Statistiken für Titel berechnen
+    end_capital = equity_df['equity'].iloc[-1] if not equity_df.empty and 'equity' in equity_df.columns else start_capital
+    pnl_pct = stats.get('total_pnl_pct', 0)
+    pnl_sign = '+' if pnl_pct >= 0 else ''
+    trades_count = stats.get('trades_count', len(trades))
+    win_rate = stats.get('win_rate', 0)
+    max_dd = stats.get('max_drawdown_pct', 0)
     
-    # Candlestick Chart
+    # ===== CANDLESTICK CHART =====
     fig.add_trace(
         go.Candlestick(
             x=df.index,
@@ -295,181 +299,139 @@ def create_interactive_chart(symbol, timeframe, df, trades, equity_df, stats, st
             decreasing_line_color="#dc2626",
             showlegend=True
         ),
-        row=1, col=1
+        secondary_y=False
     )
     
-    # Tenkan-sen (Conversion Line)
+    # ===== ICHIMOKU CLOUD INDIKATOREN =====
     if 'tenkan_sen' in df.columns:
-        fig.add_trace(
-            go.Scatter(x=df.index, y=df['tenkan_sen'], name='Tenkan-sen',
-                      line=dict(color='red', width=2), showlegend=True),
-            row=1, col=1
-        )
+        fig.add_trace(go.Scatter(
+            x=df.index, y=df['tenkan_sen'], name='Tenkan-sen',
+            line=dict(color='red', width=2), showlegend=True
+        ), secondary_y=False)
     
-    # Kijun-sen (Base Line)
     if 'kijun_sen' in df.columns:
-        fig.add_trace(
-            go.Scatter(x=df.index, y=df['kijun_sen'], name='Kijun-sen',
-                      line=dict(color='blue', width=2), showlegend=True),
-            row=1, col=1
-        )
+        fig.add_trace(go.Scatter(
+            x=df.index, y=df['kijun_sen'], name='Kijun-sen',
+            line=dict(color='blue', width=2), showlegend=True
+        ), secondary_y=False)
     
-    # Senkou Span A
     if 'senkou_span_a' in df.columns:
-        fig.add_trace(
-            go.Scatter(x=df.index, y=df['senkou_span_a'], name='Senkou Span A',
-                      line=dict(color='green', width=1, dash='dash'), showlegend=True),
-            row=1, col=1
-        )
+        fig.add_trace(go.Scatter(
+            x=df.index, y=df['senkou_span_a'], name='Senkou Span A',
+            line=dict(color='green', width=1, dash='dash'), showlegend=True
+        ), secondary_y=False)
     
-    # Senkou Span B mit Fill
     if 'senkou_span_b' in df.columns:
-        fig.add_trace(
-            go.Scatter(x=df.index, y=df['senkou_span_b'], name='Senkou Span B',
-                      line=dict(color='orange', width=1, dash='dash'),
-                      fill='tonexty', fillcolor='rgba(0,200,0,0.2)', showlegend=True),
-            row=1, col=1
-        )
+        fig.add_trace(go.Scatter(
+            x=df.index, y=df['senkou_span_b'], name='Senkou Span B',
+            line=dict(color='orange', width=1, dash='dash'),
+            fill='tonexty', fillcolor='rgba(0,200,0,0.2)', showlegend=True
+        ), secondary_y=False)
     
-    # Chikou Span
     if 'chikou_span' in df.columns:
-        fig.add_trace(
-            go.Scatter(x=df.index, y=df['chikou_span'], name='Chikou Span',
-                      line=dict(color='purple', width=1, dash='dot'), showlegend=True),
-            row=1, col=1
-        )
+        fig.add_trace(go.Scatter(
+            x=df.index, y=df['chikou_span'], name='Chikou Span',
+            line=dict(color='purple', width=1, dash='dot'), showlegend=True
+        ), secondary_y=False)
     
-    # === TRADE-SIGNALE EXTRAHIEREN ===
+    # ===== TRADE-SIGNALE =====
     entry_long_x, entry_long_y = [], []
     exit_long_x, exit_long_y = [], []
     entry_short_x, entry_short_y = [], []
     exit_short_x, exit_short_y = [], []
     
     for trade in trades:
-        if 'entry_long' in trade:
-            entry_time = trade['entry_long'].get('time')
-            entry_price = trade['entry_long'].get('price')
-            if entry_time and entry_price:
-                try:
-                    entry_long_x.append(pd.to_datetime(entry_time))
-                    entry_long_y.append(entry_price)
-                except:
-                    pass
-        
-        if 'exit_long' in trade:
-            exit_time = trade['exit_long'].get('time')
-            exit_price = trade['exit_long'].get('price')
-            if exit_time and exit_price:
-                try:
-                    exit_long_x.append(pd.to_datetime(exit_time))
-                    exit_long_y.append(exit_price)
-                except:
-                    pass
-        
-        if 'entry_short' in trade:
-            entry_time = trade['entry_short'].get('time')
-            entry_price = trade['entry_short'].get('price')
-            if entry_time and entry_price:
-                try:
-                    entry_short_x.append(pd.to_datetime(entry_time))
-                    entry_short_y.append(entry_price)
-                except:
-                    pass
-        
-        if 'exit_short' in trade:
-            exit_time = trade['exit_short'].get('time')
-            exit_price = trade['exit_short'].get('price')
-            if exit_time and exit_price:
-                try:
-                    exit_short_x.append(pd.to_datetime(exit_time))
-                    exit_short_y.append(exit_price)
-                except:
-                    pass
+        if 'entry_long' in trade and trade['entry_long'].get('time') and trade['entry_long'].get('price'):
+            entry_long_x.append(pd.to_datetime(trade['entry_long']['time']))
+            entry_long_y.append(trade['entry_long']['price'])
+        if 'exit_long' in trade and trade['exit_long'].get('time') and trade['exit_long'].get('price'):
+            exit_long_x.append(pd.to_datetime(trade['exit_long']['time']))
+            exit_long_y.append(trade['exit_long']['price'])
+        if 'entry_short' in trade and trade['entry_short'].get('time') and trade['entry_short'].get('price'):
+            entry_short_x.append(pd.to_datetime(trade['entry_short']['time']))
+            entry_short_y.append(trade['entry_short']['price'])
+        if 'exit_short' in trade and trade['exit_short'].get('time') and trade['exit_short'].get('price'):
+            exit_short_x.append(pd.to_datetime(trade['exit_short']['time']))
+            exit_short_y.append(trade['exit_short']['price'])
     
-    # Entry Long
+    # Entry Long: grünes Dreieck nach oben
     if entry_long_x:
         fig.add_trace(go.Scatter(
             x=entry_long_x, y=entry_long_y, mode="markers",
             marker=dict(color="#16a34a", symbol="triangle-up", size=14, line=dict(width=1.2, color="#0f5132")),
-            name="Entry Long",
-            showlegend=True
-        ), row=1, col=1)
+            name="Entry Long", showlegend=True
+        ), secondary_y=False)
     
-    # Exit Long
+    # Exit Long: cyan Kreis
     if exit_long_x:
         fig.add_trace(go.Scatter(
             x=exit_long_x, y=exit_long_y, mode="markers",
             marker=dict(color="#22d3ee", symbol="circle", size=12, line=dict(width=1.1, color="#0e7490")),
-            name="Exit Long",
-            showlegend=True
-        ), row=1, col=1)
+            name="Exit Long", showlegend=True
+        ), secondary_y=False)
     
-    # Entry Short
+    # Entry Short: oranges Dreieck nach unten
     if entry_short_x:
         fig.add_trace(go.Scatter(
             x=entry_short_x, y=entry_short_y, mode="markers",
             marker=dict(color="#f59e0b", symbol="triangle-down", size=14, line=dict(width=1.2, color="#92400e")),
-            name="Entry Short",
-            showlegend=True
-        ), row=1, col=1)
+            name="Entry Short", showlegend=True
+        ), secondary_y=False)
     
-    # Exit Short
+    # Exit Short: rotes Diamant
     if exit_short_x:
         fig.add_trace(go.Scatter(
             x=exit_short_x, y=exit_short_y, mode="markers",
             marker=dict(color="#ef4444", symbol="diamond", size=12, line=dict(width=1.1, color="#7f1d1d")),
-            name="Exit Short",
-            showlegend=True
-        ), row=1, col=1)
+            name="Exit Short", showlegend=True
+        ), secondary_y=False)
     
-    # ===== UNTERER SUBPLOT (Equity Curve) =====
+    # ===== EQUITY CURVE AUF ZWEITER Y-ACHSE (rechts überlagert) =====
     if not equity_df.empty and 'equity' in equity_df.columns:
         fig.add_trace(
-            go.Scatter(x=equity_df.index, y=equity_df['equity'], name='Equity',
-                      line=dict(color='#2563eb', width=2),
-                      fill='tozeroy', fillcolor='rgba(37, 99, 235, 0.1)',
-                      showlegend=True),
-            row=2, col=1
+            go.Scatter(
+                x=equity_df.index, 
+                y=equity_df['equity'], 
+                name='Kontostand',
+                line=dict(color='#2563eb', width=2, dash='solid'),
+                opacity=0.7,
+                showlegend=True
+            ),
+            secondary_y=True
         )
     
-    # === STATISTIKEN als Text-Box (oben rechts, nicht in der Mitte) ===
-    stats_text = "<b>Backtest Statistiken:</b><br>" + \
-                 f"PnL: {stats.get('total_pnl_pct', 0):.2f}%<br>" + \
-                 f"Trades: {stats.get('trades_count', 0)}<br>" + \
-                 f"Win Rate: {stats.get('win_rate', 0):.1f}%<br>" + \
-                 f"Max DD: {stats.get('max_drawdown_pct', 0):.2f}%<br>" + \
-                 f"End Cap: ${stats.get('end_capital', 0):.0f}"
-    
-    fig.add_annotation(
-        text=stats_text,
-        xref="paper", yref="paper",
-        x=0.99, y=0.97,
-        showarrow=False,
-        bgcolor="rgba(255, 255, 255, 0.85)",
-        bordercolor="black",
-        borderwidth=1,
-        font=dict(size=9, family="monospace"),
-        align="left",
-        xanchor="right",
-        yanchor="top"
+    # ===== LAYOUT (genau wie ltbbot Screenshot) =====
+    # Stats im Titel anzeigen wie im ltbbot Screenshot
+    title_text = (
+        f"{symbol} {timeframe} - UtBot2 | "
+        f"Start Capital: ${start_capital:.2f} | "
+        f"End Capital: ${end_capital:.2f} | "
+        f"PnL: {pnl_sign}{pnl_pct:.2f}% | "
+        f"Max DD: {max_dd:.2f}% | "
+        f"Trades: {trades_count} | "
+        f"Win Rate: {win_rate:.1f}%"
     )
     
-    # Layout mit RANGESLIDER wie ltbbot - das ist der Hauptunterschied!
     fig.update_layout(
-        title=f"{symbol} {timeframe} - UtBot2 (Ichimoku Cloud)",
+        title=dict(
+            text=title_text,
+            font=dict(size=14),
+            x=0.5,
+            xanchor='center'
+        ),
         height=700,
         hovermode='x unified',
         template='plotly_white',
         dragmode='zoom',
-        xaxis=dict(rangeslider=dict(visible=True), fixedrange=False),  # <-- Rangeslider visible!
-        xaxis2=dict(rangeslider=dict(visible=False)),
-        legend=dict(orientation="v", yanchor="top", y=0.99, xanchor="left", x=0.01),
+        xaxis=dict(rangeslider=dict(visible=True), fixedrange=False),
+        yaxis=dict(fixedrange=False),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="center", x=0.5),
         showlegend=True
     )
     
-    fig.update_yaxes(title_text="Preis (USDT)", row=1, col=1)
-    fig.update_yaxes(title_text="Kontostand (USDT)", row=2, col=1)
-    fig.update_xaxes(title_text="Datum", row=2, col=1)
+    fig.update_yaxes(title_text="Preis (USDT)", secondary_y=False)
+    fig.update_yaxes(title_text="Kontostand (USDT)", secondary_y=True)
+    fig.update_xaxes(fixedrange=False)
     
     return fig
 
@@ -551,7 +513,8 @@ def main():
                 stats,
                 start_date,
                 end_date,
-                window
+                window,
+                start_capital
             )
             
             safe_name = f"{symbol.replace('/', '_')}_{timeframe}"
