@@ -432,44 +432,43 @@ def create_interactive_chart(symbol, timeframe, df, trades, equity_df, stats, st
             row=2, col=1
         )
     
-    # === STATISTIKEN als Annotation ===
-    stats_text = "<br>".join([
-        f"<b>Backtest Statistiken:</b>",
-        f"PnL: {stats.get('total_pnl_pct', 0):.2f}%",
-        f"Trades: {stats.get('trades_count', 0)}",
-        f"Win Rate: {stats.get('win_rate', 0):.1f}%",
-        f"Max DD: {stats.get('max_drawdown_pct', 0):.2f}%",
-        f"End Capital: ${stats.get('end_capital', 0):.0f}"
-    ])
+    # === STATISTIKEN als Text-Box (oben rechts, nicht in der Mitte) ===
+    stats_text = "<b>Backtest Statistiken:</b><br>" + \
+                 f"PnL: {stats.get('total_pnl_pct', 0):.2f}%<br>" + \
+                 f"Trades: {stats.get('trades_count', 0)}<br>" + \
+                 f"Win Rate: {stats.get('win_rate', 0):.1f}%<br>" + \
+                 f"Max DD: {stats.get('max_drawdown_pct', 0):.2f}%<br>" + \
+                 f"End Cap: ${stats.get('end_capital', 0):.0f}"
     
     fig.add_annotation(
         text=stats_text,
         xref="paper", yref="paper",
-        x=0.02, y=0.48,
+        x=0.99, y=0.97,
         showarrow=False,
-        bgcolor="rgba(255, 255, 255, 0.8)",
+        bgcolor="rgba(255, 255, 255, 0.85)",
         bordercolor="black",
         borderwidth=1,
-        font=dict(size=10, family="monospace"),
+        font=dict(size=9, family="monospace"),
         align="left",
-        xanchor="left",
+        xanchor="right",
         yanchor="top"
     )
     
-    # Update Layout
-    title = f"{symbol} {timeframe} - UtBot2 (Ichimoku Cloud + Trade-Signale)"
+    # Layout mit RANGESLIDER wie ltbbot - das ist der Hauptunterschied!
     fig.update_layout(
-        title=title,
-        height=800,
+        title=f"{symbol} {timeframe} - UtBot2 (Ichimoku Cloud)",
+        height=700,
         hovermode='x unified',
         template='plotly_white',
         dragmode='zoom',
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        xaxis=dict(rangeslider=dict(visible=True), fixedrange=False),  # <-- Rangeslider visible!
+        xaxis2=dict(rangeslider=dict(visible=False)),
+        legend=dict(orientation="v", yanchor="top", y=0.99, xanchor="left", x=0.01),
         showlegend=True
     )
     
     fig.update_yaxes(title_text="Preis (USDT)", row=1, col=1)
-    fig.update_yaxes(title_text="Equity (USDT)", row=2, col=1)
+    fig.update_yaxes(title_text="Kontostand (USDT)", row=2, col=1)
     fig.update_xaxes(title_text="Datum", row=2, col=1)
     
     return fig
