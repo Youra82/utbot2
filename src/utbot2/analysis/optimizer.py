@@ -138,24 +138,25 @@ def main():
         os.makedirs(config_dir, exist_ok=True)
         config_output_path = os.path.join(config_dir, f'config_{create_safe_filename(symbol, timeframe)}{CONFIG_SUFFIX}.json')
 
+        # Robuste Config-Erstellung (kompatibel mit alten und neuen Trials)
         strategy_config = {
-            'tenkan_period': best_params['tenkan_period'],
-            'kijun_period': best_params['kijun_period'],
-            'senkou_span_b_period': best_params['senkou_span_b_period'],
+            'tenkan_period': best_params.get('tenkan_period', 9),
+            'kijun_period': best_params.get('kijun_period', 26),
+            'senkou_span_b_period': best_params.get('senkou_span_b_period', 52),
             'displacement': 26,
-            'require_tk_cross': best_params['require_tk_cross'],
-            'supertrend_atr_period': best_params['supertrend_atr_period'],
-            'supertrend_multiplier': round(best_params['supertrend_multiplier'], 2)
+            'require_tk_cross': best_params.get('require_tk_cross', False),
+            'supertrend_atr_period': best_params.get('supertrend_atr_period', 10),
+            'supertrend_multiplier': round(best_params.get('supertrend_multiplier', 3.0), 2)
         }
 
         risk_config = {
             'margin_mode': "isolated",
-            'risk_per_trade_pct': round(best_params['risk_per_trade_pct'], 2),
-            'risk_reward_ratio': round(best_params['risk_reward_ratio'], 2),
-            'leverage': best_params['leverage'],
-            'trailing_stop_activation_rr': round(best_params['trailing_stop_activation_rr'], 2),
-            'trailing_stop_callback_rate_pct': round(best_params['trailing_stop_callback_rate_pct'], 2),
-            'atr_multiplier_sl': round(best_params['atr_multiplier_sl'], 2),
+            'risk_per_trade_pct': round(best_params.get('risk_per_trade_pct', 1.0), 2),
+            'risk_reward_ratio': round(best_params.get('risk_reward_ratio', 2.0), 2),
+            'leverage': best_params.get('leverage', 10),
+            'trailing_stop_activation_rr': round(best_params.get('trailing_stop_activation_rr', 2.0), 2),
+            'trailing_stop_callback_rate_pct': round(best_params.get('trailing_stop_callback_rate_pct', 1.0), 2),
+            'atr_multiplier_sl': round(best_params.get('atr_multiplier_sl', 2.0), 2),
             'min_sl_pct': 0.5
         }
         behavior_config = {"use_longs": True, "use_shorts": True}
