@@ -14,7 +14,7 @@ echo -e "\n${YELLOW}Wähle einen Analyse-Modus für UtBot2:${NC}"
 echo "  1) Einzel-Analyse (jede Strategie wird isoliert getestet)"
 echo "  2) Manuelle Portfolio-Simulation (du wählst das Team)"
 echo "  3) Automatische Portfolio-Optimierung (der Bot wählt das beste Team)"
-echo "  4) Interaktive Charts (Entry/Exit-Signale mit EMAs und Bollinger Bands)"
+echo "  4) Interaktive Charts (Ichimoku Cloud + Trade-Signale mit Entry/Exit Marker)"
 read -p "Auswahl (1-4) [Standard: 1]: " MODE
 MODE=${MODE:-1}
 
