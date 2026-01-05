@@ -13,6 +13,7 @@ import math
 
 # Imports angepasst auf utbot2
 from utbot2.strategy.ichimoku_engine import IchimokuEngine
+from utbot2.strategy.supertrend_engine import SupertrendEngine  # NEU: Supertrend für MTF
 from utbot2.strategy.trade_logic import get_titan_signal
 from utbot2.utils.exchange import Exchange
 from utbot2.utils.telegram import send_message
@@ -73,63 +74,64 @@ def calculate_lock_duration(timeframe):
     return int(base_minutes * 2.5)
 
 # --------------------------------------------------------------------------- #
-# MTF-Bias Bestimmung (Ichimoku Cloud Status)
+# MTF-Bias Bestimmung (Supertrend auf HTF)
 # --------------------------------------------------------------------------- #
-def get_market_bias(exchange, symbol, htf, logger):
-    """Bestimmt den Markt-Bias basierend auf der Ichimoku Cloud des HTF (erweitert)."""
+def get_market_bias(exchange, symbol, htf, logger, supertrend_settings=None):
+    """
+    Bestimmt den Markt-Bias basierend auf dem Supertrend des HTF.
+    
+    Der Supertrend ist ein Trend-Following-Indikator der klar anzeigt,
+    ob der übergeordnete Trend bullish oder bearish ist.
+    
+    Args:
+        exchange: Exchange-Objekt für Datenabfrage
+        symbol: Trading-Symbol
+        htf: Higher Timeframe (z.B. '4h' wenn wir auf '1h' traden)
+        logger: Logger-Objekt
+        supertrend_settings: Dict mit 'supertrend_atr_period' und 'supertrend_multiplier'
+    
+    Returns:
+        Bias.BULLISH, Bias.BEARISH oder Bias.NEUTRAL
+    """
     try:
-        # Wir brauchen genug Daten für die Wolke (52 + 26 shift)
-        htf_data = exchange.fetch_recent_ohlcv(symbol, htf, limit=150)
-        if htf_data.empty or len(htf_data) < 80:
+        # Wir brauchen genug Daten für den Supertrend (ATR Periode + Buffer)
+        htf_data = exchange.fetch_recent_ohlcv(symbol, htf, limit=100)
+        if htf_data.empty or len(htf_data) < 30:
             logger.warning(f"MTF-Check: Nicht genügend Daten auf {htf} verfügbar.")
             return Bias.NEUTRAL
 
-        engine = IchimokuEngine(settings={}) 
+        # Supertrend berechnen
+        supertrend_settings = supertrend_settings or {}
+        engine = SupertrendEngine(settings=supertrend_settings)
         df = engine.process_dataframe(htf_data)
+        
+        # Aktuellen Trend abrufen
+        trend = engine.get_trend(df)
+        
         last_candle = df.iloc[-1]
-        
         close = last_candle['close']
-        ssa = last_candle['senkou_span_a']
-        ssb = last_candle['senkou_span_b']
-        tenkan = last_candle.get('tenkan_sen')
-        kijun = last_candle.get('kijun_sen')
+        supertrend_value = last_candle.get('supertrend', None)
+        direction = last_candle.get('supertrend_direction', None)
         
-        if pd.isna(ssa) or pd.isna(ssb):
+        if pd.isna(supertrend_value) or pd.isna(direction):
+            logger.warning(f"MTF-Check ({htf}): Supertrend noch nicht berechenbar.")
             return Bias.NEUTRAL
-
-        cloud_top = max(ssa, ssb)
-        cloud_bottom = min(ssa, ssb)
         
-        # Wolkenfarbe: Senkou A > Senkou B = Bullish Cloud
-        cloud_is_bullish = ssa > ssb
-        cloud_is_bearish = ssa < ssb
+        # Abstand zum Supertrend für Logging
+        distance_pct = abs(close - supertrend_value) / close * 100
         
-        # TK-Alignment prüfen (falls verfügbar)
-        tk_bullish_aligned = False
-        tk_bearish_aligned = False
-        if not pd.isna(tenkan) and not pd.isna(kijun):
-            tk_bullish_aligned = tenkan > cloud_top and kijun > cloud_top
-            tk_bearish_aligned = tenkan < cloud_bottom and kijun < cloud_bottom
-
-        # Bias-Bestimmung mit mehreren Faktoren
-        if close > cloud_top:
-            if cloud_is_bullish and tk_bullish_aligned:
-                logger.info(f"MTF-Check ({htf}): STRONG BULLISH (Preis+Wolke+TK über Wolke)")
-            else:
-                logger.info(f"MTF-Check ({htf}): BULLISH (Preis über Wolke)")
+        if trend == "BULLISH":
+            logger.info(f"MTF-Check ({htf}): 🟢 BULLISH (Supertrend bei {supertrend_value:.2f}, Preis {distance_pct:.2f}% darüber)")
             return Bias.BULLISH
-        elif close < cloud_bottom:
-            if cloud_is_bearish and tk_bearish_aligned:
-                logger.info(f"MTF-Check ({htf}): STRONG BEARISH (Preis+Wolke+TK unter Wolke)")
-            else:
-                logger.info(f"MTF-Check ({htf}): BEARISH (Preis unter Wolke)")
+        elif trend == "BEARISH":
+            logger.info(f"MTF-Check ({htf}): 🔴 BEARISH (Supertrend bei {supertrend_value:.2f}, Preis {distance_pct:.2f}% darunter)")
             return Bias.BEARISH
         else:
-            logger.info(f"MTF-Check ({htf}): NEUTRAL (Preis in der Wolke)")
+            logger.info(f"MTF-Check ({htf}): ⚪ NEUTRAL")
             return Bias.NEUTRAL
 
     except Exception as e:
-        logger.error(f"Fehler bei der MTF-Bias-Bestimmung: {e}")
+        logger.error(f"Fehler bei der MTF-Bias-Bestimmung (Supertrend): {e}")
         return Bias.NEUTRAL
 
 # --------------------------------------------------------------------------- #
@@ -172,28 +174,29 @@ def check_and_open_new_position(exchange, model, scaler, params, telegram_config
         return
 
     try:
-        logger.info(f"Prüfe Ichimoku-Signal für {symbol} ({timeframe})...")
+        logger.info(f"Prüfe vollständiges Ichimoku-Signal für {symbol} ({timeframe}) mit Supertrend-Filter auf {htf}...")
         
-        market_bias = get_market_bias(exchange, symbol, htf, logger)
+        # Supertrend-Settings aus Config holen
+        strategy_params = params.get('strategy', {})
+        supertrend_settings = {
+            'supertrend_atr_period': strategy_params.get('supertrend_atr_period', 10),
+            'supertrend_multiplier': strategy_params.get('supertrend_multiplier', 3.0)
+        }
+        
+        # MTF-Bias via Supertrend
+        market_bias = get_market_bias(exchange, symbol, htf, logger, supertrend_settings)
 
         recent_data = exchange.fetch_recent_ohlcv(symbol, timeframe, limit=200)
         if recent_data.empty or len(recent_data) < 100:
             logger.warning("Nicht genügend OHLCV-Daten – überspringe.")
             return
 
-        # Indikatoren berechnen
-        smc_params = params.get('strategy', {}) 
-        
         # ATR für Stop Loss Berechnung
         atr_indicator = ta.volatility.AverageTrueRange(high=recent_data['high'], low=recent_data['low'], close=recent_data['close'], window=14)
         recent_data['atr'] = atr_indicator.average_true_range()
         
-        # ADX für Trend-Filter
-        adx_indicator = ta.trend.ADXIndicator(high=recent_data['high'], low=recent_data['low'], close=recent_data['close'], window=14)
-        recent_data['adx'] = adx_indicator.adx()
-        
-        # Ichimoku Indikatoren
-        engine = IchimokuEngine(settings=smc_params)
+        # Ichimoku Indikatoren (vollständig)
+        engine = IchimokuEngine(settings=strategy_params)
         processed_data = engine.process_dataframe(recent_data)
         
         current_candle = processed_data.iloc[-1]

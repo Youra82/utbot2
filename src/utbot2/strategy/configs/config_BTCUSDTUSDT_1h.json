@@ -5,11 +5,13 @@
         "htf": "4h"
     },
     "strategy": {
-        "tenkan_period": 14,
-        "kijun_period": 21,
-        "senkou_span_b_period": 43,
+        "tenkan_period": 9,
+        "kijun_period": 26,
+        "senkou_span_b_period": 52,
         "displacement": 26,
-        "use_chikou_filter": true
+        "require_tk_cross": false,
+        "supertrend_atr_period": 10,
+        "supertrend_multiplier": 3.0
     },
     "risk": {
         "margin_mode": "isolated",

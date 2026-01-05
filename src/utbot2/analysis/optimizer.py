@@ -38,13 +38,17 @@ def create_safe_filename(symbol, timeframe):
     return f"{symbol.replace('/', '').replace(':', '')}_{timeframe}"
 
 def objective(trial):
-    # Ichimoku Parameter
+    # Ichimoku Parameter (klassische Werte, weniger Varianz)
     strategy_params = {
-        'tenkan_period': trial.suggest_int('tenkan_period', 7, 15),
-        'kijun_period': trial.suggest_int('kijun_period', 20, 40),
-        'senkou_span_b_period': trial.suggest_int('senkou_span_b_period', 40, 70),
+        'tenkan_period': trial.suggest_int('tenkan_period', 7, 12),
+        'kijun_period': trial.suggest_int('kijun_period', 22, 30),
+        'senkou_span_b_period': trial.suggest_int('senkou_span_b_period', 44, 60),
         'displacement': 26,
-        'use_chikou_filter': trial.suggest_categorical('use_chikou_filter', [True, False]),
+        'require_tk_cross': trial.suggest_categorical('require_tk_cross', [True, False]),
+        
+        # Supertrend MTF-Filter Parameter
+        'supertrend_atr_period': trial.suggest_int('supertrend_atr_period', 7, 14),
+        'supertrend_multiplier': trial.suggest_float('supertrend_multiplier', 2.0, 4.0),
         
         'symbol': CURRENT_SYMBOL,
         'timeframe': CURRENT_TIMEFRAME,
@@ -139,7 +143,9 @@ def main():
             'kijun_period': best_params['kijun_period'],
             'senkou_span_b_period': best_params['senkou_span_b_period'],
             'displacement': 26,
-            'use_chikou_filter': best_params['use_chikou_filter']
+            'require_tk_cross': best_params['require_tk_cross'],
+            'supertrend_atr_period': best_params['supertrend_atr_period'],
+            'supertrend_multiplier': round(best_params['supertrend_multiplier'], 2)
         }
 
         risk_config = {

@@ -13,6 +13,7 @@ sys.path.append(os.path.join(PROJECT_ROOT, 'src'))
 
 from utbot2.utils.exchange import Exchange
 from utbot2.strategy.ichimoku_engine import IchimokuEngine
+from utbot2.strategy.supertrend_engine import SupertrendEngine  # NEU: Supertrend für MTF
 from utbot2.strategy.trade_logic import get_titan_signal
 from utbot2.utils.timeframe_utils import determine_htf
 
@@ -76,12 +77,17 @@ def run_backtest(data, strategy_params, risk_params, start_capital=1000, verbose
     timeframe = strategy_params.get('timeframe', '')
     htf = strategy_params.get('htf')
 
-    # --- KORREKTUR: HTF Daten laden und vorbereiten (wie im Simulator) ---
+    # --- HTF Daten laden und Supertrend berechnen für MTF-Filter ---
     htf_processed = None
     if htf and htf != timeframe:
         htf_data = load_data(symbol, htf, data.index.min().strftime('%Y-%m-%d'), data.index.max().strftime('%Y-%m-%d'))
         if not htf_data.empty:
-            htf_engine = IchimokuEngine(settings={})
+            # Supertrend-Settings aus Strategy-Params oder Defaults
+            supertrend_settings = {
+                'supertrend_atr_period': strategy_params.get('supertrend_atr_period', 10),
+                'supertrend_multiplier': strategy_params.get('supertrend_multiplier', 3.0)
+            }
+            htf_engine = SupertrendEngine(settings=supertrend_settings)
             htf_processed = htf_engine.process_dataframe(htf_data)
 
     # --- ATR Berechnung ---
@@ -160,22 +166,22 @@ def run_backtest(data, strategy_params, risk_params, start_capital=1000, verbose
         # --- Einstiegs-Logik ---
         if not position and current_capital > 0:
             
-            # KORREKTUR: Dynamischer MTF-Bias Check pro Kerze
+            # Dynamischer MTF-Bias Check via Supertrend pro Kerze
             market_bias = Bias.NEUTRAL
             if htf_processed is not None:
                 # Suche den letzten verfügbaren HTF-Index vor oder gleich dem aktuellen Timestamp
                 try:
-                    # .asof() ist mächtig, findet den nächstgelegenen vergangenen Index
                     htf_idx = htf_processed.index.asof(timestamp)
                     if pd.notna(htf_idx):
                         htf_row = htf_processed.loc[htf_idx]
-                        # Bias bestimmen
-                        if htf_row['close'] > max(htf_row['senkou_span_a'], htf_row['senkou_span_b']):
+                        # Bias basierend auf Supertrend-Direction bestimmen
+                        supertrend_dir = htf_row.get('supertrend_direction', 0)
+                        if supertrend_dir == 1:  # Bullish
                             market_bias = Bias.BULLISH
-                        elif htf_row['close'] < min(htf_row['senkou_span_a'], htf_row['senkou_span_b']):
+                        elif supertrend_dir == -1:  # Bearish
                             market_bias = Bias.BEARISH
                 except:
-                    pass # Bei Fehler neutral bleiben
+                    pass  # Bei Fehler neutral bleiben
 
             data_slice = processed_data.loc[:timestamp]
             side, price = get_titan_signal(data_slice, current_candle, params_for_logic, market_bias)
