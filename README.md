@@ -21,38 +21,60 @@
 UTBot2 ist die zweite Generation eines universellen Trading-Bots, der für maximale Flexibilität und Anpassungsfähigkeit entwickelt wurde. Das System unterstützt eine Vielzahl von Handelspaaren und Timeframes und kann an verschiedene Marktbedingungen angepasst werden.
 
 ### 🧭 Trading-Logik (Kurzfassung)
-- **Ichimoku-Kern**: Cloud, Kijun/Tenkan und Chikou-Confirmations liefern Trendrichtung und Momentum-Bestätigung.
+- **Vollständiger Ichimoku Kinko Hyo**: Alle 5 Komponenten (Tenkan, Kijun, Senkou A/B, Chikou) werden für maximale Signalqualität genutzt.
+- **Supertrend MTF-Filter**: Die übergeordnete Timeframe wird via Supertrend-Indikator gefiltert - nur Trades in Richtung des HTF-Trends.
 - **Multi-Asset Core**: Parallele Strategien je Symbol/Timeframe mit gemeinsamer Risk-Engine.
-- **Signal-Stack**: Ichimoku-Signale werden mit RSI/MACD/ATR/Bollinger zu einem kombinierten Score gemischt; optionaler MACD-Filter für Regime.
-- **Risk Layer**: SL/TP, optionales Trailing; Position Sizing auf Konto-Risk begrenzt.
-- **Optimizer Loop**: Optuna sucht Indikator-Parameter und Schwellenwerte; Ergebnisse landen als Configs pro Symbol.
+- **Risk Layer**: ATR-basiertes SL/TP, optionales Trailing; Position Sizing auf Konto-Risk begrenzt.
+- **Optimizer Loop**: Optuna sucht Ichimoku- und Supertrend-Parameter; Ergebnisse landen als Configs pro Symbol.
 
 ### 🔍 Strategie-Visualisierung
 ```mermaid
 flowchart LR
     A["OHLCV"]
-    B["Ichimoku<br/>Cloud | Tenkan | Kijun | Chikou"]
-    C["Indicators<br/>RSI | MACD | ATR | Bollinger"]
-    D["Signal-Score<br/>+ Regime-Filter"]
-    E["Risk Engine<br/>SL/TP + Trail"]
+    B["Ichimoku (Entry TF)<br/>Tenkan | Kijun | Senkou A/B | Chikou"]
+    C["Supertrend (HTF)<br/>Trend-Filter"]
+    D["Signal-Validierung<br/>Alle 5 Ichimoku-Bedingungen"]
+    E["Risk Engine<br/>ATR-SL/TP + Trail"]
     F["Order Router (CCXT)"]
 
     A --> B
     A --> C
-    B & C --> D --> E --> F
+    B --> D
+    C -->|"MTF-Bias"| D
+    D --> E --> F
 ```
 
-### 📈 Trade-Beispiel (TP/SL/Trailing)
-- Setup: Preis über Cloud, Tenkan > Kijun, Chikou oberhalb Kurs → Long-Bias; MACD bestätigt Trend.
-- Entry: Pullback auf Kijun/Tenkan mit Bounce.
-- Initial SL: Unter Cloud-Unterkante oder 1.5× ATR unter Entry.
-- TP: 2–3× SL-Distanz oder nächstes Weekly-Level.
-- Trailing: Nach +1×SL Distanz Trail unter das letzte Higher Low / unter Tenkan ziehen, um Trendlauf zu halten.
+### 📈 Vollständiges Ichimoku-Signal
 
-Architektur-Skizze:
+**LONG-Bedingungen (alle müssen erfüllt sein):**
+1. ✅ Preis über der Kumo (Wolke)
+2. ✅ Tenkan-sen > Kijun-sen
+3. ✅ Chikou Span über historischem Preis UND historischer Wolke
+4. ✅ Zukunftswolke ist bullish (Senkou A > Senkou B)
+5. ✅ Preis über Tenkan-sen (Momentum)
+6. ✅ HTF Supertrend ist BULLISH
+
+**SHORT-Bedingungen (alle müssen erfüllt sein):**
+1. ✅ Preis unter der Kumo (Wolke)
+2. ✅ Tenkan-sen < Kijun-sen
+3. ✅ Chikou Span unter historischem Preis UND historischer Wolke
+4. ✅ Zukunftswolke ist bearish (Senkou A < Senkou B)
+5. ✅ Preis unter Tenkan-sen (Momentum)
+6. ✅ HTF Supertrend ist BEARISH
+
+### 📊 Trade-Beispiel (TP/SL/Trailing)
+- **Setup**: Alle 5 Ichimoku-Bedingungen bullish + HTF Supertrend grün → Long-Signal
+- **Entry**: Bei Signalbestätigung zum Close-Preis
+- **Initial SL**: ATR-Multiplikator × ATR unter Entry (mindestens 0.5%)
+- **TP**: SL-Distanz × Risk-Reward-Ratio
+- **Trailing**: Nach Erreichen des Activation-RR wird der SL nachgezogen
+
+### 🏗️ Architektur
 ```
-OHLCV → Indikator-Stack → Signal-Score → Risk Engine → Order Router (CCXT)
-           ↘ Optuna (Parameter) ↗
+Entry-TF OHLCV → Ichimoku Engine → Signal-Validierung ─┐
+                                                       ├→ Risk Engine → CCXT Orders
+HTF OHLCV ──────→ Supertrend Engine → MTF-Bias ───────┘
+                        ↘ Optuna (Parameter) ↗
 ```
 
 ### 🎯 Hauptmerkmale
@@ -73,17 +95,18 @@ OHLCV → Indikator-Stack → Signal-Score → Risk Engine → Order Router (CCX
 ### Trading Features
 - ✅ 7+ Kryptowährungspaare (BTC, ETH, SOL, DOGE, XRP, ADA, AAVE)
 - ✅ Multiple Timeframes (15m, 30m, 1h, 6h, 1d)
-- ✅ Optionaler MACD-Filter für zusätzliche Signalvalidierung
+- ✅ Vollständiger Ichimoku Kinko Hyo (alle 5 Komponenten)
+- ✅ Supertrend Multi-Timeframe Filter
 - ✅ Dynamisches Position Sizing
-- ✅ Stop-Loss und Take-Profit Management
+- ✅ ATR-basiertes Stop-Loss und Take-Profit
+- ✅ Trailing Stop Management
 - ✅ Automatische Trade-Verwaltung
-- ✅ Flexible Strategie-Aktivierung
 
 ### Technical Features
 - ✅ Optuna Hyperparameter-Optimierung
-- ✅ Technische Indikatoren (RSI, MACD, ATR, Bollinger Bands)
-- ✅ Volume-basierte Analysen
-- ✅ Walk-Forward-Testing
+- ✅ Ichimoku Cloud Indikatoren (Tenkan, Kijun, Senkou A/B, Chikou)
+- ✅ Supertrend Indikator für MTF-Filtering
+- ✅ ATR für dynamisches Risk Management
 - ✅ Backtesting mit realistischer Simulation
 - ✅ Performance-Tracking und Reporting
 
@@ -168,20 +191,17 @@ Bearbeite `settings.json`:
     "active_strategies": [
       {
         "symbol": "BTC/USDT:USDT",
-        "timeframe": "15m",
-        "use_macd_filter": false,
+        "timeframe": "1h",
         "active": true
       },
       {
         "symbol": "ETH/USDT:USDT",
-        "timeframe": "1d",
-        "use_macd_filter": false,
+        "timeframe": "4h",
         "active": true
       },
       {
         "symbol": "SOL/USDT:USDT",
         "timeframe": "1h",
-        "use_macd_filter": false,
         "active": true
       }
     ]
@@ -191,9 +211,16 @@ Bearbeite `settings.json`:
 
 **Parameter-Erklärung**:
 - `symbol`: Handelspaar (Format: BASE/QUOTE:SETTLE)
-- `timeframe`: Zeitrahmen (15m, 30m, 1h, 6h, 1d)
-- `use_macd_filter`: MACD-Filter aktivieren (true/false)
+- `timeframe`: Zeitrahmen (15m, 30m, 1h, 2h, 4h, 6h, 1d)
 - `active`: Strategie aktivieren/deaktivieren (true/false)
+
+**HTF-Mapping** (automatisch):
+| Entry-TF | HTF (Supertrend) |
+|----------|------------------|
+| 5m, 15m  | 1h               |
+| 30m, 1h  | 4h               |
+| 2h, 4h   | 1d               |
+| 6h, 1d   | 1d               |
 
 ---
 
@@ -237,11 +264,11 @@ python src/utbot2/analysis/optimizer.py --walk-forward
 ```
 
 **Optimierte Parameter**:
-- Technische Indikator-Perioden
-- Entry/Exit-Schwellenwerte
-- Stop-Loss/Take-Profit Levels
-- Position Sizing Parameter
-- Risk-Management-Parameter
+- Ichimoku-Perioden (Tenkan, Kijun, Senkou Span B)
+- Supertrend ATR-Periode und Multiplikator
+- Stop-Loss/Take-Profit Levels (ATR-basiert)
+- Trailing Stop Activation und Callback-Rate
+- Risk-Management-Parameter (Leverage, Risk-per-Trade)
 
 ---
 
@@ -678,9 +705,9 @@ utbot2/
 
 - 💡 Starten Sie mit 2-3 unkorrelierten Assets
 - 💡 Mischen Sie verschiedene Timeframes
-- 💡 Längere Timeframes (6h, 1d) = Stabilere Signale
+- 💡 Längere Timeframes (6h, 1d) = Stabilere Signale, weniger Trades
 - 💡 Kürzere Timeframes (15m, 30m) = Mehr Trades, höheres Risiko
-- 💡 MACD-Filter in unsicheren Märkten aktivieren
+- 💡 HTF Supertrend filtert gegen den übergeordneten Trend
 - 💡 Re-Optimierung alle 3-4 Wochen empfohlen
 - 💡 Tägliches Monitoring ist essentiell
 
