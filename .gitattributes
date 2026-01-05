@@ -1,0 +1,19 @@
+* text=auto
+
+# Shell scripts
+*.sh eol=lf
+show_results.sh eol=lf export-ignore
+show_status.sh eol=lf export-ignore
+show_chart.sh eol=lf export-ignore
+run_pipeline.sh eol=lf export-ignore
+run_pipeline_automated.sh eol=lf export-ignore
+run_tests.sh eol=lf export-ignore
+send_report.sh eol=lf export-ignore
+install.sh eol=lf export-ignore
+update.sh eol=lf export-ignore
+
+# PowerShell scripts
+*.ps1 eol=crlf
+
+# Python files
+*.py text eol=lf
