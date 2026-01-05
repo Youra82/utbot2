@@ -112,16 +112,23 @@ def main():
         CURRENT_TIMEFRAME = timeframe
         CURRENT_HTF = determine_htf(timeframe)
 
-        print(f"\n===== Optimiere: {symbol} ({timeframe}) [Ichimoku] =====")
+        print(f"\n===== Optimiere: {symbol} ({timeframe}) [Ichimoku + Supertrend MTF] =====")
         HISTORICAL_DATA = load_data(symbol, timeframe, args.start_date, args.end_date)
         if HISTORICAL_DATA.empty: continue
 
         DB_FILE = os.path.join(PROJECT_ROOT, 'artifacts', 'db', 'optuna_studies_ichimoku.db')
         os.makedirs(os.path.dirname(DB_FILE), exist_ok=True)
         STORAGE_URL = f"sqlite:///{DB_FILE}?timeout=60"
-        study_name = f"ichi_{create_safe_filename(symbol, timeframe)}{CONFIG_SUFFIX}_{OPTIM_MODE}"
+        study_name = f"ichi_st_{create_safe_filename(symbol, timeframe)}{CONFIG_SUFFIX}_{OPTIM_MODE}"
 
-        study = optuna.create_study(storage=STORAGE_URL, study_name=study_name, direction="maximize", load_if_exists=True)
+        # Alte Study löschen falls vorhanden, um mit frischen Parametern zu starten
+        try:
+            optuna.delete_study(study_name=study_name, storage=STORAGE_URL)
+            print(f"  -> Alte Study '{study_name}' gelöscht, starte neu...")
+        except KeyError:
+            pass  # Study existiert noch nicht
+
+        study = optuna.create_study(storage=STORAGE_URL, study_name=study_name, direction="maximize", load_if_exists=False)
         try:
             study.optimize(objective, n_trials=N_TRIALS, n_jobs=args.jobs, show_progress_bar=True)
         except Exception as e:
