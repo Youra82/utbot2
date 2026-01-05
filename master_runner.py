@@ -78,11 +78,11 @@ def main():
                 print(f"\n--- Überspringe inaktive Strategie: {symbol} ({timeframe}) ---")
                 continue
 
-            symbol, timeframe, use_macd = None, None, None # use_macd wird für SMC nicht verwendet
+            symbol, timeframe, use_macd = None, None, None # use_macd wird für Ichimoku nicht verwendet
 
             if use_autopilot and isinstance(strategy_info, str):
                 # ... (Diese Logik muss ggf. angepasst werden, wenn der Autopilot
-                # ... (für SMC genutzt wird, aktuell ignoriert)
+                # ... (für Ichimoku genutzt wird, aktuell ignoriert)
                 pass 
             
             elif isinstance(strategy_info, dict):

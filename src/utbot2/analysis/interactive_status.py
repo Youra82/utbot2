@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Interactive Status für SMC+EMA Bots (PBot, STBot, UtBot2, TitanBot)
-Zeigt Candlestick-Chart mit EMAs, Bollinger Bands und simulierten Trades
+Interactive Charts für UtBot2 - Ichimoku Cloud Strategie
+Zeigt Candlestick-Chart mit Ichimoku Indikatoren (Tenkan, Kijun, Kumo)
 Nutzt durchnummerierte Konfigurationsdateien zum Auswählen
 """
 
@@ -100,27 +100,33 @@ def load_config(filepath):
     with open(filepath, 'r') as f:
         return json.load(f)
 
-def add_smc_ema_indicators(df):
-    """Fügt SMC+EMA Indikatoren hinzu"""
-    # EMAs für Trend-Erkennung
-    df['ema_20'] = ta.trend.ema_indicator(df['close'], window=20)
-    df['ema_50'] = ta.trend.ema_indicator(df['close'], window=50)
-    df['ema_200'] = ta.trend.ema_indicator(df['close'], window=200)
+def add_ichimoku_indicators(df):
+    """Fügt Ichimoku Cloud Indikatoren hinzu"""
+    # Ichimoku Parameter (Standard für Krypto)
+    tenkan_period = 9
+    kijun_period = 26
+    senkou_span_b_period = 52
+    displacement = 26
     
-    # Bollinger Bands für Squeeze Detection
-    bb = ta.volatility.BollingerBands(df['close'], window=20, window_dev=2)
-    df['bb_upper'] = bb.bollinger_hband()
-    df['bb_middle'] = bb.bollinger_mavg()
-    df['bb_lower'] = bb.bollinger_lband()
-    df['bb_width'] = bb.bollinger_wband()
+    # Hilfsfunktion: Donchian Channel
+    def donchian(high, low, window):
+        return (high.rolling(window).max() + low.rolling(window).min()) / 2
     
-    # ATR für Stop Loss
-    df['atr'] = ta.volatility.average_true_range(df['high'], df['low'], df['close'], window=14)
+    # Ichimoku Linien berechnen
+    df['tenkan_sen'] = donchian(df['high'], df['low'], tenkan_period)
+    df['kijun_sen'] = donchian(df['high'], df['low'], kijun_period)
+    
+    # Senkou Spans (verschoben)
+    df['senkou_span_a'] = ((df['tenkan_sen'] + df['kijun_sen']) / 2).shift(displacement)
+    df['senkou_span_b'] = donchian(df['high'], df['low'], senkou_span_b_period).shift(displacement)
+    
+    # Chikou Span (verzögert)
+    df['chikou_span'] = df['close'].shift(-displacement)
     
     return df
 
 def create_interactive_chart(symbol, timeframe, df, trades, start_date, end_date, window=None):
-    """Erstellt interaktiven Chart mit SMC+EMA Indikatoren und Trades"""
+    """Erstellt interaktiven Chart mit Ichimoku Cloud Indikatoren und Trades"""
     
     # Filter auf Fenster
     if window:
@@ -216,7 +222,7 @@ def create_interactive_chart(symbol, timeframe, df, trades, start_date, end_date
         )
     
     bot_display = BOT_NAME.upper()
-    title = f"{symbol} {timeframe} - {bot_display} (SMC+EMA Strategy)"
+    title = f"{symbol} {timeframe} - {bot_display} (Ichimoku Cloud Strategy)"
     fig.update_layout(
         title=title,
         height=800,
@@ -280,7 +286,7 @@ def main():
                 continue
             
             logger.info("Berechne Indikatoren...")
-            df = add_smc_ema_indicators(df)
+            df = add_ichimoku_indicators(df)
             
             # Erstelle Chart
             logger.info("Erstelle Chart...")
