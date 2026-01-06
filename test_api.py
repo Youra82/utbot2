@@ -41,7 +41,14 @@ def run_test():
         
         params = {
             'market': {'symbol': symbol, 'timeframe': timeframe, 'htf': htf}, 
-            'strategy': { 'swingsLength': 20, 'ob_mitigation': 'High/Low' },
+            'strategy': { 
+                'tenkan_period': 9, 
+                'kijun_period': 26, 
+                'senkou_span_b_period': 52,
+                'displacement': 26,
+                'supertrend_atr_period': 10,
+                'supertrend_multiplier': 3.0
+            },
             'risk': {
                 'margin_mode': 'isolated',
                 'risk_per_trade_pct': 0.5,
