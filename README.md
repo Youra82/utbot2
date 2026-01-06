@@ -783,3 +783,17 @@ Entwickelt mit:
 [🔝 Nach oben](#-utbot2---universal-trading-bot-v2)
 
 </div>
+
+---
+
+## 🛠️ Git: Änderungen mit force push übertragen
+
+Falls du Änderungen (z.B. Bugfixes oder neue Features) direkt und ohne Rücksicht auf den Remote-Stand pushen willst, kannst du einen Force-Push verwenden. **Achtung:** Dies überschreibt den Remote-Branch und sollte nur verwendet werden, wenn du sicher bist, dass keine wichtigen Änderungen verloren gehen!
+
+```bash
+git add .
+git commit -m "Dein Commit-Text"
+git push --force
+```
+
+**Hinweis:** Die Datei `secret.json` solltest du vor dem Push bereinigen oder aus dem Commit entfernen, um sensible Daten zu schützen.
