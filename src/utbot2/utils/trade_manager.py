@@ -215,8 +215,9 @@ def check_and_open_new_position(exchange, model, scaler, params, telegram_config
         # Risk Management
         risk_params = params.get('risk', {})
         leverage = risk_params.get('leverage', 10)
-        if not exchange.set_margin_mode(symbol, risk_params.get('margin_mode', 'isolated')): return
+        margin_mode = risk_params.get('margin_mode', 'isolated')
         if not exchange.set_leverage(symbol, leverage): return
+        if not exchange.set_margin_mode(symbol, margin_mode): return
 
         balance = exchange.fetch_balance_usdt()
         if balance <= 0:
@@ -261,7 +262,8 @@ def check_and_open_new_position(exchange, model, scaler, params, telegram_config
 
         # Orders
         logger.info(f"Eröffne {pos_side.upper()}-Position: {amount:.6f} @ ~${estimated_entry_price:.6f} | Risk: {risk_usdt:.2f} USDT")
-        entry_order = exchange.create_market_order(symbol, pos_side, amount, {'leverage': leverage})
+        order_params = {'marginMode': margin_mode}
+        entry_order = exchange.create_market_order(symbol, pos_side, amount, order_params)
         if not entry_order: return
         
         # *** KRITISCH: Hole den ECHTEN Fill-Preis ***
