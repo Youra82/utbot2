@@ -2,15 +2,14 @@
 
 <div align="center">
 
-![UTBot2 Logo](https://img.shields.io/badge/UTBot2-v2.0-blue?style=for-the-badge)
+![UTBot2 Logo](https://img.shields.io/badge/UTBot2-v1.0-blue?style=for-the-badge)
 [![Python](https://img.shields.io/badge/Python-3.8+-green?style=for-the-badge&logo=python)](https://www.python.org/)
 [![CCXT](https://img.shields.io/badge/CCXT-4.3.5-red?style=for-the-badge)](https://github.com/ccxt/ccxt)
-[![Optuna](https://img.shields.io/badge/Optuna-4.5-purple?style=for-the-badge)](https://optuna.org/)
 [![License](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)](LICENSE)
 
-**Ein universeller, flexibler Trading-Bot mit Multi-Asset-Support und fortgeschrittenen Trading-Strategien**
+**Ein universeller, flexibler Trading-Bot mit Ichimoku Cloud Indicator und Multi-Timeframe Supertrend Filter für maximale Adaptivität**
 
-[Features](#-features) • [Installation](#-installation) • [Optimierung](#-optimierung) • [Live-Trading](#-live-trading) • [Monitoring](#-monitoring) • [Wartung](#-wartung)
+[Features](#-features) • [Installation](#-installation) • [Konfiguration](#-konfiguration) • [Live-Trading](#-live-trading) • [Pipeline](#-interaktives-pipeline-script) • [Monitoring](#-monitoring--status) • [Wartung](#-wartung)
 
 </div>
 
@@ -18,96 +17,81 @@
 
 ## 📊 Übersicht
 
-UTBot2 ist die zweite Generation eines universellen Trading-Bots, der für maximale Flexibilität und Anpassungsfähigkeit entwickelt wurde. Das System unterstützt eine Vielzahl von Handelspaaren und Timeframes und kann an verschiedene Marktbedingungen angepasst werden.
+UTBot2 ist die zweite Generation eines universellen Trading-Bots mit maximaler Flexibilität und Anpassungsfähigkeit. Das System nutzt die komplette Ichimoku Kinko Hyo Indikator-Suite (alle 5 Komponenten) mit Multi-Timeframe Supertrend-Filter für konsistente Performance über verschiedenste Marktbedingungen.
 
 ### 🧭 Trading-Logik (Kurzfassung)
-- **Vollständiger Ichimoku Kinko Hyo**: Alle 5 Komponenten (Tenkan, Kijun, Senkou A/B, Chikou) werden für maximale Signalqualität genutzt.
-- **Supertrend MTF-Filter**: Die übergeordnete Timeframe wird via Supertrend-Indikator gefiltert - nur Trades in Richtung des HTF-Trends.
-- **Multi-Asset Core**: Parallele Strategien je Symbol/Timeframe mit gemeinsamer Risk-Engine.
-- **Risk Layer**: ATR-basiertes SL/TP, optionales Trailing; Position Sizing auf Konto-Risk begrenzt.
-- **Optimizer Loop**: Optuna sucht Ichimoku- und Supertrend-Parameter; Ergebnisse landen als Configs pro Symbol.
+- **Vollständiger Ichimoku**: Alle 5 Komponenten (Tenkan-sen, Kijun-sen, Senkou A, Senkou B, Chikou Span) für maximale Signalqualität
+- **Cloud-Strategie**: Preis-Position zur Kumo (Wolke) ist Basis für Trendrichtung und Entry-Punkte
+- **Supertrend MTF-Filter**: Übergeordneter Timeframe via Supertrend-Indikator filtert nur Trades in Richtung des HTF-Trends
+- **Multi-Asset Core**: Parallele Strategien je Symbol/Timeframe mit gemeinsamer Risk-Engine
+- **Risk Layer**: ATR-basiertes SL/TP, optionales Trailing; Position Sizing auf Konto-Risk begrenzt
+- **Optimizer Loop**: Optuna sucht Ichimoku- und Supertrend-Parameter; Ergebnisse werden als Configs pro Symbol gespeichert
+- **Execution**: CCXT für Order-Platzierung mit realistischer Slippage-Simulation
 
 ### 🔍 Strategie-Visualisierung
 ```mermaid
 flowchart LR
-    A["OHLCV"]
-    B["Ichimoku (Entry TF)<br/>Tenkan | Kijun | Senkou A/B | Chikou"]
-    C["Supertrend (HTF)<br/>Trend-Filter"]
-    D["Signal-Validierung<br/>Alle 5 Ichimoku-Bedingungen"]
-    E["Risk Engine<br/>ATR-SL/TP + Trail"]
-    F["Order Router (CCXT)"]
+    A["OHLCV Marktdaten (Entry TF)"]
+    B["Ichimoku Engine<br/>Tenkan | Kijun | Senkou A/B | Chikou"]
+    C["Cloud Position<br/>über/in/unter Kumo"]
+    D["Signal-Validierung<br/>Alle 5 Bedingungen"]
+    E["MTF Supertrend<br/>HTF Trend-Filter"]
+    F["Risk Engine<br/>ATR-SL/TP + Trail"]
+    G["Order Router (CCXT)"]
 
-    A --> B
-    A --> C
-    B --> D
-    C -->|"MTF-Bias"| D
-    D --> E --> F
+    A --> B --> C --> D
+    A -->|HTF OHLCV| E
+    D & E --> F --> G
 ```
 
 ### 📈 Vollständiges Ichimoku-Signal
 
 **LONG-Bedingungen (alle müssen erfüllt sein):**
-1. ✅ Preis über der Kumo (Wolke)
-2. ✅ Tenkan-sen > Kijun-sen
+1. ✅ Preis über der Kumo (Wolke = Senkou A/B)
+2. ✅ Tenkan-sen > Kijun-sen (Momentum)
 3. ✅ Chikou Span über historischem Preis UND historischer Wolke
 4. ✅ Zukunftswolke ist bullish (Senkou A > Senkou B)
-5. ✅ Preis über Tenkan-sen (Momentum)
+5. ✅ Preis über Tenkan-sen (schnelle EMA)
 6. ✅ HTF Supertrend ist BULLISH
 
 **SHORT-Bedingungen (alle müssen erfüllt sein):**
-1. ✅ Preis unter der Kumo (Wolke)
+1. ✅ Preis unter der Kumo
 2. ✅ Tenkan-sen < Kijun-sen
 3. ✅ Chikou Span unter historischem Preis UND historischer Wolke
 4. ✅ Zukunftswolke ist bearish (Senkou A < Senkou B)
-5. ✅ Preis unter Tenkan-sen (Momentum)
+5. ✅ Preis unter Tenkan-sen
 6. ✅ HTF Supertrend ist BEARISH
 
 ### 📊 Trade-Beispiel (TP/SL/Trailing)
 - **Setup**: Alle 5 Ichimoku-Bedingungen bullish + HTF Supertrend grün → Long-Signal
-- **Entry**: Bei Signalbestätigung zum Close-Preis
+- **Entry**: Bei Signalbestätigung zum Close-Preis mit Telegram-Alert
 - **Initial SL**: ATR-Multiplikator × ATR unter Entry (mindestens 0.5%)
-- **TP**: SL-Distanz × Risk-Reward-Ratio
-- **Trailing**: Nach Erreichen des Activation-RR wird der SL nachgezogen
-
-### 🏗️ Architektur
-```
-Entry-TF OHLCV → Ichimoku Engine → Signal-Validierung ─┐
-                                                       ├→ Risk Engine → CCXT Orders
-HTF OHLCV ──────→ Supertrend Engine → MTF-Bias ───────┘
-                        ↘ Optuna (Parameter) ↗
-```
-
-### 🎯 Hauptmerkmale
-
-- **🌐 Universal**: Funktioniert mit verschiedenen Kryptowährungen und Strategien
-- **📈 Multi-Asset**: Handel von 7+ Assets gleichzeitig
-- **🔧 Highly Configurable**: Einfach anpassbare Parameter
-- **💰 Flexible Timeframes**: Von 15m bis 1d
-- **⚡ Optimized Performance**: Schnelle Ausführung und niedrige Latenz
-- **📊 Advanced Analytics**: Umfassende Performance-Analysen
-- **🛡️ Risk Management**: Intelligentes Risikomanagement
-- **🔔 Notifications**: Real-time Updates via Telegram (optional)
+- **TP**: SL-Distanz × Risk-Reward-Ratio (Default: 2.0)
+- **Trailing**: Nach Erreichen des Activation-RR wird der SL nachgezogen unter letzte Higher Low
 
 ---
 
 ## 🚀 Features
 
 ### Trading Features
-- ✅ 7+ Kryptowährungspaare (BTC, ETH, SOL, DOGE, XRP, ADA, AAVE)
+- ✅ Ichimoku Kinko Hyo komplette Implementierung (5 Komponenten)
+- ✅ Supertrend Multi-Timeframe Filter (HTF-Bias)
+- ✅ 7+ Kryptowährungspaare gleichzeitig (BTC, ETH, SOL, DOGE, XRP, ADA, AAVE)
 - ✅ Multiple Timeframes (15m, 30m, 1h, 6h, 1d)
-- ✅ Vollständiger Ichimoku Kinko Hyo (alle 5 Komponenten)
-- ✅ Supertrend Multi-Timeframe Filter
-- ✅ Dynamisches Position Sizing
-- ✅ ATR-basiertes Stop-Loss und Take-Profit
-- ✅ Trailing Stop Management
+- ✅ Dynamisches Position Sizing basierend auf ATR
+- ✅ ATR-basiertes Stop-Loss und Take-Profit Management
+- ✅ Trailing Stop Management mit Activation-RR
 - ✅ Automatische Trade-Verwaltung
+- ✅ Telegram-Benachrichtigungen
 
 ### Technical Features
-- ✅ Optuna Hyperparameter-Optimierung
-- ✅ Ichimoku Cloud Indikatoren (Tenkan, Kijun, Senkou A/B, Chikou)
+- ✅ CCXT Integration für mehrere Börsen
+- ✅ Ichimoku Cloud Indikatoren (vollständig)
 - ✅ Supertrend Indikator für MTF-Filtering
 - ✅ ATR für dynamisches Risk Management
-- ✅ Backtesting mit realistischer Simulation
+- ✅ Optuna Hyperparameter-Optimierung
+- ✅ Backtesting mit realistischer Slippage-Simulation
+- ✅ Walk-Forward-Analyse
 - ✅ Performance-Tracking und Reporting
 
 ---
@@ -135,7 +119,7 @@ git clone https://github.com/Youra82/utbot2.git
 cd utbot2
 ```
 
-### 2. Automatische Installation
+### 2. Automatische Installation (empfohlen)
 
 ```bash
 # Linux/macOS
@@ -148,21 +132,22 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
-Das Installations-Script:
-- ✅ Erstellt virtuelle Python-Umgebung
-- ✅ Installiert alle Dependencies
-- ✅ Erstellt Verzeichnisstruktur
-- ✅ Initialisiert Konfigurationen
+Das Installations-Script führt folgende Schritte aus:
+- ✅ Erstellt eine virtuelle Python-Umgebung (`.venv`)
+- ✅ Installiert alle erforderlichen Abhängigkeiten
+- ✅ Erstellt notwendige Verzeichnisse (`data/`, `logs/`, `artifacts/`)
+- ✅ Initialisiert Konfigurationsdateien
+- ✅ Ladet historische Daten für Ichimoku-Berechnung
 
 ### 3. API-Credentials konfigurieren
 
-Erstelle `secret.json`:
+Erstelle eine `secret.json` Datei im Root-Verzeichnis:
 
 ```json
 {
   "utbot2": [
     {
-      "name": "Binance Main Account",
+      "name": "Binance Trading Account",
       "exchange": "binance",
       "apiKey": "DEIN_API_KEY",
       "secret": "DEIN_SECRET_KEY",
@@ -174,34 +159,31 @@ Erstelle `secret.json`:
 }
 ```
 
-⚠️ **Sicherheit**:
-- Niemals `secret.json` committen!
-- Nur API-Keys ohne Withdrawal-Rechte verwenden
-- IP-Whitelist aktivieren
-- 2-Faktor-Authentifizierung aktivieren
+⚠️ **Wichtig**: 
+- Niemals `secret.json` committen oder teilen!
+- Verwende nur API-Keys mit eingeschränkten Rechten (Nur Trading, keine Withdrawals)
+- Aktiviere IP-Whitelist auf der Exchange
 
 ### 4. Trading-Strategien konfigurieren
 
-Bearbeite `settings.json`:
+Bearbeite `settings.json` für deine gewünschten Handelspaare:
 
 ```json
 {
   "live_trading_settings": {
-    "use_auto_optimizer_results": false,
     "active_strategies": [
       {
         "symbol": "BTC/USDT:USDT",
-        "timeframe": "1h",
+        "timeframe": "6h",
+        "higher_timeframe": "1d",
+        "use_supertrend_filter": true,
         "active": true
       },
       {
         "symbol": "ETH/USDT:USDT",
         "timeframe": "4h",
-        "active": true
-      },
-      {
-        "symbol": "SOL/USDT:USDT",
-        "timeframe": "1h",
+        "higher_timeframe": "1d",
+        "use_supertrend_filter": true,
         "active": true
       }
     ]
@@ -211,64 +193,10 @@ Bearbeite `settings.json`:
 
 **Parameter-Erklärung**:
 - `symbol`: Handelspaar (Format: BASE/QUOTE:SETTLE)
-- `timeframe`: Zeitrahmen (15m, 30m, 1h, 2h, 4h, 6h, 1d)
-- `active`: Strategie aktivieren/deaktivieren (true/false)
-
-**HTF-Mapping** (automatisch):
-| Entry-TF | HTF (Supertrend) |
-|----------|------------------|
-| 5m, 15m  | 1h               |
-| 30m, 1h  | 4h               |
-| 2h, 4h   | 1d               |
-| 6h, 1d   | 1d               |
-
----
-
-## 🎯 Optimierung & Training
-
-### Vollständige Pipeline (Empfohlen)
-
-```bash
-./run_pipeline.sh
-```
-
-Pipeline-Schritte:
-1. **Aufräumen** (Optional): Alte Configs löschen
-2. **Symbol-Auswahl**: Handelspaare interaktiv wählen
-3. **Timeframe-Auswahl**: Zeitrahmen für jedes Paar konfigurieren
-4. **Daten-Download**: Historische Marktdaten laden
-5. **Optimierung**: Parameter mit Optuna optimieren
-6. **Backtest**: Strategien auf historischen Daten validieren
-7. **Config-Generierung**: Configs für Live-Trading erstellen
-
-### Manuelle Optimierung
-
-```bash
-source .venv/bin/activate
-python src/utbot2/analysis/optimizer.py
-```
-
-**Erweiterte Optionen**:
-```bash
-# Spezifische Symbole optimieren
-python src/utbot2/analysis/optimizer.py --symbols BTC ETH SOL
-
-# Custom Timeframes
-python src/utbot2/analysis/optimizer.py --timeframes 30m 1h 6h
-
-# Mehr Optimierungs-Trials (bessere Ergebnisse)
-python src/utbot2/analysis/optimizer.py --trials 400
-
-# Walk-Forward Analyse
-python src/utbot2/analysis/optimizer.py --walk-forward
-```
-
-**Optimierte Parameter**:
-- Ichimoku-Perioden (Tenkan, Kijun, Senkou Span B)
-- Supertrend ATR-Periode und Multiplikator
-- Stop-Loss/Take-Profit Levels (ATR-basiert)
-- Trailing Stop Activation und Callback-Rate
-- Risk-Management-Parameter (Leverage, Risk-per-Trade)
+- `timeframe`: Einstiegs-Timeframe
+- `higher_timeframe`: Multi-Timeframe Filter Timeframe
+- `use_supertrend_filter`: Supertrend-Filter aktivieren (true/false)
+- `active`: Strategie aktiv (true/false)
 
 ---
 
@@ -277,29 +205,48 @@ python src/utbot2/analysis/optimizer.py --walk-forward
 ### Start des Live-Trading
 
 ```bash
-# Master Runner starten (alle aktiven Strategien)
+# Master Runner starten (verwaltet alle aktiven Strategien)
 python master_runner.py
 ```
 
 ### Manuell starten / Cronjob testen
-Direkt ausführen, ohne auf den nächsten Cron-Lauf zu warten:
+Ausführung sofort anstoßen (ohne auf den 15-Minuten-Cron zu warten):
 
 ```bash
 cd /home/ubuntu/utbot2 && /home/ubuntu/utbot2/.venv/bin/python3 /home/ubuntu/utbot2/master_runner.py
 ```
 
 Der Master Runner:
-- ✅ Lädt alle aktiven Strategien aus `settings.json`
-- ✅ Startet separate Prozesse für jedes Handelspaar
+- ✅ Lädt Konfigurationen aus `settings.json`
+- ✅ Berechnet Ichimoku-Signale für Entry-Timeframe
+- ✅ Berechnet Supertrend für Higher-Timeframe (Bias-Filter)
+- ✅ Startet separate Prozesse für jede aktive Strategie
 - ✅ Überwacht Kontostand und verfügbares Kapital
-- ✅ Verwaltet Positionen und Orders
-- ✅ Führt detailliertes Logging durch
+- ✅ Managed Positionen und Risk-Limits
+- ✅ Loggt alle Trading-Aktivitäten
+- ✅ Sendet Telegram-Benachrichtigungen für neue Signale
 
-### Automatischer Start
+### Automatischer Start (Produktions-Setup)
+
+Richte den automatischen Prozess für den Live-Handel ein.
 
 ```bash
-# Optimierung + Live-Trading
-./run_pipeline_automated.sh
+crontab -e
+```
+
+Füge die folgende **eine Zeile** am Ende der Datei ein. Passe den Pfad an, falls dein Bot nicht unter `/home/ubuntu/utbot2` liegt.
+
+```
+# Starte den UTBot2 Master-Runner alle 15 Minuten
+*/15 * * * * /usr/bin/flock -n /home/ubuntu/utbot2/utbot2.lock /bin/sh -c "cd /home/ubuntu/utbot2 && /home/ubuntu/utbot2/.venv/bin/python3 /home/ubuntu/utbot2/master_runner.py >> /home/ubuntu/utbot2/logs/cron.log 2>&1"
+```
+
+*(Hinweis: `flock` ist eine gute Ergänzung, um Überlappungen zu verhindern, aber für den Start nicht zwingend notwendig.)*
+
+Logverzeichnis anlegen:
+
+```bash
+mkdir -p /home/ubuntu/utbot2/logs
 ```
 
 ### Als Systemd Service (Linux)
@@ -307,6 +254,7 @@ Der Master Runner:
 Für 24/7 Betrieb:
 
 ```bash
+# Service-Datei erstellen
 sudo nano /etc/systemd/system/utbot2.service
 ```
 
@@ -322,23 +270,132 @@ WorkingDirectory=/path/to/utbot2
 ExecStart=/path/to/utbot2/.venv/bin/python master_runner.py
 Restart=always
 RestartSec=10
-Environment="PYTHONUNBUFFERED=1"
 
 [Install]
 WantedBy=multi-user.target
 ```
 
 ```bash
-# Service aktivieren und starten
+# Service aktivieren
 sudo systemctl enable utbot2
 sudo systemctl start utbot2
 
 # Status prüfen
 sudo systemctl status utbot2
-
-# Logs verfolgen
-sudo journalctl -u utbot2 -f
 ```
+
+---
+
+## 📊 Interaktives Pipeline-Script
+
+Das **`run_pipeline.sh`** Script automatisiert die Parameter-Optimierung für deine Handelsstrategien. Es führt Optuna-basierte Hyperparameter-Suche durch und findet die optimalen Ichimoku- und Supertrend-Einstellungen.
+
+### Features des Pipeline-Scripts
+
+✅ **Interaktive Eingabe** - Einfache Menü-Navigation  
+✅ **Automatische Datumswahl** - Zeitrahmen-basierte Lookback-Berechnung  
+✅ **Optuna-Optimierung** - Bayessche Hyperparameter-Suche  
+✅ **Ladebalken** - Visueller Fortschritt mit tqdm  
+✅ **Batch-Optimierung** - Mehrere Symbol/Timeframe-Kombinationen  
+✅ **Automatisches Speichern** - Optimale Konfigurationen als JSON  
+✅ **Integrierte Backtests** - Sofort nach Optimierung testen  
+
+### Verwendung
+
+```bash
+# Pipeline starten
+chmod +x run_pipeline.sh
+./run_pipeline.sh
+```
+
+### Interaktive Eingaben
+
+Das Script fragt dich nach folgende Informationen:
+
+#### 1. Symbol eingeben
+```
+Welche(s) Symbol(e) möchtest du optimieren?
+(z.B. BTC oder: BTC ETH SOL)
+> BTC
+```
+
+#### 2. Timeframe eingeben
+```
+Welche(s) Timeframe(s)?
+(z.B. 1d oder: 1d 4h 1h)
+> 1d
+```
+
+#### 3. Startdatum eingeben
+```
+Startdatum (YYYY-MM-DD oder 'a' für automatisch)?
+Automatische Optionen pro Timeframe:
+  5m/15m    → 60 Tage Lookback
+  30m/1h    → 180 Tage Lookback
+  4h/2h     → 365 Tage Lookback
+  6h/1d     → 730 Tage Lookback
+> a
+```
+
+#### 4. Startkapital eingeben
+```
+Mit wieviel USD starten? (Standard: 100)
+> 100
+```
+
+### Optimierte Konfigurationen
+
+Nach erfolgreicher Optimierung werden die besten Parameter gespeichert:
+
+```
+artifacts/optimal_configs/
+├── optimal_BTCUSDT_1d.json
+├── optimal_BTCUSDT_4h.json
+├── optimal_ETHUSDT_1d.json
+└── optimal_ETHUSDT_4h.json
+```
+
+**Beispiel-Konfiguration** (`optimal_BTCUSDT_1d.json`):
+
+```json
+{
+  "symbol": "BTCUSDT",
+  "timeframe": "1d",
+  "higher_timeframe": "1d",
+  "parameters": {
+    "tenkan_period": 9,
+    "kijun_period": 26,
+    "senkou_b_period": 52,
+    "chikou_lag": 26,
+    "supertrend_atr": 10,
+    "supertrend_multiplier": 3.0,
+    "sl_atr_multiplier": 2.0,
+    "tp_rr_ratio": 2.5
+  },
+  "performance": {
+    "total_return": 9.75,
+    "win_rate": 64.3,
+    "num_trades": 14,
+    "max_drawdown": -5.42,
+    "end_capital": 675.00
+  },
+  "timestamp": "2025-01-01T20:17:35.833000"
+}
+```
+
+### Integration mit Live-Trading
+
+Die optimierten Konfigurationen werden **automatisch geladen**, wenn du `show_results.sh` ausführst:
+
+```bash
+./show_results.sh
+```
+
+Das Script lädt die optimalen Parameter und nutzt sie für Live-Trading:
+- ✅ Bessere Ergebnisse durch optimierte Ichimoku-Parameter
+- ✅ Optimal abgestimmte Supertrend-Filter-Einstellungen
+- ✅ Konsistente Strategie-Ausführung über alle Paare
+- ✅ Einfaches A/B-Testing von Parametern
 
 ---
 
@@ -347,181 +404,112 @@ sudo journalctl -u utbot2 -f
 ### Status-Dashboard
 
 ```bash
-# Vollständiger Status
+# Zeigt alle wichtigen Informationen
 ./show_status.sh
 ```
 
-Zeigt:
-- 📊 Aktuelle Konfiguration
+**Angezeigt**:
+- 📊 Aktuelle Konfiguration (`settings.json`)
+- 🔐 API-Status (ohne Credentials)
 - 📈 Offene Positionen
-- 💰 Kontostand
-- 📝 Recent Logs
+- 💰 Kontostand und verfügbares Kapital
+- 📝 Letzte Logs
+- ☁️ Aktueller Ichimoku-Status (Cloud-Position)
 
-### Performance-Monitoring
+### Live-Status anzeigen
 
 ```bash
-# Ergebnisse anzeigen
+# Aktuelle Positionen und Performance
 ./show_results.sh
-
-# Charts generieren
-./show_chart.sh
-
-# Chart per Telegram senden (falls konfiguriert)
-python generate_and_send_chart.py
 ```
 
-### Log-Files überwachen
+### Log-Files
 
 ```bash
-# Live-Trading Logs (alle Strategien)
-tail -f logs/live_trading_*.log
-
-# Spezifisches Symbol
-tail -f logs/live_trading_BTC_USDT_15m.log
-
-# Nur Trade-Signale
-grep -i "signal\|buy\|sell\|opened\|closed" logs/live_trading_*.log
+# Live-Trading Logs (Zentrale Log-Datei)
+tail -f logs/cron.log
 
 # Fehler-Logs
-tail -f logs/error_*.log
+tail -f logs/error.log
 
-# Profit-Zusammenfassung
-grep "Profit:" logs/*.log | awk '{sum+=$NF} END {print "Total:", sum}'
+# Logs einer individuellen Strategie
+tail -n 100 logs/utbot2_BTCUSDTUSDT_1d.log
 ```
 
-### Performance-Analyse
+### Performance-Metriken
 
 ```bash
-# Equity-Curves vergleichen
-python -c "
-import pandas as pd
-manual = pd.read_csv('manual_portfolio_equity.csv')
-optimal = pd.read_csv('optimal_portfolio_equity.csv')
-print('Manual Return:', (manual['equity'].iloc[-1] / manual['equity'].iloc[0] - 1) * 100, '%')
-print('Optimal Return:', (optimal['equity'].iloc[-1] / optimal['equity'].iloc[0] - 1) * 100, '%')
-"
+# Trade-Analyse
+python analyze_real_trades_detailed.py
 
-# Trade-Statistiken
-python -c "
-import pandas as pd
-try:
-    trades = pd.read_csv('logs/trades_history.csv')
-    print('Total Trades:', len(trades))
-    print('Win Rate:', (trades['pnl'] > 0).mean() * 100, '%')
-    print('Average PnL:', trades['pnl'].mean())
-    print('Best Trade:', trades['pnl'].max())
-    print('Worst Trade:', trades['pnl'].min())
-except:
-    print('No trade history found yet')
-"
+# Vergleich Backtest vs. Live
+python compare_real_vs_backtest.py
 ```
 
 ---
 
 ## 🛠️ Wartung & Pflege
 
-### Regelmäßige Wartung
+### Tägliche Verwaltung
 
-#### 1. Updates installieren
+#### Logs ansehen
+
+Die zentrale `cron.log`-Datei enthält **alle** wichtigen Informationen vom Scheduler und den Handels-Entscheidungen.
+
+  * **Logs live mitverfolgen (der wichtigste Befehl):**
+
+    ```bash
+    tail -f logs/cron.log
+    ```
+
+    *(Mit `Strg + C` beenden)*
+
+  * **Die letzten 200 Zeilen der zentralen Log-Datei anzeigen:**
+
+    ```bash
+    tail -n 200 logs/cron.log
+    ```
+
+  * **Zentrale Log-Datei nach Fehlern durchsuchen:**
+
+    ```bash
+    grep -i "ERROR" logs/cron.log
+    ```
+
+  * **Ichimoku-Signale filtern:**
+
+    ```bash
+    grep -i "ICHIMOKU\|CLOUD" logs/cron.log | tail -20
+    ```
+
+#### Cronjob manuell testen
+
+Um den `master_runner` sofort auszuführen, ohne auf den nächsten 15-Minuten-Takt zu warten:
 
 ```bash
-# Automatisches Update-Script
-./update.sh
+cd /home/ubuntu/utbot2 && /home/ubuntu/utbot2/.venv/bin/python3 /home/ubuntu/utbot2/master_runner.py
 ```
 
-Das Update-Script:
-- ✅ Pulled neueste Änderungen von Git
-- ✅ Updated Python-Dependencies
-- ✅ Migriert Konfigurationen
-- ✅ Führt Tests aus
+### Bot aktualisieren
 
-#### 2. Log-Rotation
+Um die neueste Version des Codes von deinem Git-Repository zu holen:
 
 ```bash
-# Alte Logs komprimieren (älter als 30 Tage)
+# Update aktivieren (einmalig)
+chmod +x update.sh
+
+# Update ausführen
+bash ./update.sh
+```
+
+### Log-Rotation
+
+```bash
+# Alte Logs archivieren (älter als 30 Tage)
 find logs/ -name "*.log" -type f -mtime +30 -exec gzip {} \;
 
 # Archivierte Logs löschen (älter als 90 Tage)
 find logs/ -name "*.log.gz" -type f -mtime +90 -delete
-
-# Log-Größe prüfen
-du -sh logs/
-```
-
-#### 3. Performance-Check
-
-```bash
-# Regelmäßige Performance-Prüfung
-python -c "
-import pandas as pd
-from datetime import datetime, timedelta
-
-try:
-    trades = pd.read_csv('logs/trades_history.csv')
-    trades['date'] = pd.to_datetime(trades['timestamp'])
-    week_ago = datetime.now() - timedelta(days=7)
-    recent = trades[trades['date'] > week_ago]
-    
-    print('=== Last 7 Days Performance ===')
-    print('Total Trades:', len(recent))
-    print('Win Rate:', (recent['pnl'] > 0).mean() * 100, '%')
-    print('Total PnL:', recent['pnl'].sum())
-except:
-    print('No trade data available')
-"
-```
-
-### Vollständiges Aufräumen
-
-#### Konfigurationen zurücksetzen
-
-```bash
-# Generierte Configs löschen
-rm -f src/utbot2/strategy/configs/config_*.json
-
-# Prüfen
-ls -la src/utbot2/strategy/configs/
-
-# Optimierungsergebnisse löschen
-rm -rf artifacts/results/*
-
-# Verification
-ls -la artifacts/results/
-```
-
-#### Cache und Daten löschen
-
-```bash
-# Heruntergeladene Marktdaten
-rm -rf data/raw/*
-rm -rf data/processed/*
-
-# Backtest-Cache
-rm -rf data/backtest_cache/*
-
-# Größe prüfen
-du -sh data/*
-```
-
-#### Kompletter Neustart
-
-```bash
-# Vollständiges Backup erstellen
-tar -czf utbot2_backup_$(date +%Y%m%d_%H%M%S).tar.gz \
-    secret.json settings.json artifacts/ logs/
-
-# Alles zurücksetzen
-rm -rf artifacts/* data/* logs/*
-mkdir -p artifacts/{results,backtest} data/{raw,processed} logs/
-
-# Re-Installation
-./install.sh
-
-# Konfiguration wiederherstellen
-cp settings.json.backup settings.json
-
-# Verification
-ls -R artifacts/ data/ logs/ | wc -l
 ```
 
 ### Tests ausführen
@@ -531,24 +519,12 @@ ls -R artifacts/ data/ logs/ | wc -l
 ./run_tests.sh
 
 # Spezifische Tests
-pytest tests/test_strategy.py -v
-pytest tests/test_exchange.py -v
+pytest tests/test_strategy.py
+pytest tests/test_ichimoku.py -v
+pytest tests/test_supertrend.py -v
 
 # Mit Coverage
 pytest --cov=src tests/
-
-# Coverage-Report generieren
-pytest --cov=src --cov-report=html tests/
-```
-
-### API-Account prüfen
-
-```bash
-# Account-Type und Permissions prüfen
-python check_account_type.py
-
-# API-Verbindung testen
-python test_api.py
 ```
 
 ---
@@ -561,17 +537,8 @@ python test_api.py
 # Settings validieren
 python -c "import json; print(json.load(open('settings.json')))"
 
-# Aktive Strategien auflisten
-python -c "
-import json
-settings = json.load(open('settings.json'))
-for strat in settings['live_trading_settings']['active_strategies']:
-    if strat['active']:
-        print(f\"{strat['symbol']} @ {strat['timeframe']}\")
-"
-
-# Backup mit Timestamp
-cp settings.json settings.json.backup.$(date +%Y%m%d_%H%M%S)
+# Backup erstellen
+cp settings.json settings.json.backup.$(date +%Y%m%d)
 
 # Diff zwischen Versionen
 diff settings.json settings.json.backup
@@ -580,71 +547,43 @@ diff settings.json settings.json.backup
 ### Prozess-Management
 
 ```bash
-# Alle UTBot2-Prozesse
+# Alle Python-Prozesse anzeigen
 ps aux | grep python | grep utbot2
 
-# Master Runner PID
-pgrep -f "python.*master_runner"
+# Master Runner Process-ID finden
+pgrep -f master_runner.py
 
-# Einzelne Strategien
-ps aux | grep "run.py"
-
-# Sauber beenden
+# Prozess sauber beenden
 pkill -f master_runner.py
 
-# Sofort beenden
+# Erzwungenes Beenden (Notfall)
 pkill -9 -f master_runner.py
-
-# Alle UTBot2-Prozesse beenden
-pkill -f "utbot2"
 ```
 
-### Exchange-Diagnose
+### Exchange-Verbindung
 
 ```bash
-# Verbindung testen
+# API-Verbindung testen
 python -c "from src.utbot2.utils.exchange import Exchange; \
-    e = Exchange('binance'); print('Connected')"
+    e = Exchange('binance'); print(e.fetch_balance())"
 
-# Balance abrufen
+# Marktdaten abrufen
 python -c "from src.utbot2.utils.exchange import Exchange; \
-    e = Exchange('binance'); balance = e.fetch_balance(); \
-    print('Total USDT:', balance['USDT']['total'])"
-
-# Offene Positionen
-python -c "from src.utbot2.utils.exchange import Exchange; \
-    e = Exchange('binance'); \
-    positions = [p for p in e.fetch_positions() if float(p['contracts']) != 0]; \
-    print('Open Positions:', len(positions)); \
-    for p in positions: print(f\"{p['symbol']}: {p['contracts']} contracts\")"
-
-# Marktdaten testen
-python -c "from src.utbot2.utils.exchange import Exchange; \
-    e = Exchange('binance'); \
-    ohlcv = e.fetch_ohlcv('BTC/USDT:USDT', '1h', limit=10); \
-    print('Fetched', len(ohlcv), 'candles successfully')"
+    e = Exchange('binance'); print(e.fetch_ohlcv('BTC/USDT:USDT', '1h'))"
 ```
 
 ### Debugging
 
 ```bash
-# Debug-Modus aktivieren
+# Verbose-Modus aktivieren
 export UTBOT2_DEBUG=1
-export PYTHONUNBUFFERED=1
 python master_runner.py
 
-# Nur Strategie-Logs anzeigen
-tail -f logs/live_trading_*.log | grep --color=auto -i "signal\|trade"
+# Nur Ichimoku-Logs anzeigen
+tail -f logs/cron.log | grep -i "ichimoku\|cloud\|signal"
 
-# Mit Python Debugger
+# Fehler im Detail
 python -m pdb master_runner.py
-
-# Interactive Shell mit Bot-Kontext
-python -i -c "
-from src.utbot2.utils.exchange import Exchange
-exchange = Exchange('binance')
-print('Exchange loaded. Use exchange.* methods')
-"
 ```
 
 ---
@@ -653,26 +592,25 @@ print('Exchange loaded. Use exchange.* methods')
 
 ```
 utbot2/
-├── src/utbot2/
-│   ├── analysis/              # Optimierung & Analyse
-│   │   └── optimizer.py
-│   ├── strategy/              # Trading-Strategien
-│   │   ├── run.py             # Main Strategy Runner
-│   │   └── configs/           # Generierte Configs
-│   ├── backtest/              # Backtesting
-│   │   └── backtester.py
-│   └── utils/                 # Utilities
-│       ├── exchange.py        # Exchange-Wrapper
-│       └── indicators.py      # Technical Indicators
+├── src/
+│   └── utbot2/
+│       ├── strategy/          # Trading-Logik
+│       │   ├── run.py
+│       │   ├── ichimoku_engine.py
+│       │   └── supertrend_filter.py
+│       ├── backtest/          # Backtesting
+│       │   └── backtester.py
+│       └── utils/             # Hilfsfunktionen
+│           ├── exchange.py
+│           └── telegram.py
+├── scripts/                   # Hilfsskripte
 ├── tests/                     # Unit-Tests
 ├── data/                      # Marktdaten
-│   ├── raw/
-│   └── processed/
 ├── logs/                      # Log-Files
 ├── artifacts/                 # Ergebnisse
-│   ├── results/
+│   ├── models/
 │   └── backtest/
-├── master_runner.py          # Main Entry-Point
+├── master_runner.py          # Haupt-Entry-Point
 ├── settings.json             # Konfiguration
 ├── secret.json               # API-Credentials
 └── requirements.txt          # Dependencies
@@ -684,32 +622,31 @@ utbot2/
 
 ### Risiko-Disclaimer
 
-⚠️ **Kryptowährungs-Trading ist hochriskant!**
+⚠️ **Trading mit Kryptowährungen birgt erhebliche Risiken!**
 
 - Nur Kapital einsetzen, dessen Verlust Sie verkraften können
-- Keine Gewinn-Garantien
+- Keine Garantie für Gewinne
 - Vergangene Performance ist kein Indikator für zukünftige Ergebnisse
-- Umfangreiches Testing auf Demo-Accounts empfohlen
-- Mit kleinen Beträgen beginnen und skalieren
+- Testen Sie ausgiebig mit Demo-Accounts
+- Starten Sie mit kleinen Beträgen
+- Ichimoku-Signale können in sideways Markets mehrsprachig sein
 
 ### Security Best Practices
 
-- 🔐 **Niemals** API-Keys mit Withdrawal-Rechten verwenden
+- 🔐 Niemals API-Keys mit Withdrawal-Rechten verwenden
 - 🔐 IP-Whitelist auf Exchange aktivieren
-- 🔐 2-Faktor-Authentifizierung für Exchange-Account
-- 🔐 `secret.json` in `.gitignore` eintragen
+- 🔐 2FA für Exchange-Account aktivieren
+- 🔐 `secret.json` niemals committen (in `.gitignore`)
 - 🔐 Regelmäßige Security-Updates durchführen
-- 🔐 Logs auf ungewöhnliche Aktivitäten prüfen
 
 ### Performance-Tipps
 
-- 💡 Starten Sie mit 2-3 unkorrelierten Assets
-- 💡 Mischen Sie verschiedene Timeframes
-- 💡 Längere Timeframes (6h, 1d) = Stabilere Signale, weniger Trades
-- 💡 Kürzere Timeframes (15m, 30m) = Mehr Trades, höheres Risiko
-- 💡 HTF Supertrend filtert gegen den übergeordneten Trend
-- 💡 Re-Optimierung alle 3-4 Wochen empfohlen
-- 💡 Tägliches Monitoring ist essentiell
+- 💡 Starten Sie mit 1-2 Strategien
+- 💡 Verwenden Sie längere Timeframes (6h+) für stabilere Cloud-Signale
+- 💡 Monitoren Sie regelmäßig die Ichimoku-Signale
+- 💡 Parameter regelmäßig mit Pipeline-Script optimieren
+- 💡 Higher-Timeframe Supertrend-Filter bei langen Timeframe-Kombinationen prüfen
+- 💡 Position-Sizing angemessen konfigurieren
 
 ---
 
@@ -719,20 +656,20 @@ utbot2/
 
 Bei Problemen oder Fragen:
 
-1. **Logs prüfen**: `logs/` Verzeichnis
-2. **Tests ausführen**: `./run_tests.sh`
-3. **GitHub Issue** erstellen mit:
-   - Detaillierte Problembeschreibung
+1. Prüfen Sie die Logs in `logs/`
+2. Führen Sie Tests aus: `./run_tests.sh`
+3. Öffnen Sie ein Issue auf GitHub mit:
+   - Beschreibung des Problems
    - Relevante Log-Auszüge
-   - System-Informationen (OS, Python-Version)
-   - Reproduktions-Schritte
+   - System-Informationen
+   - Schritte zur Reproduktion
 
 ### Updates erhalten
 
 ```bash
 # Regelmäßig Updates prüfen
 git fetch origin
-git log HEAD..origin/main --oneline
+git status
 
 # Updates installieren
 ./update.sh
@@ -744,9 +681,9 @@ Nach erfolgreicher Parameter-Optimierung können die Konfigurationsdateien auf d
 
 ```bash
 # Konfigurationsdateien auf Repository hochladen
-git add src/utbot2/strategy/configs/*.json
-git commit -m "Update: Optimierte Strategie-Konfigurationen"
-git push origin main --force
+git add artifacts/optimal_configs/*.json
+git commit -m "Update: Optimierte Ichimoku- und Supertrend-Parameter"
+git push origin main
 ```
 
 Dies sichert:
@@ -769,31 +706,16 @@ Entwickelt mit:
 - [CCXT](https://github.com/ccxt/ccxt) - Cryptocurrency Exchange Trading Library
 - [Optuna](https://optuna.org/) - Hyperparameter Optimization Framework
 - [Pandas](https://pandas.pydata.org/) - Data Analysis Library
-- [NumPy](https://numpy.org/) - Numerical Computing
-- [SciPy](https://scipy.org/) - Scientific Computing
+- [TA-Lib](https://github.com/mrjbq7/ta-lib) - Technical Analysis Library
 
 ---
 
 <div align="center">
 
-**Made with ❤️ for Universal Algorithmic Trading**
+**Made with ❤️ by the UTBot2 Team**
 
-⭐ Star this repo if you find it useful!
+⭐ Star uns auf GitHub wenn dir dieses Projekt gefällt!
 
 [🔝 Nach oben](#-utbot2---universal-trading-bot-v2)
 
 </div>
-
----
-
-## 🛠️ Git: Änderungen mit force push übertragen
-
-Falls du Änderungen (z.B. Bugfixes oder neue Features) direkt und ohne Rücksicht auf den Remote-Stand pushen willst, kannst du einen Force-Push verwenden. **Achtung:** Dies überschreibt den Remote-Branch und sollte nur verwendet werden, wenn du sicher bist, dass keine wichtigen Änderungen verloren gehen!
-
-```bash
-git add .
-git commit -m "Dein Commit-Text"
-git push --force
-```
-
-**Hinweis:** Die Datei `secret.json` solltest du vor dem Push bereinigen oder aus dem Commit entfernen, um sensible Daten zu schützen.
