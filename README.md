@@ -449,6 +449,22 @@ Um den `master_runner` sofort auszuführen, ohne auf den nächsten 15-Minuten-Ta
 cd /home/ubuntu/utbot2 && /home/ubuntu/utbot2/.venv/bin/python3 /home/ubuntu/utbot2/master_runner.py
 ```
 
+### 🔧 Config-Management
+
+#### Konfigurationsdateien löschen
+
+Bei Bedarf können alle generierten Konfigurationen gelöscht werden (z.B. vor einer neuen Optimierung):
+
+```bash
+rm -f src/utbot2/strategy/configs/config_*.json
+```
+
+#### Löschung verifizieren
+
+```bash
+ls -la src/utbot2/strategy/configs/config_*.json 2>&1 || echo "✅ Alle Konfigurationsdateien wurden gelöscht"
+```
+
 ### Bot aktualisieren
 
 Um die neueste Version des Codes von deinem Git-Repository zu holen:
