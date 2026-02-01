@@ -371,7 +371,10 @@ Das Script lädt die optimalen Parameter und nutzt sie für Live-Trading:
 ### Status-Dashboard
 
 ```bash
-# Zeigt alle wichtigen Informationen
+# Einmalig ausführbar machen
+chmod +x show_status.sh
+
+# Status anzeigen
 ./show_status.sh
 ```
 
@@ -383,10 +386,13 @@ Das Script lädt die optimalen Parameter und nutzt sie für Live-Trading:
 - 📝 Letzte Logs
 - ☁️ Aktueller Ichimoku-Status (Cloud-Position)
 
-### Live-Status anzeigen
+### Trading-Ergebnisse anzeigen
 
 ```bash
-# Aktuelle Positionen und Performance
+# Einmalig ausführbar machen
+chmod +x show_results.sh
+
+# Ergebnisse anzeigen
 ./show_results.sh
 ```
 
