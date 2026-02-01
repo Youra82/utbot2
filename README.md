@@ -477,6 +477,48 @@ chmod +x update.sh
 bash ./update.sh
 ```
 
+---
+
+## 🔄 Auto-Optimizer Verwaltung
+
+Der Bot verfügt über einen automatischen Optimizer, der wöchentlich die besten Parameter für alle aktiven Strategien sucht.
+
+### Optimizer manuell triggern
+
+Um eine sofortige Optimierung zu starten (ignoriert das Zeitintervall):
+
+```bash
+# Letzten Optimierungszeitpunkt löschen (erzwingt Neustart)
+rm /home/ubuntu/utbot2/data/cache/.last_optimization_run
+
+# Master Runner starten (prüft ob Optimierung fällig ist)
+cd /home/ubuntu/utbot2 && .venv/bin/python3 master_runner.py
+```
+
+### Optimizer-Logs überwachen
+
+```bash
+# Optimizer-Log live mitverfolgen
+tail -f /home/ubuntu/utbot2/logs/optimizer_output.log
+
+# Letzte 50 Zeilen des Optimizer-Logs anzeigen
+tail -50 /home/ubuntu/utbot2/logs/optimizer_output.log
+```
+
+### Optimierungsergebnisse ansehen
+
+```bash
+# Beste gefundene Parameter anzeigen (erste 50 Zeilen)
+cat /home/ubuntu/utbot2/artifacts/results/optimization_results.json | head -50
+```
+
+### Optimizer-Prozess überwachen
+
+```bash
+# Prüfen ob Optimizer gerade läuft (aktualisiert jede Sekunde)
+watch -n 1 "ps aux | grep optimizer"
+```
+
 
 
 ### Tests ausführen
