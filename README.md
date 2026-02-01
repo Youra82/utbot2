@@ -519,7 +519,60 @@ cat /home/ubuntu/utbot2/artifacts/results/optimization_results.json | head -50
 watch -n 1 "ps aux | grep optimizer"
 ```
 
+### ⚡ Paralleler Betrieb: Trading & Optimizer
 
+Der Optimizer läuft **vollständig parallel** zum Trading und blockiert keine Trades:
+
+```
+Cron (jede Stunde)
+│
+├─► master_runner.py startet
+│   │
+│   ├─► main() → Startet Bot-Prozesse (z.B. 7 Strategien)
+│   │            Jeder Bot ist ein eigener Prozess
+│   │
+│   └─► check_and_run_optimizer() → Startet Optimizer im Hintergrund
+│
+└─► master_runner.py BEENDET SICH (nach ~15 Sekunden)
+
+═══════════════════════════════════════════════════════════════
+
+Jetzt laufen PARALLEL und UNABHÄNGIG:
+
+┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐
+│ Bot: BTC/USDT   │  │ Bot: ETH/USDT   │  │ Bot: SOL/USDT   │
+│ (Prozess 1234)  │  │ (Prozess 1235)  │  │ (Prozess 1236)  │
+│                 │  │                 │  │                 │
+│ ✅ Handelt      │  │ ✅ Handelt      │  │ ✅ Handelt      │
+│ ✅ Öffnet Pos.  │  │ ✅ Öffnet Pos.  │  │ ✅ Öffnet Pos.  │
+│ ✅ Schließt     │  │ ✅ Schließt     │  │ ✅ Schließt     │
+└─────────────────┘  └─────────────────┘  └─────────────────┘
+        ↑                    ↑                    ↑
+        │                    │                    │
+        └────────────────────┴────────────────────┘
+                    Handeln weiter normal!
+
+┌─────────────────────────────────────────────────────────────┐
+│              OPTIMIZER (Prozess 9999)                       │
+│                                                             │
+│  Läuft im Hintergrund (kann 1-3 Stunden dauern)            │
+│  - Testet Parameter                                         │
+│  - Berechnet Backtests                                      │
+│  - Nutzt CPU, aber stört Trading nicht                     │
+│                                                             │
+│  ➡️ Sendet Telegram wenn fertig                            │
+└─────────────────────────────────────────────────────────────┘
+```
+
+| Aspekt | Trading-Bots | Optimizer |
+|--------|--------------|-----------|  
+| **Prozess** | Eigene Prozesse pro Strategie | Eigener Hintergrundprozess |
+| **API-Calls** | Ja (Exchange API) | Nur historische Daten |
+| **Blockiert?** | Nein | Nein |
+| **Dauer** | Läuft und beendet sich schnell | Kann Stunden dauern |
+| **Nächster Cron** | Startet neue Bot-Instanzen | Prüft ob schon läuft |
+
+---
 
 ### Tests ausführen
 
