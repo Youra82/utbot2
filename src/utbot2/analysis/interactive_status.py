@@ -95,37 +95,31 @@ def load_config(filepath):
 def run_backtest_for_chart(df, config, start_capital=1000):
     """
     Führt einen Backtest durch und gibt Trades, Equity Curve und Stats zurück
-    Nutzt den echten Backtester mit return_trades=True für konsistente Daten
+    Extrahiert Trade-Informationen für die Visualisierung im Chart
     """
     try:
         strategy_params = config.get('strategy', {})
         risk_params = config.get('risk', {})
         
-        # Backtester ausführen mit return_trades=True für konsistente Trade/Equity Daten
+        # Backtester ausführen (mit weniger Output)
         logger_backtest = logging.getLogger('utbot2.analysis.backtester')
         original_level = logger_backtest.level
         logger_backtest.setLevel(logging.ERROR)
         
-        stats, trade_history, equity_snapshots = run_backtest(
-            df.copy(), strategy_params, risk_params, 
-            start_capital=start_capital, verbose=False, return_trades=True
-        )
+        stats = run_backtest(df.copy(), strategy_params, risk_params, start_capital=start_capital, verbose=False)
         
         logger_backtest.setLevel(original_level)
         
-        # Equity Snapshots in DataFrame umwandeln
-        if equity_snapshots:
-            equity_df = pd.DataFrame(equity_snapshots)
-            equity_df.set_index('timestamp', inplace=True)
-        else:
-            equity_df = pd.DataFrame()
+        # Trade-Signale extrahieren
+        trades = extract_trades_from_backtest(df, config, start_capital)
         
-        return trade_history, equity_df, stats
+        # Equity Curve simulieren basierend auf Trades
+        equity_df = build_equity_curve(df, trades, start_capital)
+        
+        return trades, equity_df, stats
     except Exception as e:
         logger.warning(f"Fehler bei Backtest-Simulation: {e}")
-        import traceback
-        traceback.print_exc()
-        return [], pd.DataFrame(), {}
+        return [], df[[]].copy(), {}
 
 def build_equity_curve(df, trades, start_capital):
     """

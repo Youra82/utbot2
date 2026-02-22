@@ -1,5 +1,7 @@
 {
     "live_trading_settings": {
+        "max_open_positions": 3,
+        "use_auto_optimizer_results": false,
         "active_strategies": [
             {
                 "symbol": "BTC/USDT:USDT",
@@ -58,14 +60,18 @@
             "day_of_week": 0,
             "hour": 3,
             "minute": 0,
-            "interval_days": 7
+            "interval": {
+                "_info": "Einheit: minutes | hours | days | weeks",
+                "value": 10,
+                "unit": "minutes"
+            }
         },
         "symbols_to_optimize": "auto",
         "timeframes_to_optimize": "auto",
-        "lookback_days": 365,
+        "lookback_days": "auto",
         "start_capital": 1000,
         "cpu_cores": -1,
-        "num_trials": 500,
+        "num_trials": 10,
         "constraints": {
             "max_drawdown_pct": 30,
             "min_win_rate_pct": 50,
