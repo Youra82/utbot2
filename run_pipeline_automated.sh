@@ -4,20 +4,18 @@
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &> /dev/null && pwd)
 VENV_PATH="$SCRIPT_DIR/.venv/bin/activate"
 SETTINGS_FILE="$SCRIPT_DIR/settings.json"
-# *** Korrigierte Pfade, Trainer entfernt ***
 OPTIMIZER="src/utbot2/analysis/optimizer.py"
 CACHE_DIR="$SCRIPT_DIR/data/cache"
 TIMESTAMP_FILE="$CACHE_DIR/.last_cleaned"
 
 # --- Umgebung aktivieren ---
-# Sicherstellen, dass die venv existiert
 if [ ! -f "$VENV_PATH" ]; then
     echo "Fehler: Virtuelle Umgebung nicht gefunden unter $VENV_PATH. Bitte install.sh ausführen."
     exit 1
 fi
 source "$VENV_PATH"
 
-echo "--- Starte automatischen Pipeline-Lauf (UtBot2 SMC) ---"
+echo "--- Starte automatischen Pipeline-Lauf (UtBot2 Ichimoku) ---"
 
 # --- Prüfen ob settings.json existiert ---
 if [ ! -f "$SETTINGS_FILE" ]; then
@@ -27,34 +25,32 @@ if [ ! -f "$SETTINGS_FILE" ]; then
 fi
 
 # --- Python-Helper zum sicheren Auslesen der JSON-Datei ---
-# Stellt sicher, dass die Datei existiert und Python verfügbar ist
 get_setting() {
-    python3 -c "import json, sys; f=open('$SETTINGS_FILE'); settings=json.load(f); keys=$1; current=settings; path_ok=True; for k in keys: current=current.get(k); if current is None: path_ok=False; break; print(current if path_ok else ''); f.close()" 2>/dev/null
+    python3 -c "import json; from functools import reduce; d=json.load(open('$SETTINGS_FILE')); v=reduce(lambda a,k: a.get(k) if isinstance(a,dict) else None, $1, d); print('' if v is None else v)" 2>/dev/null
 }
 
 # --- Standardwerte für Einstellungen definieren ---
 DEFAULT_LOOKBACK=365
 DEFAULT_START_CAPITAL=1000
 DEFAULT_CORES=-1
-DEFAULT_TRIALS=200
+DEFAULT_TRIALS=10
 DEFAULT_MAX_DD=30
-DEFAULT_MIN_WR=55
+DEFAULT_MIN_WR=50
 DEFAULT_MIN_PNL=0
 DEFAULT_OPTIM_MODE="strict"
 DEFAULT_CACHE_DAYS=0
 
 # --- Automatisches Cache-Management ---
 CACHE_DAYS=$(get_setting "['optimization_settings', 'auto_clear_cache_days']")
-CACHE_DAYS=${CACHE_DAYS:-$DEFAULT_CACHE_DAYS} # Nutze Default, wenn leer oder Fehler
+CACHE_DAYS=${CACHE_DAYS:-$DEFAULT_CACHE_DAYS}
 
 if [[ "$CACHE_DAYS" =~ ^[0-9]+$ ]] && [ "$CACHE_DAYS" -gt 0 ]; then
     mkdir -p "$CACHE_DIR"
     if [ ! -f "$TIMESTAMP_FILE" ]; then touch "$TIMESTAMP_FILE"; fi
-    # Prüfe, ob die Datei älter als N-1 Tage ist (mtime +N-1)
     if find "$TIMESTAMP_FILE" -mtime +$((CACHE_DAYS - 1)) -print -quit | grep -q .; then
         echo "Cache ist älter als $CACHE_DAYS Tage. Leere den Cache..."
         rm -rf "$CACHE_DIR"/*
-        touch "$TIMESTAMP_FILE" # Zeitstempel aktualisieren
+        touch "$TIMESTAMP_FILE"
     else
         echo "Cache ist aktuell. Keine Reinigung notwendig."
     fi
@@ -64,30 +60,103 @@ fi
 
 
 # --- Lese Pipeline-Einstellungen ---
-# Verwende Standardwerte, falls Schlüssel nicht existieren
-ENABLED=$(get_setting "['optimization_settings', 'enabled']")
-ENABLED=${ENABLED:-False} # Default ist False
+if command -v jq &> /dev/null; then
+    ENABLED=$(jq -r '.optimization_settings.enabled // false' "$SETTINGS_FILE")
+else
+    ENABLED=$(python3 -c "import json;print(json.load(open('$SETTINGS_FILE')).get('optimization_settings',{}).get('enabled', False))")
+fi
+ENABLED=${ENABLED:-false}
+ENABLED_LC=$(echo "$ENABLED" | tr '[:upper:]' '[:lower:]')
 
-if [ "$ENABLED" != "True" ]; then
+if [ "$ENABLED_LC" != "true" ]; then
     echo "Automatische Optimierung ist in settings.json deaktiviert. Breche ab."
     deactivate
     exit 0
 fi
 
-# Extrahiere Arrays sicher mit jq, falls verfügbar, sonst Fallback
-if command -v jq &> /dev/null; then
-    SYMBOLS=$(jq -r '.optimization_settings.symbols_to_optimize | join(" ") // ""' "$SETTINGS_FILE")
-    TIMEFRAMES=$(jq -r '.optimization_settings.timeframes_to_optimize | join(" ") // ""' "$SETTINGS_FILE")
-else
-    echo "WARNUNG: jq nicht gefunden. Lese Arrays unsicher aus (kann bei Leerzeichen scheitern)."
-    SYMBOLS=$(get_setting "['optimization_settings', 'symbols_to_optimize']" | tr -d "[]',\"")
-    TIMEFRAMES=$(get_setting "['optimization_settings', 'timeframes_to_optimize']" | tr -d "[]',\"")
-fi
-SYMBOLS=${SYMBOLS:-"BTC ETH"} # Fallback, falls leer
-TIMEFRAMES=${TIMEFRAMES:-"1h 4h"} # Fallback, falls leer
+# --- Symbole und Zeitfenster auflösen ("auto" liest aus active_strategies) ---
+SYMBOLS=""
+TIMEFRAMES=""
 
+if command -v jq &> /dev/null; then
+    SYM_VALUE=$(jq -r '.optimization_settings.symbols_to_optimize' "$SETTINGS_FILE")
+    TF_VALUE=$(jq -r '.optimization_settings.timeframes_to_optimize' "$SETTINGS_FILE")
+
+    if [ "$SYM_VALUE" = "auto" ]; then
+        # Unique Basiswährungen aus aktiven Strategien ableiten
+        SYMBOLS=$(jq -r '[.live_trading_settings.active_strategies[] | select(.active == true) | (.symbol | split("/")[0])] | unique | join(" ")' "$SETTINGS_FILE")
+    elif [ "$(jq -r '.optimization_settings.symbols_to_optimize | type' "$SETTINGS_FILE")" = "array" ]; then
+        SYMBOLS=$(jq -r '.optimization_settings.symbols_to_optimize | join(" ")' "$SETTINGS_FILE")
+    else
+        SYMBOLS="$SYM_VALUE"
+    fi
+
+    if [ "$TF_VALUE" = "auto" ]; then
+        # Unique Zeitfenster aus aktiven Strategien ableiten
+        TIMEFRAMES=$(jq -r '[.live_trading_settings.active_strategies[] | select(.active == true) | .timeframe] | unique | join(" ")' "$SETTINGS_FILE")
+    elif [ "$(jq -r '.optimization_settings.timeframes_to_optimize | type' "$SETTINGS_FILE")" = "array" ]; then
+        TIMEFRAMES=$(jq -r '.optimization_settings.timeframes_to_optimize | join(" ")' "$SETTINGS_FILE")
+    else
+        TIMEFRAMES="$TF_VALUE"
+    fi
+else
+    echo "WARNUNG: jq nicht gefunden. Nutze Python-Fallback für auto-Erkennung."
+    SYMBOLS=$(python3 -c "
+import json
+with open('$SETTINGS_FILE') as f: s = json.load(f)
+sym_cfg = s.get('optimization_settings', {}).get('symbols_to_optimize', 'auto')
+if sym_cfg == 'auto' or not isinstance(sym_cfg, list):
+    strats = s.get('live_trading_settings', {}).get('active_strategies', [])
+    seen = set(); syms = []
+    for st in strats:
+        if st.get('active', True):
+            base = st.get('symbol', '').split('/')[0]
+            if base and base not in seen: seen.add(base); syms.append(base)
+    print(' '.join(syms) if syms else 'BTC ETH SOL XRP AAVE')
+else:
+    print(' '.join(sym_cfg))
+" 2>/dev/null)
+
+    TIMEFRAMES=$(python3 -c "
+import json
+with open('$SETTINGS_FILE') as f: s = json.load(f)
+tf_cfg = s.get('optimization_settings', {}).get('timeframes_to_optimize', 'auto')
+if tf_cfg == 'auto' or not isinstance(tf_cfg, list):
+    strats = s.get('live_trading_settings', {}).get('active_strategies', [])
+    seen = set(); tfs = []
+    for st in strats:
+        if st.get('active', True):
+            tf = st.get('timeframe', '')
+            if tf and tf not in seen: seen.add(tf); tfs.append(tf)
+    print(' '.join(tfs) if tfs else '15m 1h 6h 1d')
+else:
+    print(' '.join(tf_cfg))
+" 2>/dev/null)
+fi
+
+SYMBOLS=${SYMBOLS:-"BTC ETH SOL XRP AAVE"}
+TIMEFRAMES=${TIMEFRAMES:-"15m 1h 6h 1d"}
+
+# --- Lookback-Tage auflösen ("auto" = max passend zu Zeitfenstern) ---
 LOOKBACK_DAYS=$(get_setting "['optimization_settings', 'lookback_days']")
 LOOKBACK_DAYS=${LOOKBACK_DAYS:-$DEFAULT_LOOKBACK}
+
+if [ "$LOOKBACK_DAYS" = "auto" ]; then
+    max_days=0
+    for tf in $TIMEFRAMES; do
+        case "$tf" in
+            5m|15m)  d=60   ;;
+            30m|1h)  d=365  ;;
+            2h|4h)   d=730  ;;
+            6h|1d)   d=1095 ;;
+            *)       d=365  ;;
+        esac
+        if [ "$d" -gt "$max_days" ]; then max_days=$d; fi
+    done
+    if [ "$max_days" -eq 0 ]; then max_days=$DEFAULT_LOOKBACK; fi
+    LOOKBACK_DAYS=$max_days
+fi
+
 START_CAPITAL=$(get_setting "['optimization_settings', 'start_capital']")
 START_CAPITAL=${START_CAPITAL:-$DEFAULT_START_CAPITAL}
 N_CORES=$(get_setting "['optimization_settings', 'cpu_cores']")
@@ -102,20 +171,18 @@ MIN_WR=${MIN_WR:-$DEFAULT_MIN_WR}
 MIN_PNL=$(get_setting "['optimization_settings', 'constraints', 'min_pnl_pct']")
 MIN_PNL=${MIN_PNL:-$DEFAULT_MIN_PNL}
 
-START_DATE=$(date -d "$LOOKBACK_DAYS days ago" +%F)
-END_DATE=$(date +%F)
-OPTIM_MODE_ARG=${OPTIM_MODE_ARG:-$DEFAULT_OPTIM_MODE} # Standard ist strict
+END_DATE=$(date -d "yesterday" +%F)
+START_DATE="auto"
+OPTIM_MODE_ARG=${OPTIM_MODE_ARG:-$DEFAULT_OPTIM_MODE}
 
 # --- Pipeline starten ---
 echo "Optimierung ist aktiviert. Starte Prozesse..."
-echo "Verwende Daten der letzten $LOOKBACK_DAYS Tage ($START_DATE bis $END_DATE)."
+echo "Datenbereich: auto je Zeitfenster (15m=60d, 30m/1h=365d, 6h/1d=1095d) | Ende: $END_DATE"
 echo "Symbole: $SYMBOLS | Zeitfenster: $TIMEFRAMES"
 echo "Trials: $N_TRIALS | Kerne: $N_CORES | Startkapital: $START_CAPITAL"
 
-# *** Trainer-Aufruf entfernt ***
-
-echo ">>> Starte Handelsparameter-Optimierung (SMC)..."
-python3 "$OPTIMIZER" \
+echo ">>> Starte Handelsparameter-Optimierung (Ichimoku + Supertrend MTF)..."
+python3 -u "$OPTIMIZER" \
     --symbols "$SYMBOLS" \
     --timeframes "$TIMEFRAMES" \
     --start_date "$START_DATE" \
