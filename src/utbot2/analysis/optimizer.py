@@ -105,6 +105,7 @@ def main():
 
     symbols, timeframes = args.symbols.split(), args.timeframes.split()
     TASKS = [{'symbol': f"{s}/USDT:USDT", 'timeframe': tf} for s in symbols for tf in timeframes]
+    results = []
 
     for task in TASKS:
         symbol, timeframe = task['symbol'], task['timeframe']
@@ -114,7 +115,9 @@ def main():
 
         print(f"\n===== Optimiere: {symbol} ({timeframe}) [Ichimoku + Supertrend MTF] =====")
         HISTORICAL_DATA = load_data(symbol, timeframe, args.start_date, args.end_date)
-        if HISTORICAL_DATA.empty: continue
+        if HISTORICAL_DATA.empty:
+            results.append({"symbol": symbol, "timeframe": timeframe, "status": "failed", "reason": "no_data"})
+            continue
 
         DB_FILE = os.path.join(PROJECT_ROOT, 'artifacts', 'db', 'optuna_studies_ichimoku.db')
         os.makedirs(os.path.dirname(DB_FILE), exist_ok=True)
@@ -133,10 +136,13 @@ def main():
             study.optimize(objective, n_trials=N_TRIALS, n_jobs=args.jobs, show_progress_bar=True)
         except Exception as e:
             print(f"FEHLER: {e}")
+            results.append({"symbol": symbol, "timeframe": timeframe, "status": "failed", "reason": "error"})
             continue
 
         valid_trials = [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]
-        if not valid_trials: continue
+        if not valid_trials:
+            results.append({"symbol": symbol, "timeframe": timeframe, "status": "failed", "reason": "no_valid_trials"})
+            continue
 
         best_trial = max(valid_trials, key=lambda t: t.value)
         best_params = best_trial.params
@@ -175,6 +181,20 @@ def main():
         }
         with open(config_output_path, 'w') as f: json.dump(config_output, f, indent=4)
         print(f"\n✔ Beste Konfiguration gespeichert.")
+        results.append({
+            "symbol": symbol,
+            "timeframe": timeframe,
+            "status": "success",
+            "pnl_pct": round(best_trial.value, 2),
+            "config_file": os.path.basename(config_output_path)
+        })
+
+    results_dir = os.path.join(PROJECT_ROOT, 'artifacts', 'results')
+    os.makedirs(results_dir, exist_ok=True)
+    results_file = os.path.join(results_dir, 'optimization_results.json')
+    with open(results_file, 'w') as f:
+        json.dump({"total": len(TASKS), "results": results}, f, indent=2)
+    print(f"\nErgebnisse gespeichert: {results_file}")
 
 if __name__ == "__main__":
     main()
