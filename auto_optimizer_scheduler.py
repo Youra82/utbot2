@@ -295,6 +295,41 @@ def _send_telegram_message(text: str) -> bool:
             return False
 
 
+def _build_completion_message(dur_str: str) -> str:
+    """Build detailed completion Telegram message from optimization_results.json."""
+    results_file = os.path.join(ROOT, 'artifacts', 'results', 'optimization_results.json')
+    try:
+        with open(results_file, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+    except Exception:
+        return f"✅ Auto-Optimizer abgeschlossen (Dauer: {dur_str})"
+
+    results = data.get('results', [])
+    total = data.get('total', len(results))
+    success = [r for r in results if r.get('status') == 'success']
+    failed = [r for r in results if r.get('status') == 'failed']
+
+    lines = [f"✅ Auto-Optimizer abgeschlossen (Dauer: {dur_str})"]
+
+    if success:
+        lines.append(f"\n✔ Gespeichert ({len(success)}/{total}):")
+        for r in success:
+            base = r['symbol'].split('/')[0]
+            pnl = r.get('pnl_pct', 0)
+            pnl_str = f"+{pnl:.2f}%" if pnl >= 0 else f"{pnl:.2f}%"
+            cfg = r.get('config_file', '')
+            lines.append(f"• {base}/{r['timeframe']}: {pnl_str} → {cfg}")
+
+    if failed:
+        lines.append(f"\n❌ Fehlgeschlagen ({len(failed)}/{total}):")
+        for r in failed:
+            base = r['symbol'].split('/')[0]
+            reason = r.get('reason', 'unknown')
+            lines.append(f"• {base}/{r['timeframe']}: {reason}")
+
+    return '\n'.join(lines)
+
+
 def _resolve_symbols_auto(settings: dict) -> list[str]:
     """Auto-detect symbols: scan CSV cache files first, fall back to active_strategies."""
     import glob as _glob
@@ -593,7 +628,7 @@ def main() -> int:
             print('Optimizer finished successfully; updated last-run timestamp.')
             if notify:
                 dur_str = _format_duration(int(elapsed))
-                comp_msg = f"✅ UtBot2 Auto-Optimizer abgeschlossen (Dauer: {dur_str})"
+                comp_msg = _build_completion_message(dur_str)
                 _send_telegram_message(comp_msg)
         else:
             _write_trigger_log(f"AUTO-OPTIMIZER FINISH result=error code={rc} elapsed_s={elapsed:.1f}")
