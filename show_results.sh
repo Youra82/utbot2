@@ -55,9 +55,75 @@ if [ "$MODE" == "4" ]; then
     else
         echo -e "${RED}❌ Fehler beim Generieren der Charts.${NC}"
     fi
-    
+
     deactivate
     exit 0
+fi
+
+# --- OPTION 3: Optimale Ergebnisse in settings.json eintragen ---
+if [ "$MODE" == "3" ]; then
+    echo ""
+    echo -e "${YELLOW}─────────────────────────────────────────────────${NC}"
+    read -p "Sollen die optimalen Ergebnisse automatisch in settings.json eingetragen werden? (j/n): " AUTO_UPDATE
+    AUTO_UPDATE="${AUTO_UPDATE//[$'\r\n ']/}"  # Entferne \r, \n, Leerzeichen (Windows/SSH-Fix)
+
+    if [[ "$AUTO_UPDATE" == "j" || "$AUTO_UPDATE" == "J" || "$AUTO_UPDATE" == "y" || "$AUTO_UPDATE" == "Y" ]]; then
+        OPTIMIZATION_FILE="artifacts/results/optimization_results.json"
+        SETTINGS_FILE="settings.json"
+
+        if [ ! -f "$OPTIMIZATION_FILE" ]; then
+            echo -e "${RED}Fehler: optimization_results.json nicht gefunden!${NC}"
+        else
+            echo -e "${BLUE}Übertrage Ergebnisse nach settings.json...${NC}"
+
+            python3 << 'EOF'
+import json
+import re
+
+# Lade optimization_results.json
+with open('artifacts/results/optimization_results.json', 'r') as f:
+    opt_results = json.load(f)
+
+optimal_configs = opt_results.get('optimal_portfolio', [])
+
+if not optimal_configs:
+    print("⚠️  Kein optimales Portfolio gefunden. settings.json bleibt unverändert.")
+else:
+    # Konvertiere config_AAVEUSDTUSDT_6h.json zu strukturiertem Format
+    strategies = []
+    for config_name in optimal_configs:
+        match = re.match(r'config_([A-Z0-9]+)USDTUSDT_(\w+)\.json', config_name)
+        if match:
+            coin = match.group(1)
+            timeframe = match.group(2)
+            strategies.append({
+                "symbol": f"{coin}/USDT:USDT",
+                "timeframe": timeframe,
+                "use_macd_filter": False,
+                "active": True
+            })
+
+    # Lade settings.json
+    with open('settings.json', 'r') as f:
+        settings = json.load(f)
+
+    # Ersetze active_strategies mit neuen Ergebnissen
+    settings['live_trading_settings']['active_strategies'] = strategies
+
+    # Speichere settings.json
+    with open('settings.json', 'w') as f:
+        json.dump(settings, f, indent=4)
+
+    print(f"✅ {len(strategies)} Strategien wurden in settings.json eingetragen:")
+    for strat in strategies:
+        print(f"   - {strat['symbol']} ({strat['timeframe']})")
+EOF
+
+            echo -e "${GREEN}✅ settings.json erfolgreich aktualisiert!${NC}"
+        fi
+    else
+        echo -e "${YELLOW}Keine Änderungen an settings.json vorgenommen.${NC}"
+    fi
 fi
 
 deactivate
