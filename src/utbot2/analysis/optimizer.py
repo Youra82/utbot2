@@ -7,6 +7,7 @@ import numpy as np
 import argparse
 import logging
 import warnings
+from datetime import datetime, timedelta
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 logging.getLogger('tensorflow').setLevel(logging.ERROR)
@@ -33,6 +34,21 @@ MIN_WIN_RATE_CONSTRAINT = 55.0
 MIN_PNL_CONSTRAINT = 0.0
 START_CAPITAL = 1000
 OPTIM_MODE = "strict"
+
+_TIMEFRAME_LOOKBACK = {
+    '5m': 60, '15m': 60,
+    '30m': 365, '1h': 365,
+    '2h': 730, '4h': 730,
+    '6h': 1095, '1d': 1095,
+}
+
+
+def _resolve_start_date(timeframe: str, end_date_str: str) -> str:
+    """Resolve 'auto' lookback to a concrete YYYY-MM-DD start date."""
+    days = _TIMEFRAME_LOOKBACK.get(timeframe, 365)
+    end_dt = datetime.strptime(end_date_str, '%Y-%m-%d')
+    return (end_dt - timedelta(days=days)).strftime('%Y-%m-%d')
+
 
 def create_safe_filename(symbol, timeframe):
     return f"{symbol.replace('/', '').replace(':', '')}_{timeframe}"
@@ -105,6 +121,24 @@ def main():
 
     symbols, timeframes = args.symbols.split(), args.timeframes.split()
     TASKS = [{'symbol': f"{s}/USDT:USDT", 'timeframe': tf} for s in symbols for tf in timeframes]
+
+    # Filter: only active strategy pairs from settings.json (avoids cartesian product)
+    _settings_file = os.path.join(PROJECT_ROOT, 'settings.json')
+    if os.path.exists(_settings_file):
+        try:
+            with open(_settings_file) as _sf:
+                _settings = json.load(_sf)
+            _active = {
+                (s['symbol'], s['timeframe'])
+                for s in _settings.get('live_trading_settings', {}).get('active_strategies', [])
+                if s.get('active', True)
+            }
+            if _active:
+                TASKS = [t for t in TASKS if (t['symbol'], t['timeframe']) in _active]
+                print(f"INFO: {len(TASKS)} aktive Strategie-Paare werden optimiert.")
+        except Exception as _e:
+            print(f"WARN: Konnte aktive Paare aus settings.json nicht lesen: {_e}")
+
     results = []
 
     for task in TASKS:
@@ -113,8 +147,9 @@ def main():
         CURRENT_TIMEFRAME = timeframe
         CURRENT_HTF = determine_htf(timeframe)
 
+        actual_start = _resolve_start_date(timeframe, args.end_date) if args.start_date == 'auto' else args.start_date
         print(f"\n===== Optimiere: {symbol} ({timeframe}) [Ichimoku + Supertrend MTF] =====")
-        HISTORICAL_DATA = load_data(symbol, timeframe, args.start_date, args.end_date)
+        HISTORICAL_DATA = load_data(symbol, timeframe, actual_start, args.end_date)
         if HISTORICAL_DATA.empty:
             results.append({"symbol": symbol, "timeframe": timeframe, "status": "failed", "reason": "no_data"})
             continue
