@@ -1,11 +1,47 @@
 {
-    "optimal_portfolio": [
-        "config_BTCUSDTUSDT_15m.json",
-        "config_AAVEUSDTUSDT_6h.json",
-        "config_ADAUSDTUSDT_30m.json",
-        "config_DOGEUSDTUSDT_6h.json",
-        "config_XRPUSDTUSDT_6h.json",
-        "config_SOLUSDTUSDT_1h.json",
-        "config_ETHUSDTUSDT_1d.json"
-    ]
+  "total": 7,
+  "results": [
+    {
+      "symbol": "BTC/USDT:USDT",
+      "timeframe": "15m",
+      "status": "failed",
+      "reason": "no_valid_trials"
+    },
+    {
+      "symbol": "AAVE/USDT:USDT",
+      "timeframe": "6h",
+      "status": "failed",
+      "reason": "no_valid_trials"
+    },
+    {
+      "symbol": "ADA/USDT:USDT",
+      "timeframe": "30m",
+      "status": "failed",
+      "reason": "no_valid_trials"
+    },
+    {
+      "symbol": "DOGE/USDT:USDT",
+      "timeframe": "6h",
+      "status": "failed",
+      "reason": "no_valid_trials"
+    },
+    {
+      "symbol": "XRP/USDT:USDT",
+      "timeframe": "6h",
+      "status": "failed",
+      "reason": "no_valid_trials"
+    },
+    {
+      "symbol": "SOL/USDT:USDT",
+      "timeframe": "1h",
+      "status": "failed",
+      "reason": "no_valid_trials"
+    },
+    {
+      "symbol": "ETH/USDT:USDT",
+      "timeframe": "1d",
+      "status": "failed",
+      "reason": "no_valid_trials"
+    }
+  ]
 }
