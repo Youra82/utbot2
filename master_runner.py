@@ -190,9 +190,16 @@ def main():
         strategy_list = []
         if use_autopilot:
             print("Modus: Autopilot. Lese Strategien aus den Optimierungs-Ergebnissen...")
-            with open(optimization_results_file, 'r') as f:
-                strategy_config = json.load(f)
-            strategy_list = strategy_config.get('optimal_portfolio', [])
+            if os.path.exists(optimization_results_file):
+                with open(optimization_results_file, 'r') as f:
+                    strategy_config = json.load(f)
+                strategy_list = strategy_config.get('optimal_portfolio', [])
+                if not strategy_list:
+                    print("  → Keine gespeicherten Optimierungsergebnisse. Falle auf manuellen Modus zurück.")
+                    strategy_list = live_settings.get('active_strategies', [])
+            else:
+                print("  → Keine Optimierungsdatei gefunden. Falle auf manuellen Modus zurück.")
+                strategy_list = live_settings.get('active_strategies', [])
         else:
             print("Modus: Manuell. Lese Strategien aus den manuellen Einstellungen...")
             strategy_list = live_settings.get('active_strategies', [])
