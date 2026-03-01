@@ -206,14 +206,14 @@ Bearbeite `settings.json` für deine gewünschten Handelspaare:
 
 ```bash
 # Master Runner starten (verwaltet alle aktiven Strategien)
-python master_runner.py
+cd /home/ubuntu/utbot2 && .venv/bin/python3 master_runner.py
 ```
 
 ### Manuell starten / Cronjob testen
 Ausführung sofort anstoßen (ohne auf den 15-Minuten-Cron zu warten):
 
 ```bash
-cd /home/ubuntu/utbot2 && /home/ubuntu/utbot2/.venv/bin/python3 /home/ubuntu/utbot2/master_runner.py
+cd /home/ubuntu/utbot2 && .venv/bin/python3 master_runner.py
 ```
 
 Der Master Runner:
@@ -238,7 +238,7 @@ Füge die folgende **eine Zeile** am Ende der Datei ein. Passe den Pfad an, fall
 
 ```
 # Starte den UTBot2 Master-Runner alle 15 Minuten
-*/15 * * * * /usr/bin/flock -n /home/ubuntu/utbot2/utbot2.lock /bin/sh -c "cd /home/ubuntu/utbot2 && /home/ubuntu/utbot2/.venv/bin/python3 /home/ubuntu/utbot2/master_runner.py >> /home/ubuntu/utbot2/logs/cron.log 2>&1"
+*/15 * * * * /usr/bin/flock -n /home/ubuntu/utbot2/utbot2.lock /bin/sh -c "cd /home/ubuntu/utbot2 && .venv/bin/python3 master_runner.py >> /home/ubuntu/utbot2/logs/cron.log 2>&1"
 ```
 
 *(Hinweis: `flock` ist eine gute Ergänzung, um Überlappungen zu verhindern, aber für den Start nicht zwingend notwendig.)*
@@ -446,7 +446,7 @@ Die zentrale `cron.log`-Datei enthält **alle** wichtigen Informationen vom Sche
 Um den `master_runner` sofort auszuführen, ohne auf den nächsten 15-Minuten-Takt zu warten:
 
 ```bash
-cd /home/ubuntu/utbot2 && /home/ubuntu/utbot2/.venv/bin/python3 /home/ubuntu/utbot2/master_runner.py
+cd /home/ubuntu/utbot2 && .venv/bin/python3 master_runner.py
 ```
 
 ### 🔧 Config-Management
