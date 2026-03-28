@@ -663,6 +663,60 @@ Dieses Projekt ist lizenziert unter der MIT License - siehe [LICENSE](LICENSE) D
 
 ---
 
+## Coin & Timeframe Empfehlungen
+
+UTBot2 ist eine **Ichimoku-Kinko-Hyo-Strategie mit Supertrend-MTF-Filter** — alle 6 Ichimoku-Bedingungen (Kumo-Position, Tenkan/Kijun-Cross, Chikou-Span, Cloud-Ausrichtung, Preis-zu-Tenkan + HTF-Supertrend) müssen gleichzeitig erfüllt sein. Benötigt: klare, ausdauernde Trends — Ichimoku ist ausdrücklich eine Trendfolge-Strategie.
+
+### Effektive Zeitspannen je Timeframe (Senkou B dominiert)
+
+| TF | Tenkan(9) | Kijun(26) | **Senkou B(52)** | Chikou-Lag(26) | Cloud-Projektion | Geeignet |
+|---|---|---|---|---|---|---|
+| 15m | 2.25h | 6.5h | **13h** | 6.5h | +13h voraus | ❌ |
+| 30m | 4.5h | 13h | **26h** | 13h | +26h voraus | ⚠️ |
+| **1h** | **9h** | **26h** | **52h** | **26h** | **+52h voraus** | **✅✅** |
+| **2h** | **18h** | **52h** | **104h** | **52h** | **+104h voraus** | **✅✅** |
+| **4h** | **36h** | **104h** | **208h (8.7d)** | **104h** | **+208h voraus** | **✅✅** |
+| 6h | 54h | 156h | 312h (13d) | 156h | +312h voraus | ✅ |
+| 1d | 9d | 26d | 52d | 26d | +52d voraus | ✅ |
+
+Senkou B verwendet 52 Kerzen — der langsamste Ichimoku-Wert. Auf 15m umspannt der Kumo-Cloud nur 13h Geschichte: Die Cloud-Breitenvariation ist zu kurz für echte Trendunterstützung. Ab 1h (52h = 2.2 Tage) ist Senkou B aussagekräftig. Auf 4h (Senkou B = 8.7 Tage) ist das Ichimoku-System auf seiner klassischen Stärke.
+
+### Coin-Eignung
+
+| Coin | Trending-Verhalten | Ichimoku-Cloud-Qualität | Kumo-Twist-Klarheit | Bewertung |
+|---|---|---|---|---|
+| **BTC** | Exzellent — klare, ausdauernde Trends | Breite, klare Kumo-Clouds | Selten aber sehr valide Twists | ✅✅ Beste Wahl |
+| **ETH** | Exzellent — folgt BTC mit eigenem Charakter | Klare Cloud-Struktur | Gute Twist-Signale | ✅✅ Sehr gut |
+| **SOL** | Sehr gut — explosive Trending-Phasen | Klare, breite Clouds | Gute Twists in Bullphasen | ✅ Gut |
+| **BNB** | Gut — stabile Trends, wenige Reversals | Stabile Cloud-Struktur | Moderate Twists | ✅ Gut |
+| **LTC** | Gut — BTC-korreliert, klare Trends | Ähnlich BTC | Gute Signale | ✅ Gut |
+| **AVAX** | Gut — klare Trending-Phasen | Gute Cloud-Qualität | Gut in Bullphasen | ✅ Gut |
+| **XRP** | Mittel — lange flache Ranging-Phasen | Cloud oft dünn und inkonklusiv | Seltene Twists | ⚠️ Mittel |
+| **ARB** | Mittel — junge Datenbasis | Noch aufbauend | Mittel | ⚠️ Mittel |
+| **DOT** | Mittel — sehr träge Trends | Schwache Cloud-Struktur | Kaum valide Twists | ⚠️ Schwach |
+| **ADA** | Schwach — zu häufiges Ranging | Thin Cloud, kaum Struktur | Sehr seltene Signale | ⚠️ Schwach |
+| **DOGE** | Schlecht — Sentiment-Spikes | Cloud nicht interpretierbar | Keine validen Twists | ❌ Schlecht |
+| **SHIB/PEPE** | Nicht anwendbar | Ichimoku nicht sinnvoll | Keine Trending-Struktur | ❌❌ Nicht geeignet |
+
+### Empfohlene Kombinationen (Ranking)
+
+| Rang | Kombination | HTF Supertrend | Begründung |
+|---|---|---|---|
+| 🥇 1 | **BTC 4h** | 1d Supertrend | Senkou B umspannt 8.7 Tage — klassisches Ichimoku-Setup, stärkste Cloud-Qualität |
+| 🥇 1 | **ETH 4h** | 1d Supertrend | Ähnlich BTC, exzellente Ichimoku-Struktur |
+| 🥈 2 | **BTC 1h** | 4h Supertrend | Mehr Trades, Senkou B noch mit 2.2 Tagen aussagekräftig |
+| 🥈 2 | **SOL 4h** | 1d Supertrend | Klare Trending-Phasen, breite Clouds in Bullmärkten |
+| 🥉 3 | **BNB 4h** | 1d Supertrend | Stabile, vorhersehbare Ichimoku-Struktur |
+| 4 | **LTC 4h** | 1d Supertrend | BTC-korreliert, gute Cloud-Qualität |
+| 4 | **ETH 1h** | 4h Supertrend | Mehr Signale, gute MTF-Konfluenz |
+| ❌ | **15m / 30m** | — | Senkou B (13h/26h) zu kurz, Cloud kaum bedeutungsvoll |
+| ❌ | **DOGE / SHIB** | — | Ichimoku nicht anwendbar — kein strukturiertes Trending |
+
+> **Hinweis:** Alle 6 Ichimoku-Bedingungen müssen gleichzeitig erfüllt sein — das erzeugt sehr selektive, qualitativ hochwertige Signale. BTC/ETH 4h liefern die zuverlässigsten Ichimoku-Setups.
+
+
+---
+
 ## 🙏 Credits
 
 Entwickelt mit:
