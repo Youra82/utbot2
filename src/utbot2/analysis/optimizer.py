@@ -122,22 +122,7 @@ def main():
     symbols, timeframes = args.symbols.split(), args.timeframes.split()
     TASKS = [{'symbol': f"{s}/USDT:USDT", 'timeframe': tf} for s in symbols for tf in timeframes]
 
-    # Filter: only active strategy pairs from settings.json (avoids cartesian product)
-    _settings_file = os.path.join(PROJECT_ROOT, 'settings.json')
-    if os.path.exists(_settings_file):
-        try:
-            with open(_settings_file) as _sf:
-                _settings = json.load(_sf)
-            _active = {
-                (s['symbol'], s['timeframe'])
-                for s in _settings.get('live_trading_settings', {}).get('active_strategies', [])
-                if s.get('active', True)
-            }
-            if _active:
-                TASKS = [t for t in TASKS if (t['symbol'], t['timeframe']) in _active]
-                print(f"INFO: {len(TASKS)} aktive Strategie-Paare werden optimiert.")
-        except Exception as _e:
-            print(f"WARN: Konnte aktive Paare aus settings.json nicht lesen: {_e}")
+    print(f"INFO: {len(TASKS)} Strategie-Paare werden optimiert.")
 
     results = []
 
