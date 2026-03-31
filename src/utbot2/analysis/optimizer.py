@@ -212,8 +212,24 @@ def main():
     results_dir = os.path.join(PROJECT_ROOT, 'artifacts', 'results')
     os.makedirs(results_dir, exist_ok=True)
     results_file = os.path.join(results_dir, 'optimization_results.json')
+
+    # Merge with existing results (don't overwrite previous runs in the same pipeline)
+    existing_results = []
+    if os.path.exists(results_file):
+        try:
+            with open(results_file) as f:
+                existing_data = json.load(f)
+            existing_results = existing_data.get('results', [])
+        except Exception:
+            existing_results = []
+
+    # Replace entries for the same symbol/timeframe, keep the rest
+    new_keys = {(r['symbol'], r['timeframe']) for r in results}
+    merged = [r for r in existing_results if (r['symbol'], r['timeframe']) not in new_keys]
+    merged.extend(results)
+
     with open(results_file, 'w') as f:
-        json.dump({"total": len(TASKS), "results": results}, f, indent=2)
+        json.dump({"total": len(merged), "results": merged}, f, indent=2)
     print(f"\nErgebnisse gespeichert: {results_file}")
 
 if __name__ == "__main__":
