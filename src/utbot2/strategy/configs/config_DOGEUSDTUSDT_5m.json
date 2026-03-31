@@ -1,26 +1,26 @@
 {
     "market": {
-        "symbol": "AAVE/USDT:USDT",
-        "timeframe": "6h",
-        "htf": "1d"
+        "symbol": "DOGE/USDT:USDT",
+        "timeframe": "5m",
+        "htf": "30m"
     },
     "strategy": {
-        "tenkan_period": 7,
-        "kijun_period": 25,
+        "tenkan_period": 8,
+        "kijun_period": 29,
         "senkou_span_b_period": 51,
         "displacement": 26,
         "require_tk_cross": false,
         "supertrend_atr_period": 11,
-        "supertrend_multiplier": 3.05
+        "supertrend_multiplier": 2.32
     },
     "risk": {
         "margin_mode": "isolated",
-        "risk_per_trade_pct": 1.48,
-        "risk_reward_ratio": 2.93,
-        "leverage": 12,
+        "risk_per_trade_pct": 1.87,
+        "risk_reward_ratio": 2.14,
+        "leverage": 15,
         "trailing_stop_activation_rr": 1.09,
-        "trailing_stop_callback_rate_pct": 0.33,
-        "atr_multiplier_sl": 1.51,
+        "trailing_stop_callback_rate_pct": 1.83,
+        "atr_multiplier_sl": 3.11,
         "min_sl_pct": 0.5
     },
     "behavior": {

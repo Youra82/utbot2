@@ -1,0 +1,30 @@
+{
+    "market": {
+        "symbol": "ADA/USDT:USDT",
+        "timeframe": "5m",
+        "htf": "30m"
+    },
+    "strategy": {
+        "tenkan_period": 11,
+        "kijun_period": 22,
+        "senkou_span_b_period": 58,
+        "displacement": 26,
+        "require_tk_cross": true,
+        "supertrend_atr_period": 7,
+        "supertrend_multiplier": 2.24
+    },
+    "risk": {
+        "margin_mode": "isolated",
+        "risk_per_trade_pct": 2.0,
+        "risk_reward_ratio": 4.0,
+        "leverage": 6,
+        "trailing_stop_activation_rr": 2.94,
+        "trailing_stop_callback_rate_pct": 0.34,
+        "atr_multiplier_sl": 3.56,
+        "min_sl_pct": 0.5
+    },
+    "behavior": {
+        "use_longs": true,
+        "use_shorts": true
+    }
+}
