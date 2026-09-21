@@ -1,2 +1,6 @@
 .venv/
-.venv/
+
+# Secrets
+secret.json
+secret.json.bak
+.env
